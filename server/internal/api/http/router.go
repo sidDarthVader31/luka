@@ -1,16 +1,29 @@
 package http
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+
+	"github.com/sidDarthVader31/luka/server/internal/designs"
+	"github.com/sidDarthVader31/luka/server/internal/runs"
+)
 
 type Router struct {
-	engine *gin.Engine
+	engine           *gin.Engine
+	componentHandler *ComponentHandler
+	designHandler    *DesignHandler
+	runHandler       *RunHandler
 }
 
-func NewRouter() *Router {
+func NewRouter(designService *designs.Service, runService *runs.Service) *Router {
 	engine := gin.New()
 	engine.Use(gin.Logger(), gin.Recovery())
 
-	router := &Router{engine: engine}
+	router := &Router{
+		engine:           engine,
+		componentHandler: NewComponentHandler(),
+		designHandler:    NewDesignHandler(designService),
+		runHandler:       NewRunHandler(runService),
+	}
 	router.registerRoutes()
 
 	return router
@@ -37,5 +50,12 @@ func (r *Router) registerRoutes() {
 				"api":     "ready",
 			})
 		})
+
+		v1.GET("/component-archetypes", r.componentHandler.List)
+		v1.POST("/designs", r.designHandler.Create)
+		v1.GET("/designs/:designId", r.designHandler.Get)
+		v1.PATCH("/designs/:designId", r.designHandler.Update)
+		v1.POST("/runs", r.runHandler.Create)
+		v1.GET("/runs/:runId", r.runHandler.Get)
 	}
 }
