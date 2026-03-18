@@ -1,0 +1,102 @@
+:root {
+  font-family:
+    "IBM Plex Sans",
+    "Avenir Next",
+    sans-serif;
+  color: #f4efe7;
+  background:
+    radial-gradient(circle at top left, rgba(255, 180, 92, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(96, 125, 255, 0.16), transparent 32%),
+    linear-gradient(180deg, #15171b 0%, #0c0d10 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+}
+
+.app-shell {
+  display: grid;
+  gap: 2rem;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 4rem 1.5rem 5rem;
+}
+
+.hero {
+  padding: 2rem 0 1rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  color: #f4b061;
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  margin: 0;
+  max-width: 12ch;
+  font-size: clamp(3rem, 7vw, 5.75rem);
+  line-height: 0.94;
+}
+
+.lede {
+  max-width: 42rem;
+  margin: 1.25rem 0 0;
+  color: rgba(244, 239, 231, 0.78);
+  font-size: 1.1rem;
+  line-height: 1.7;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.status-card {
+  border: 1px solid rgba(244, 239, 231, 0.08);
+  border-radius: 24px;
+  padding: 1.35rem;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.18);
+}
+
+.status-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+}
+
+.status-card p {
+  margin: 0;
+  color: rgba(244, 239, 231, 0.72);
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding-top: 3rem;
+  }
+
+  .hero h1 {
+    max-width: none;
+  }
+}

@@ -2,10 +2,13 @@
   "name": "luka",
   "private": true,
   "description": "Monorepo for Luka system design simulator",
+  "packageManager": "pnpm@10.32.1",
   "scripts": {
-    "client:dev": "pnpm --dir client dev",
-    "client:build": "pnpm --dir client build",
-    "client:lint": "pnpm --dir client lint",
-    "client:test": "pnpm --dir client test"
+    "client:dev": "corepack pnpm --dir client dev",
+    "client:build": "corepack pnpm --dir client build",
+    "client:lint": "corepack pnpm --dir client lint",
+    "client:test": "corepack pnpm --dir client test",
+    "server:dev": "cd server && go run ./cmd/api",
+    "server:test": "cd server && go test ./..."
   }
 }
