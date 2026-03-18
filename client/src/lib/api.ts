@@ -185,6 +185,19 @@ export function updateDesign(designId: string, input: UpdateDesignInput) {
   });
 }
 
+export function duplicateDesign(
+  designId: string,
+  input?: {
+    name?: string;
+    description?: string;
+  },
+) {
+  return request<Design>(`/designs/${designId}/duplicate`, {
+    method: "POST",
+    body: JSON.stringify(input ?? {}),
+  });
+}
+
 export function createRun(input: {
   design_id?: string;
   design?: Design;
@@ -201,4 +214,10 @@ export function createRun(input: {
 
 export function getRun(runId: string) {
   return request<Run>(`/runs/${runId}`);
+}
+
+export async function listRunsForDesign(designId: string) {
+  const response = await request<{ items: Run[] }>(`/designs/${designId}/runs`);
+
+  return response.items;
 }

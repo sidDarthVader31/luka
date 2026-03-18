@@ -62,7 +62,7 @@ func TestCreateRejectsInvalidGraph(t *testing.T) {
 					Label:     "Service",
 					Archetype: domain.NodeArchetypeStatelessService,
 					Color:     "green",
-					Position: domain.NodePosition{X: 80, Y: 120},
+					Position:  domain.NodePosition{X: 80, Y: 120},
 				},
 			},
 			Edges: []domain.Edge{
@@ -84,5 +84,28 @@ func TestCreateRejectsInvalidGraph(t *testing.T) {
 
 	if !strings.Contains(err.Error(), `unknown target node "missing-db"`) {
 		t.Fatalf("error = %q, want unknown target validation message", err.Error())
+	}
+}
+
+func TestDuplicateDesign(t *testing.T) {
+	service := NewService(store.NewMemoryDesignRepository())
+
+	duplicate, err := service.Duplicate(store.SampleDesignID, domain.DuplicateDesignRequest{
+		Name: "Sample Variant",
+	})
+	if err != nil {
+		t.Fatalf("Duplicate() error = %v", err)
+	}
+
+	if duplicate.ID == "" || duplicate.ID == store.SampleDesignID {
+		t.Fatalf("duplicate id = %q, want new design id", duplicate.ID)
+	}
+
+	if duplicate.Name != "Sample Variant" {
+		t.Fatalf("duplicate name = %q, want Sample Variant", duplicate.Name)
+	}
+
+	if len(duplicate.Graph.Nodes) == 0 {
+		t.Fatal("expected duplicated graph nodes")
 	}
 }

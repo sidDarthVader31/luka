@@ -89,3 +89,26 @@ func (s *Service) Update(id string, req domain.UpdateDesignRequest) (*domain.Des
 
 	return &existing, nil
 }
+
+func (s *Service) Duplicate(id string, req domain.DuplicateDesignRequest) (*domain.Design, error) {
+	source, err := s.repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = fmt.Sprintf("%s Variant", source.Name)
+	}
+
+	description := strings.TrimSpace(req.Description)
+	if description == "" {
+		description = source.Description
+	}
+
+	return s.Create(domain.CreateDesignRequest{
+		Name:        name,
+		Description: description,
+		Graph:       source.Graph,
+	})
+}

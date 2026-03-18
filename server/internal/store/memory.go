@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"sync"
 	"time"
 
@@ -180,4 +181,37 @@ func (r *MemoryRunRepository) GetByID(id string) (domain.Run, error) {
 	}
 
 	return run, nil
+}
+
+func (r *MemoryRunRepository) ListByDesignID(designID string) ([]domain.Run, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	runs := make([]domain.Run, 0)
+	for _, run := range r.runs {
+		if run.DesignID == designID {
+			runs = append(runs, run)
+		}
+	}
+
+	slices.SortFunc(runs, func(a, b domain.Run) int {
+		if a.CreatedAt.Equal(b.CreatedAt) {
+			switch {
+			case a.ID < b.ID:
+				return 1
+			case a.ID > b.ID:
+				return -1
+			default:
+				return 0
+			}
+		}
+
+		if a.CreatedAt.After(b.CreatedAt) {
+			return -1
+		}
+
+		return 1
+	})
+
+	return runs, nil
 }

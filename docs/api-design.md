@@ -256,7 +256,23 @@ Response:
 }
 ```
 
-### 5. Create Run
+### 5. Duplicate Design
+
+`POST /api/v1/designs/:designId/duplicate`
+
+Status:
+
+- implemented in this branch
+
+Request:
+
+```json
+{
+  "name": "Chat Read Path Variant"
+}
+```
+
+### 6. Create Run
 
 `POST /api/v1/runs`
 
@@ -369,7 +385,7 @@ Response:
 }
 ```
 
-### 6. Get Run
+### 7. Get Run
 
 `GET /api/v1/runs/:runId`
 
@@ -410,7 +426,7 @@ Response:
 }
 ```
 
-### 7. List Runs For A Design
+### 8. List Runs For A Design
 
 `GET /api/v1/designs/:designId/runs`
 

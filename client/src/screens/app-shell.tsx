@@ -37,8 +37,10 @@ import type {
 import {
   createDesign,
   createRun,
+  duplicateDesign,
   getDesign,
   getStatus,
+  listRunsForDesign,
   listComponentArchetypes,
   updateDesign,
 } from "../lib/api";
@@ -80,6 +82,7 @@ export function AppShell() {
   );
   const [catalog, setCatalog] = useState<ComponentArchetype[]>([]);
   const [savedDesign, setSavedDesign] = useState<Design | null>(null);
+  const [designRuns, setDesignRuns] = useState<Run[]>([]);
   const [lastRun, setLastRun] = useState<Run | null>(null);
   const [baselineRun, setBaselineRun] = useState<Run | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -220,6 +223,15 @@ export function AppShell() {
     }
   }, [edgeOptions, newEdgeInteraction, newEdgeRule]);
 
+  useEffect(() => {
+    if (!savedDesign?.id) {
+      setDesignRuns([]);
+      return;
+    }
+
+    void loadRunHistory(savedDesign.id);
+  }, [savedDesign?.id]);
+
   async function bootstrap() {
     try {
       const [status, archetypes] = await Promise.all([
@@ -235,6 +247,15 @@ export function AppShell() {
       );
     } catch (error) {
       setApiStatus("Backend unavailable");
+      setFeedback(readError(error));
+    }
+  }
+
+  async function loadRunHistory(designID: string) {
+    try {
+      const runs = await listRunsForDesign(designID);
+      setDesignRuns(runs);
+    } catch (error) {
       setFeedback(readError(error));
     }
   }
@@ -265,6 +286,7 @@ export function AppShell() {
     setDraftDescription(blank.description);
     setCanvasNodes([]);
     setCanvasEdges([]);
+    setDesignRuns([]);
     setSelectedNodeID(null);
     setNewEdgeSourceID("");
     setNewEdgeTargetID("");
@@ -273,7 +295,10 @@ export function AppShell() {
     setIsDirty(false);
   }
 
-  function applyDesignToEditor(design: Design) {
+  function applyDesignToEditor(
+    design: Design,
+    options?: { preserveBaseline?: boolean },
+  ) {
     const draft = cloneDesignIntoDraft(design);
 
     setSavedDesign(design);
@@ -286,7 +311,9 @@ export function AppShell() {
     setNewEdgeSourceID(draft.nodes[0]?.id ?? "");
     setNewEdgeTargetID(draft.nodes[1]?.id ?? "");
     setLastRun(null);
-    setBaselineRun(null);
+    if (!options?.preserveBaseline) {
+      setBaselineRun(null);
+    }
     setIsDirty(false);
   }
 
@@ -335,8 +362,42 @@ export function AppShell() {
       return;
     }
 
-    applyDesignToEditor(design);
+    applyDesignToEditor(design, { preserveBaseline: true });
     setFeedback(`Saved ${design.id}.`);
+  }
+
+  async function handleDuplicateDesign() {
+    if (canvasNodes.length === 0) {
+      setFeedback("Add components before creating a variant.");
+      return;
+    }
+
+    const name = `${draftName.trim() || "Fresh Canvas"} Variant`;
+    const payload = {
+      name,
+      description: draftDescription.trim(),
+      graph: {
+        nodes: canvasNodes.map(flowNodeToGraphNode),
+        edges: canvasEdges.map(flowEdgeToGraphEdge),
+      },
+    };
+
+    const design =
+      savedDesign && !isDirty
+        ? await withAction("Duplicating design", () =>
+            duplicateDesign(savedDesign.id, {
+              name,
+              description: draftDescription.trim(),
+            }),
+          )
+        : await withAction("Creating design variant", () => createDesign(payload));
+
+    if (!design) {
+      return;
+    }
+
+    applyDesignToEditor(design, { preserveBaseline: true });
+    setFeedback(`Opened variant ${design.id}.`);
   }
 
   async function handleRunSimulation() {
@@ -379,6 +440,9 @@ export function AppShell() {
     }
 
     setLastRun(run);
+    if (savedDesign?.id && run.design_id === savedDesign.id) {
+      void loadRunHistory(run.design_id);
+    }
     setFeedback(run.result?.summary ?? `Completed run ${run.id}.`);
     if (run.result?.bottleneck?.node_id) {
       setSelectedNodeID(run.result.bottleneck.node_id);
@@ -623,6 +687,11 @@ export function AppShell() {
     setFeedback(`Pinned ${lastRun.id} as the baseline scenario.`);
   }
 
+  function handleUseHistoryRun(run: Run) {
+    setBaselineRun(run);
+    setFeedback(`Using ${run.id} as the comparison baseline.`);
+  }
+
   return (
     <main className="studio-shell studio-shell--light">
       <header className="topbar">
@@ -638,6 +707,14 @@ export function AppShell() {
           </button>
           <button className="ghost-button" onClick={handleLoadSample} type="button">
             Load Sample
+          </button>
+          <button
+            className="ghost-button"
+            onClick={handleDuplicateDesign}
+            type="button"
+            disabled={busyAction !== null}
+          >
+            Create Variant
           </button>
           <button onClick={handleSaveDesign} type="button" disabled={busyAction !== null}>
             Save Design
@@ -928,6 +1005,43 @@ export function AppShell() {
             ) : (
               <p className="empty-copy">
                 Click a node to edit its label, color, and capacity assumptions.
+              </p>
+            )}
+          </div>
+
+          <div className="panel">
+            <p className="panel-kicker">Run History</p>
+            <h2>{savedDesign ? "Persisted runs" : "Save to unlock history"}</h2>
+            {savedDesign ? (
+              designRuns.length > 0 ? (
+                <div className="history-list">
+                  {designRuns.map((run) => (
+                    <div className="history-card" key={run.id}>
+                      <div>
+                        <strong>{run.result?.bottleneck?.label ?? run.id}</strong>
+                        <small>{formatWorkload(run.workload)}</small>
+                      </div>
+                      <div className="history-card__actions">
+                        <span>{run.id}</span>
+                        <button
+                          className="ghost-button"
+                          onClick={() => handleUseHistoryRun(run)}
+                          type="button"
+                        >
+                          Compare
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-copy">
+                  This design does not have persisted runs yet. Save it and run a few scenarios to build comparison history.
+                </p>
+              )
+            ) : (
+              <p className="empty-copy">
+                Save the current design to build a run history you can compare against later.
               </p>
             )}
           </div>

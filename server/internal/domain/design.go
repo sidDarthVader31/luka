@@ -57,6 +57,11 @@ type UpdateDesignRequest struct {
 	Graph       *Graph  `json:"graph,omitempty"`
 }
 
+type DuplicateDesignRequest struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 type Node struct {
 	ID         string         `json:"id"`
 	Label      string         `json:"label"`

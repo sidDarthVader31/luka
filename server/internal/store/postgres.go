@@ -187,6 +187,53 @@ func (r *PostgresRunRepository) GetByID(id string) (domain.Run, error) {
 		id,
 	)
 
+	return scanRun(row)
+}
+
+func (r *PostgresRunRepository) ListByDesignID(designID string) ([]domain.Run, error) {
+	rows, err := r.pool.Query(
+		context.Background(),
+		`select
+			id,
+			design_id,
+			design_snapshot,
+			workload,
+			simulation_config,
+			status,
+			result,
+			error,
+			created_at,
+			completed_at
+		 from runs
+		 where design_id = $1
+		 order by created_at desc, id desc`,
+		designID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query runs by design: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.Run, 0)
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		runs = append(runs, run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate runs by design: %w", err)
+	}
+
+	return runs, nil
+}
+
+func scanRun(row interface {
+	Scan(dest ...any) error
+}) (domain.Run, error) {
 	var run domain.Run
 	var designSnapshotJSON []byte
 	var workloadJSON []byte

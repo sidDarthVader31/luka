@@ -85,6 +85,18 @@ func (s *Service) Get(runID string) (*domain.Run, error) {
 	return &run, nil
 }
 
+func (s *Service) ListByDesign(designID string) ([]domain.Run, error) {
+	if designID == "" {
+		return nil, errors.New("design_id is required")
+	}
+
+	if _, err := s.designs.GetByID(designID); err != nil {
+		return nil, err
+	}
+
+	return s.runs.ListByDesignID(designID)
+}
+
 func (s *Service) resolveDesign(req domain.CreateRunRequest) (domain.Design, error) {
 	if req.Design != nil {
 		design := *req.Design

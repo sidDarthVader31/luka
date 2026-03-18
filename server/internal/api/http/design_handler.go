@@ -85,3 +85,30 @@ func (h *DesignHandler) Update(c *gin.Context) {
 
 	c.JSON(http.StatusOK, design)
 }
+
+func (h *DesignHandler) Duplicate(c *gin.Context) {
+	var request domain.DuplicateDesignRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invalid design duplicate request",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	design, err := h.service.Duplicate(c.Param("designId"), request)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, store.ErrDesignNotFound) {
+			status = http.StatusNotFound
+		}
+
+		c.JSON(status, gin.H{
+			"error":   "design duplicate failed",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, design)
+}

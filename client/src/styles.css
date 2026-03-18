@@ -297,6 +297,37 @@ button {
   margin: 0;
 }
 
+.history-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.history-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.9rem;
+  border-radius: 18px;
+  background: rgba(244, 248, 255, 0.9);
+}
+
+.history-card strong,
+.history-card small,
+.history-card span {
+  display: block;
+}
+
+.history-card small,
+.history-card span {
+  color: #607089;
+}
+
+.history-card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .edge-list {
   margin: 0;
   padding: 0;

@@ -111,3 +111,54 @@ func TestCreateRunRejectsNegativeWorkloadValues(t *testing.T) {
 		t.Fatalf("error = %q, want fanout validation message", err.Error())
 	}
 }
+
+func TestListRunsByDesign(t *testing.T) {
+	service := NewService(
+		store.NewMemoryDesignRepository(),
+		store.NewMemoryRunRepository(),
+		simulator.NewService(),
+	)
+
+	firstRun, err := service.Create(domain.CreateRunRequest{
+		DesignID: store.SampleDesignID,
+		Workload: domain.Workload{
+			RequestsPerSecond: 1000,
+		},
+		SimulationConfig: domain.SimulationConfig{
+			Mode: domain.SimulationModeAnalytical,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() first run error = %v", err)
+	}
+
+	secondRun, err := service.Create(domain.CreateRunRequest{
+		DesignID: store.SampleDesignID,
+		Workload: domain.Workload{
+			RequestsPerSecond: 2000,
+		},
+		SimulationConfig: domain.SimulationConfig{
+			Mode: domain.SimulationModeAnalytical,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() second run error = %v", err)
+	}
+
+	runs, err := service.ListByDesign(store.SampleDesignID)
+	if err != nil {
+		t.Fatalf("ListByDesign() error = %v", err)
+	}
+
+	if len(runs) != 2 {
+		t.Fatalf("runs len = %d, want 2", len(runs))
+	}
+
+	if runs[0].ID != secondRun.ID {
+		t.Fatalf("first returned run = %q, want latest run %q", runs[0].ID, secondRun.ID)
+	}
+
+	if runs[1].ID != firstRun.ID {
+		t.Fatalf("second returned run = %q, want first run %q", runs[1].ID, firstRun.ID)
+	}
+}
