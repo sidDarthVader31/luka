@@ -228,6 +228,57 @@ func estimateLatency(baseLatencyMS, utilization float64) float64 {
 }
 
 func explainNode(node domain.Node, incomingRPS, effectiveCapacity float64, saturated bool) string {
+	switch node.Archetype {
+	case domain.NodeArchetypeGateway:
+		if saturated {
+			return fmt.Sprintf(
+				"%s is the entry bottleneck: %.0f requests/sec arrive, but only %.0f requests/sec can be forwarded downstream.",
+				node.Label,
+				incomingRPS,
+				effectiveCapacity,
+			)
+		}
+
+		return fmt.Sprintf(
+			"%s forwards %.0f requests/sec and still has headroom before its %.0f requests/sec ceiling.",
+			node.Label,
+			incomingRPS,
+			effectiveCapacity,
+		)
+	case domain.NodeArchetypeQueue:
+		if saturated {
+			return fmt.Sprintf(
+				"%s is receiving work faster than it can buffer or dispatch it. At %.0f requests/sec in and %.0f requests/sec of effective throughput, queue lag would grow.",
+				node.Label,
+				incomingRPS,
+				effectiveCapacity,
+			)
+		}
+
+		return fmt.Sprintf(
+			"%s keeps up with %.0f queued operations/sec against an effective throughput of %.0f operations/sec.",
+			node.Label,
+			incomingRPS,
+			effectiveCapacity,
+		)
+	case domain.NodeArchetypeWorker:
+		if saturated {
+			return fmt.Sprintf(
+				"%s cannot consume queued work fast enough: %.0f requests/sec arrive for %.0f requests/sec of worker throughput.",
+				node.Label,
+				incomingRPS,
+				effectiveCapacity,
+			)
+		}
+
+		return fmt.Sprintf(
+			"%s keeps up with queued work at %.0f requests/sec against %.0f requests/sec of worker throughput.",
+			node.Label,
+			incomingRPS,
+			effectiveCapacity,
+		)
+	}
+
 	if saturated {
 		return fmt.Sprintf(
 			"%s receives %.0f requests/sec but can only handle %.0f requests/sec with its current configuration.",

@@ -1,10 +1,17 @@
 export type NodeArchetype =
   | "client"
+  | "gateway"
   | "stateless_service"
   | "cache"
-  | "database";
+  | "database"
+  | "queue"
+  | "worker";
 
-export type EdgeInteractionType = "sync_request" | "conditional_branch";
+export type EdgeInteractionType =
+  | "sync_request"
+  | "async_enqueue"
+  | "consume"
+  | "conditional_branch";
 export type RoutingRuleType = "always" | "cache_hit" | "cache_miss";
 
 export type GraphNode = {

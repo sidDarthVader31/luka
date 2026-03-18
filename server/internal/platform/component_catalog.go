@@ -18,6 +18,21 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			},
 		},
 		{
+			Archetype:   domain.NodeArchetypeGateway,
+			DisplayName: "Gateway",
+			DefaultProperties: domain.NodeProperties{
+				Replicas:      2,
+				CapacityRPS:   25000,
+				BaseLatencyMS: 8,
+			},
+			SupportedInteractions: []domain.EdgeInteractionType{
+				domain.EdgeInteractionSyncRequest,
+			},
+			SupportedRoutingRules: []domain.RoutingRuleType{
+				domain.RoutingRuleAlways,
+			},
+		},
+		{
 			Archetype:   domain.NodeArchetypeStatelessService,
 			DisplayName: "Stateless Service",
 			DefaultProperties: domain.NodeProperties{
@@ -27,6 +42,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionSyncRequest,
+				domain.EdgeInteractionAsyncEnqueue,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
 				domain.RoutingRuleAlways,
@@ -61,6 +77,37 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionSyncRequest,
+			},
+			SupportedRoutingRules: []domain.RoutingRuleType{
+				domain.RoutingRuleAlways,
+			},
+		},
+		{
+			Archetype:   domain.NodeArchetypeQueue,
+			DisplayName: "Queue",
+			DefaultProperties: domain.NodeProperties{
+				Replicas:      1,
+				CapacityRPS:   40000,
+				BaseLatencyMS: 4,
+			},
+			SupportedInteractions: []domain.EdgeInteractionType{
+				domain.EdgeInteractionConsume,
+			},
+			SupportedRoutingRules: []domain.RoutingRuleType{
+				domain.RoutingRuleAlways,
+			},
+		},
+		{
+			Archetype:   domain.NodeArchetypeWorker,
+			DisplayName: "Worker",
+			DefaultProperties: domain.NodeProperties{
+				Replicas:      3,
+				CapacityRPS:   12000,
+				BaseLatencyMS: 30,
+			},
+			SupportedInteractions: []domain.EdgeInteractionType{
+				domain.EdgeInteractionSyncRequest,
+				domain.EdgeInteractionAsyncEnqueue,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
 				domain.RoutingRuleAlways,

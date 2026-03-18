@@ -6,15 +6,20 @@ type NodeArchetype string
 
 const (
 	NodeArchetypeClient           NodeArchetype = "client"
+	NodeArchetypeGateway          NodeArchetype = "gateway"
 	NodeArchetypeStatelessService NodeArchetype = "stateless_service"
 	NodeArchetypeCache            NodeArchetype = "cache"
 	NodeArchetypeDatabase         NodeArchetype = "database"
+	NodeArchetypeQueue            NodeArchetype = "queue"
+	NodeArchetypeWorker           NodeArchetype = "worker"
 )
 
 type EdgeInteractionType string
 
 const (
 	EdgeInteractionSyncRequest     EdgeInteractionType = "sync_request"
+	EdgeInteractionAsyncEnqueue    EdgeInteractionType = "async_enqueue"
+	EdgeInteractionConsume         EdgeInteractionType = "consume"
 	EdgeInteractionConditionalPath EdgeInteractionType = "conditional_branch"
 )
 

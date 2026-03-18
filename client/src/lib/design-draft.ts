@@ -137,10 +137,13 @@ function nextAvailableIndex(ids: string[], prefix: string) {
 function getDefaultNodeColor(archetype: ComponentArchetype["archetype"]) {
   switch (archetype) {
     case "client":
+    case "gateway":
       return "blue";
     case "stateless_service":
+    case "worker":
       return "green";
     case "cache":
+    case "queue":
       return "yellow";
     case "database":
       return "red";
