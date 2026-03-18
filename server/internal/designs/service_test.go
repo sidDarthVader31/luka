@@ -1,6 +1,7 @@
 package designs
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
@@ -46,5 +47,42 @@ func TestCreateAndUpdateDesign(t *testing.T) {
 
 	if updated.Name != newName {
 		t.Fatalf("updated name = %q, want %q", updated.Name, newName)
+	}
+}
+
+func TestCreateRejectsInvalidGraph(t *testing.T) {
+	service := NewService(store.NewMemoryDesignRepository())
+
+	_, err := service.Create(domain.CreateDesignRequest{
+		Name: "Broken Design",
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{
+					ID:        "service-1",
+					Label:     "Service",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "green",
+					Position: domain.NodePosition{X: 80, Y: 120},
+				},
+			},
+			Edges: []domain.Edge{
+				{
+					ID:              "edge-1",
+					SourceNodeID:    "service-1",
+					TargetNodeID:    "missing-db",
+					InteractionType: domain.EdgeInteractionSyncRequest,
+					RoutingRule: domain.RoutingRule{
+						RuleType: domain.RoutingRuleAlways,
+					},
+				},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	if !strings.Contains(err.Error(), `unknown target node "missing-db"`) {
+		t.Fatalf("error = %q, want unknown target validation message", err.Error())
 	}
 }

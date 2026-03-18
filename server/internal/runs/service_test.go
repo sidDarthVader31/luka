@@ -1,6 +1,7 @@
 package runs
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
@@ -38,5 +39,44 @@ func TestCreateRunWithSeededDesign(t *testing.T) {
 
 	if run.Result.Bottleneck.NodeID != "db-1" {
 		t.Fatalf("bottleneck = %q, want db-1", run.Result.Bottleneck.NodeID)
+	}
+}
+
+func TestCreateRunRejectsInvalidInlineGraph(t *testing.T) {
+	service := NewService(
+		store.NewMemoryDesignRepository(),
+		store.NewMemoryRunRepository(),
+		simulator.NewService(),
+	)
+
+	_, err := service.Create(domain.CreateRunRequest{
+		Design: &domain.Design{
+			ID:   "adhoc",
+			Name: "Broken Inline Design",
+			Graph: domain.Graph{
+				Nodes: []domain.Node{
+					{
+						ID:        "service-1",
+						Label:     "Service",
+						Archetype: domain.NodeArchetypeStatelessService,
+						Color:     "green",
+						Position: domain.NodePosition{X: 10, Y: 10},
+					},
+				},
+			},
+		},
+		Workload: domain.Workload{
+			RequestsPerSecond: 1000,
+		},
+		SimulationConfig: domain.SimulationConfig{
+			Mode: domain.SimulationModeAnalytical,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	if !strings.Contains(err.Error(), "exactly one client node is required") {
+		t.Fatalf("error = %q, want client validation message", err.Error())
 	}
 }

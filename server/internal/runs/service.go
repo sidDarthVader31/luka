@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
+	"github.com/sidDarthVader31/luka/server/internal/graphs"
 	"github.com/sidDarthVader31/luka/server/internal/store"
 )
 
@@ -34,6 +35,10 @@ func (s *Service) Create(req domain.CreateRunRequest) (*domain.Run, error) {
 
 	design, err := s.resolveDesign(req)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := graphs.ValidateGraph(design.Graph, graphs.ModeRun); err != nil {
 		return nil, err
 	}
 

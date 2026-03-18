@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
+	"github.com/sidDarthVader31/luka/server/internal/graphs"
 	"github.com/sidDarthVader31/luka/server/internal/store"
 )
 
@@ -32,6 +33,10 @@ func (s *Service) Create(req domain.CreateDesignRequest) (*domain.Design, error)
 		Graph:       req.Graph,
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
+	}
+
+	if err := graphs.ValidateGraph(design.Graph, graphs.ModeSave); err != nil {
+		return nil, err
 	}
 
 	if err := s.repo.Create(design); err != nil {
@@ -69,6 +74,9 @@ func (s *Service) Update(id string, req domain.UpdateDesignRequest) (*domain.Des
 	}
 
 	if req.Graph != nil {
+		if err := graphs.ValidateGraph(*req.Graph, graphs.ModeSave); err != nil {
+			return nil, err
+		}
 		existing.Graph = *req.Graph
 	}
 
