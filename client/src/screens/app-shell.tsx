@@ -1,20 +1,37 @@
-import { useEffect, useMemo, useState, type DragEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 import {
   Background,
   Controls,
-  Position,
   MarkerType,
   ReactFlow,
-  applyNodeChanges,
+  addEdge,
+  useEdgesState,
+  useNodesState,
   type Connection,
   type Edge,
+  type EdgeChange,
   type Node,
   type NodeChange,
   type NodeMouseHandler,
   type ReactFlowInstance,
 } from "@xyflow/react";
 
-import type { ComponentArchetype, Design, GraphNode, Run } from "../lib/api";
+import type {
+  ComponentArchetype,
+  Design,
+  EdgeInteractionType,
+  GraphEdge,
+  GraphNode,
+  RoutingRuleType,
+  Run,
+} from "../lib/api";
 import {
   createDesign,
   createRun,
@@ -42,6 +59,18 @@ const nodePropertyLabels: Record<keyof GraphNode["properties"], string> = {
   cache_hit_rate: "Cache hit rate",
 };
 
+type FlowNodeData = {
+  label: string;
+  archetype: GraphNode["archetype"];
+  color: GraphNode["color"];
+  properties: GraphNode["properties"];
+};
+
+type FlowEdgeData = {
+  interactionType: EdgeInteractionType;
+  ruleType: RoutingRuleType;
+};
+
 export function AppShell() {
   const [apiStatus, setApiStatus] = useState("Connecting...");
   const [feedback, setFeedback] = useState(
@@ -54,19 +83,25 @@ export function AppShell() {
   const [draftID, setDraftID] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("Fresh Canvas");
   const [draftDescription, setDraftDescription] = useState("");
-  const [draftNodes, setDraftNodes] = useState<GraphNode[]>([]);
-  const [draftEdges, setDraftEdges] = useState<Design["graph"]["edges"]>([]);
   const [selectedNodeID, setSelectedNodeID] = useState<string | null>(null);
   const [requestsPerSecond, setRequestsPerSecond] = useState("100000");
   const [draggedArchetype, setDraggedArchetype] = useState<string | null>(null);
   const [flowInstance, setFlowInstance] = useState<
-    ReactFlowInstance<Node, Edge> | null
+    ReactFlowInstance<Node<FlowNodeData>, Edge<FlowEdgeData>> | null
   >(null);
   const [isDirty, setIsDirty] = useState(false);
+  const canvasShellRef = useRef<HTMLDivElement | null>(null);
+
+  const [canvasNodes, setCanvasNodes, onCanvasNodesChange] = useNodesState<
+    Node<FlowNodeData>
+  >([]);
+  const [canvasEdges, setCanvasEdges, onCanvasEdgesChange] = useEdgesState<
+    Edge<FlowEdgeData>
+  >([]);
 
   const selectedNode = useMemo(
-    () => draftNodes.find((node) => node.id === selectedNodeID) ?? null,
-    [draftNodes, selectedNodeID],
+    () => canvasNodes.find((node) => node.id === selectedNodeID) ?? null,
+    [canvasNodes, selectedNodeID],
   );
 
   const resultNodesByID = useMemo(
@@ -75,34 +110,20 @@ export function AppShell() {
     [lastRun],
   );
 
-  const flowNodes = useMemo<Node[]>(
+  const displayNodes = useMemo(
     () =>
-      draftNodes.map((node) => {
-        const nodeResult = resultNodesByID.get(node.id);
-        const palette = getNodePalette(node.color);
+      canvasNodes.map((node) => {
+        const result = resultNodesByID.get(node.id);
+        const palette = getNodePalette(node.data.color);
 
         return {
-          id: node.id,
-          position: node.position,
+          ...node,
           data: {
-            label: (
-              <div className="flow-node-copy">
-                <div className="flow-node-copy__eyebrow">
-                  <span>{node.label}</span>
-                  <span>{node.archetype}</span>
-                </div>
-                <strong>{node.color}</strong>
-                {nodeResult ? (
-                  <div className="flow-node-copy__meta">
-                    <span>{Math.round(nodeResult.utilization * 100)}% util</span>
-                    <span>{formatCompactNumber(nodeResult.incoming_rps)} rps</span>
-                  </div>
-                ) : null}
-              </div>
-            ),
+            ...node.data,
+            label: buildNodeLabel(node.data, result),
           },
-          sourcePosition: Position.Right,
-          targetPosition: Position.Left,
+          sourcePosition: "right",
+          targetPosition: "left",
           style: {
             width: 220,
             borderRadius: 18,
@@ -118,19 +139,17 @@ export function AppShell() {
           selected: node.id === selectedNodeID,
         };
       }),
-    [draftNodes, lastRun, resultNodesByID, selectedNodeID],
+    [canvasNodes, lastRun, resultNodesByID, selectedNodeID],
   );
 
-  const flowEdges = useMemo<Edge[]>(
+  const displayEdges = useMemo(
     () =>
-      draftEdges.map((edge) => ({
-        id: edge.id,
-        source: edge.source_node_id,
-        target: edge.target_node_id,
+      canvasEdges.map((edge) => ({
+        ...edge,
         label:
-          edge.routing_rule.rule_type === "always"
-            ? edge.interaction_type
-            : edge.routing_rule.rule_type,
+          edge.data?.ruleType && edge.data.ruleType !== "always"
+            ? edge.data.ruleType
+            : edge.data?.interactionType ?? "sync_request",
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color: "#4f6ef7",
@@ -148,7 +167,7 @@ export function AppShell() {
           fill: "rgba(255,255,255,0.96)",
         },
       })),
-    [draftEdges],
+    [canvasEdges],
   );
 
   useEffect(() => {
@@ -164,12 +183,7 @@ export function AppShell() {
 
       setApiStatus(`${status.name} ${status.version}`);
       setCatalog(archetypes);
-
-      const blank = createBlankDraft();
-      setDraftName(blank.name);
-      setDraftDescription(blank.description);
-      setDraftNodes(blank.nodes);
-      setDraftEdges(blank.edges);
+      resetToBlankCanvas();
       setFeedback(
         "Blank canvas ready. Drag a component from the left shelf into the board.",
       );
@@ -196,14 +210,18 @@ export function AppShell() {
     }
   }
 
-  function currentDraftDesign() {
-    return buildDraftDesign({
-      id: draftID,
-      name: draftName,
-      description: draftDescription,
-      nodes: draftNodes,
-      edges: draftEdges,
-    });
+  function resetToBlankCanvas() {
+    const blank = createBlankDraft();
+
+    setSavedDesign(null);
+    setDraftID(null);
+    setDraftName("Fresh Canvas");
+    setDraftDescription(blank.description);
+    setCanvasNodes([]);
+    setCanvasEdges([]);
+    setSelectedNodeID(null);
+    setLastRun(null);
+    setIsDirty(false);
   }
 
   function applyDesignToEditor(design: Design) {
@@ -213,25 +231,21 @@ export function AppShell() {
     setDraftID(draft.id);
     setDraftName(draft.name);
     setDraftDescription(draft.description);
-    setDraftNodes(draft.nodes);
-    setDraftEdges(draft.edges);
+    setCanvasNodes(draft.nodes.map(graphNodeToFlowNode));
+    setCanvasEdges(draft.edges.map(graphEdgeToFlowEdge));
     setSelectedNodeID(draft.nodes[0]?.id ?? null);
     setLastRun(null);
     setIsDirty(false);
   }
 
-  function handleStartBlankCanvas() {
-    const blank = createBlankDraft();
-    setSavedDesign(null);
-    setDraftID(null);
-    setDraftName("Fresh Canvas");
-    setDraftDescription(blank.description);
-    setDraftNodes(blank.nodes);
-    setDraftEdges(blank.edges);
-    setSelectedNodeID(null);
-    setLastRun(null);
-    setIsDirty(false);
-    setFeedback("Blank canvas ready.");
+  function currentDraftDesign() {
+    return buildDraftDesign({
+      id: draftID,
+      name: draftName,
+      description: draftDescription,
+      nodes: canvasNodes.map(flowNodeToGraphNode),
+      edges: canvasEdges.map(flowEdgeToGraphEdge),
+    });
   }
 
   async function handleLoadSample() {
@@ -245,7 +259,7 @@ export function AppShell() {
   }
 
   async function handleSaveDesign() {
-    if (draftNodes.length === 0) {
+    if (canvasNodes.length === 0) {
       setFeedback("Add at least one component before saving.");
       return;
     }
@@ -254,8 +268,8 @@ export function AppShell() {
       name: draftName.trim() || "Fresh Canvas",
       description: draftDescription.trim(),
       graph: {
-        nodes: draftNodes,
-        edges: draftEdges,
+        nodes: canvasNodes.map(flowNodeToGraphNode),
+        edges: canvasEdges.map(flowEdgeToGraphEdge),
       },
     };
 
@@ -274,7 +288,7 @@ export function AppShell() {
   }
 
   async function handleRunSimulation() {
-    if (draftNodes.length === 0) {
+    if (canvasNodes.length === 0) {
       setFeedback("Add components before running the simulation.");
       return;
     }
@@ -317,20 +331,19 @@ export function AppShell() {
     setIsDirty(true);
   }
 
-  function addNode(archetype: ComponentArchetype, position?: { x: number; y: number }) {
-    const createdNode = createNodeFromArchetype(archetype, draftNodes, position);
+  function addNode(archetype: ComponentArchetype) {
+    const graphNode = createNodeFromArchetype(
+      archetype,
+      canvasNodes.map(flowNodeToGraphNode),
+      getVisibleDropPosition(flowInstance, canvasShellRef.current, canvasNodes.length),
+    );
+    const flowNode = graphNodeToFlowNode(graphNode);
 
-    setDraftNodes((current) => [...current, createdNode]);
-    setSelectedNodeID(createdNode.id);
+    setCanvasNodes((current) => [...current, flowNode]);
+    setSelectedNodeID(flowNode.id);
     setLastRun(null);
     markDirty();
-
-    window.requestAnimationFrame(() => {
-      flowInstance?.setCenter(createdNode.position.x + 80, createdNode.position.y + 40, {
-        zoom: 1,
-        duration: 180,
-      });
-    });
+    setFeedback(`Added ${archetype.display_name}.`);
   }
 
   function handleArchetypeDragStart(archetype: ComponentArchetype) {
@@ -360,56 +373,12 @@ export function AppShell() {
       return;
     }
 
-    const position = flowInstance?.screenToFlowPosition({
-      x: event.clientX,
-      y: event.clientY,
-    });
-
-    addNode(archetype, position);
+    addNode(archetype);
     setDraggedArchetype(null);
-    setFeedback(`Added ${archetype.display_name}.`);
   }
 
-  function handleNodesChange(changes: NodeChange<Node>[]) {
-    setDraftNodes((current) => {
-      const nextFlowNodes = applyNodeChanges(
-        changes,
-        current.map((node) => ({
-          id: node.id,
-          position: node.position,
-          data: {
-            label: node.label,
-          },
-          selected: node.id === selectedNodeID,
-        })),
-      );
-
-      const nextFlowByID = new Map(nextFlowNodes.map((node) => [node.id, node]));
-
-      return current
-        .filter((node) => nextFlowByID.has(node.id))
-        .map((node) => ({
-          ...node,
-          position: nextFlowByID.get(node.id)?.position ?? node.position,
-        }));
-    });
-
-    const removedNodeIDs = changes
-      .filter((change) => change.type === "remove")
-      .map((change) => change.id);
-
-    if (removedNodeIDs.length > 0) {
-      const removedIDs = new Set(removedNodeIDs);
-      setDraftEdges((current) =>
-        current.filter(
-          (edge) =>
-            !removedIDs.has(edge.source_node_id) &&
-            !removedIDs.has(edge.target_node_id),
-        ),
-      );
-      setLastRun(null);
-      markDirty();
-    }
+  function handleNodesChange(changes: NodeChange<Node<FlowNodeData>>[]) {
+    onCanvasNodesChange(changes);
 
     const selectedChange = [...changes]
       .reverse()
@@ -418,7 +387,30 @@ export function AppShell() {
       setSelectedNodeID(selectedChange.selected ? selectedChange.id : null);
     }
 
+    if (changes.some((change) => change.type === "remove")) {
+      const removedIDs = new Set(
+        changes
+          .filter((change) => change.type === "remove")
+          .map((change) => change.id),
+      );
+      setCanvasEdges((current) =>
+        current.filter(
+          (edge) => !removedIDs.has(edge.source) && !removedIDs.has(edge.target),
+        ),
+      );
+      setLastRun(null);
+      markDirty();
+    }
+
     if (changes.some((change) => change.type === "position")) {
+      setLastRun(null);
+      markDirty();
+    }
+  }
+
+  function handleEdgesChange(changes: EdgeChange<Edge<FlowEdgeData>>[]) {
+    onCanvasEdgesChange(changes);
+    if (changes.length > 0) {
       setLastRun(null);
       markDirty();
     }
@@ -429,47 +421,62 @@ export function AppShell() {
       return;
     }
 
-    const edge = buildEdge({
+    const options = getSupportedEdgeOptions({
+      sourceNodeID: connection.source,
+      nodes: canvasNodes.map(flowNodeToGraphNode),
+      archetypes: catalog,
+    });
+    const graphEdge = buildEdge({
       sourceNodeID: connection.source,
       targetNodeID: connection.target,
-      ...getDefaultEdgeBehavior(connection.source),
-      existingEdges: draftEdges,
+      interactionType: options.interactions[0] ?? "sync_request",
+      ruleType: options.routingRules[0] ?? "always",
+      existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
     });
 
-    setDraftEdges((current) => [...current, edge]);
+    setCanvasEdges((current) =>
+      addEdge(graphEdgeToFlowEdge(graphEdge), current),
+    );
     setLastRun(null);
     markDirty();
     setFeedback(`Connected ${connection.source} to ${connection.target}.`);
   }
 
-  function getDefaultEdgeBehavior(sourceNodeID: string) {
-    const options = getSupportedEdgeOptions({
-      sourceNodeID,
-      nodes: draftNodes,
-      archetypes: catalog,
-    });
-
-    return {
-      interactionType: options.interactions[0] ?? "sync_request",
-      ruleType: options.routingRules[0] ?? "always",
-    };
-  }
-
-  function handleNodeClick(_: unknown, node: Node) {
+  const handleNodeClick: NodeMouseHandler<Node<FlowNodeData>> = (_, node) => {
     setSelectedNodeID(node.id);
-  }
+  };
 
   function handleColorChange(nodeID: string, color: GraphNode["color"]) {
-    setDraftNodes((current) =>
-      current.map((node) => (node.id === nodeID ? { ...node, color } : node)),
+    setCanvasNodes((current) =>
+      current.map((node) =>
+        node.id === nodeID
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                color,
+              },
+            }
+          : node,
+      ),
     );
     setLastRun(null);
     markDirty();
   }
 
   function handleNodeLabelChange(nodeID: string, value: string) {
-    setDraftNodes((current) =>
-      current.map((node) => (node.id === nodeID ? { ...node, label: value } : node)),
+    setCanvasNodes((current) =>
+      current.map((node) =>
+        node.id === nodeID
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                label: value,
+              },
+            }
+          : node,
+      ),
     );
     setLastRun(null);
     markDirty();
@@ -480,14 +487,17 @@ export function AppShell() {
     key: keyof GraphNode["properties"],
     value: string,
   ) {
-    setDraftNodes((current) =>
+    setCanvasNodes((current) =>
       current.map((node) =>
         node.id === nodeID
           ? {
               ...node,
-              properties: {
-                ...node.properties,
-                [key]: value === "" ? undefined : Number(value),
+              data: {
+                ...node.data,
+                properties: {
+                  ...node.data.properties,
+                  [key]: value === "" ? undefined : Number(value),
+                },
               },
             }
           : node,
@@ -498,11 +508,9 @@ export function AppShell() {
   }
 
   function handleRemoveNode(nodeID: string) {
-    setDraftNodes((current) => current.filter((node) => node.id !== nodeID));
-    setDraftEdges((current) =>
-      current.filter(
-        (edge) => edge.source_node_id !== nodeID && edge.target_node_id !== nodeID,
-      ),
+    setCanvasNodes((current) => current.filter((node) => node.id !== nodeID));
+    setCanvasEdges((current) =>
+      current.filter((edge) => edge.source !== nodeID && edge.target !== nodeID),
     );
     if (selectedNodeID === nodeID) {
       setSelectedNodeID(null);
@@ -512,7 +520,7 @@ export function AppShell() {
   }
 
   function handleRemoveEdge(edgeID: string) {
-    setDraftEdges((current) => current.filter((edge) => edge.id !== edgeID));
+    setCanvasEdges((current) => current.filter((edge) => edge.id !== edgeID));
     setLastRun(null);
     markDirty();
   }
@@ -527,7 +535,7 @@ export function AppShell() {
         </div>
 
         <div className="topbar-actions">
-          <button className="ghost-button" onClick={handleStartBlankCanvas} type="button">
+          <button className="ghost-button" onClick={resetToBlankCanvas} type="button">
             New Canvas
           </button>
           <button className="ghost-button" onClick={handleLoadSample} type="button">
@@ -552,7 +560,7 @@ export function AppShell() {
         <span>{savedDesign ? savedDesign.id : "Unsaved design"}</span>
         <span>{isDirty ? "Unsaved changes" : "All changes synced"}</span>
         <span>
-          {draftNodes.length} nodes / {draftEdges.length} edges
+          {canvasNodes.length} nodes / {canvasEdges.length} edges
         </span>
       </section>
 
@@ -615,29 +623,31 @@ export function AppShell() {
 
         <section className="board-panel">
           <div
+            ref={canvasShellRef}
             className={`canvas-shell${draggedArchetype ? " canvas-shell--ready" : ""}`}
             onDragOver={handleCanvasDragOver}
             onDrop={handleCanvasDrop}
           >
             <ReactFlow
-              nodes={flowNodes}
-              edges={flowEdges}
+              nodes={displayNodes}
+              edges={displayEdges}
               onInit={setFlowInstance}
               onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
               onConnect={handleConnect}
               onPaneClick={() => setSelectedNodeID(null)}
-              onNodeClick={handleNodeClick as NodeMouseHandler}
+              onNodeClick={handleNodeClick}
             >
               <Background gap={24} size={1} color="#d8e0ef" />
               <Controls />
             </ReactFlow>
 
-            {draftNodes.length === 0 ? (
+            {canvasNodes.length === 0 ? (
               <div className="canvas-empty">
                 <strong>Drop components here</strong>
                 <p>
-                  The board starts empty on purpose, so you only see connections you
-                  actually create.
+                  New nodes are placed in the visible center of the board so they
+                  never disappear off-screen.
                 </p>
               </div>
             ) : null}
@@ -656,13 +666,13 @@ export function AppShell() {
         <aside className="sidebar">
           <div className="panel">
             <p className="panel-kicker">Inspector</p>
-            <h2>{selectedNode?.label ?? "Select a node"}</h2>
+            <h2>{selectedNode?.data.label ?? "Select a node"}</h2>
             {selectedNode ? (
               <div className="inspector">
                 <label className="field">
                   <span>Label</span>
                   <input
-                    value={selectedNode.label}
+                    value={selectedNode.data.label}
                     onChange={(event) =>
                       handleNodeLabelChange(selectedNode.id, event.target.value)
                     }
@@ -672,7 +682,7 @@ export function AppShell() {
                 <label className="field">
                   <span>Color</span>
                   <select
-                    value={selectedNode.color}
+                    value={selectedNode.data.color}
                     onChange={(event) =>
                       handleColorChange(
                         selectedNode.id,
@@ -694,8 +704,9 @@ export function AppShell() {
                     <input
                       inputMode="decimal"
                       value={
-                        selectedNode.properties[key as keyof GraphNode["properties"]] ??
-                        ""
+                        selectedNode.data.properties[
+                          key as keyof GraphNode["properties"]
+                        ] ?? ""
                       }
                       onChange={(event) =>
                         handleNodePropertyChange(
@@ -725,21 +736,22 @@ export function AppShell() {
 
           <div className="panel">
             <p className="panel-kicker">Connections</p>
-            <h2>{draftEdges.length ? "Current edges" : "No edges yet"}</h2>
-            {draftEdges.length === 0 ? (
+            <h2>{canvasEdges.length ? "Current edges" : "No edges yet"}</h2>
+            {canvasEdges.length === 0 ? (
               <p className="empty-copy">
                 Draw from one node handle to another to create a connection.
               </p>
             ) : (
               <ul className="edge-list">
-                {draftEdges.map((edge) => (
+                {canvasEdges.map((edge) => (
                   <li key={edge.id}>
                     <div>
                       <strong>
-                        {edge.source_node_id} → {edge.target_node_id}
+                        {edge.source} → {edge.target}
                       </strong>
                       <small>
-                        {edge.interaction_type} / {edge.routing_rule.rule_type}
+                        {edge.data?.interactionType ?? "sync_request"} /{" "}
+                        {edge.data?.ruleType ?? "always"}
                       </small>
                     </div>
                     <button
@@ -758,6 +770,107 @@ export function AppShell() {
       </section>
     </main>
   );
+}
+
+function graphNodeToFlowNode(node: GraphNode): Node<FlowNodeData> {
+  return {
+    id: node.id,
+    position: node.position,
+    data: {
+      label: node.label,
+      archetype: node.archetype,
+      color: node.color,
+      properties: node.properties,
+    },
+  };
+}
+
+function flowNodeToGraphNode(node: Node<FlowNodeData>): GraphNode {
+  return {
+    id: node.id,
+    label: node.data.label,
+    archetype: node.data.archetype,
+    color: node.data.color,
+    position: {
+      x: node.position.x,
+      y: node.position.y,
+    },
+    properties: node.data.properties,
+  };
+}
+
+function graphEdgeToFlowEdge(edge: GraphEdge): Edge<FlowEdgeData> {
+  return {
+    id: edge.id,
+    source: edge.source_node_id,
+    target: edge.target_node_id,
+    data: {
+      interactionType: edge.interaction_type,
+      ruleType: edge.routing_rule.rule_type,
+    },
+  };
+}
+
+function flowEdgeToGraphEdge(edge: Edge<FlowEdgeData>): GraphEdge {
+  return {
+    id: edge.id,
+    source_node_id: edge.source,
+    target_node_id: edge.target,
+    interaction_type: edge.data?.interactionType ?? "sync_request",
+    routing_rule: {
+      rule_type: edge.data?.ruleType ?? "always",
+    },
+  };
+}
+
+function buildNodeLabel(
+  nodeData: FlowNodeData,
+  result:
+    | {
+        utilization: number;
+        incoming_rps: number;
+      }
+    | undefined,
+): ReactNode {
+  return (
+    <div className="flow-node-copy">
+      <div className="flow-node-copy__eyebrow">
+        <span>{nodeData.label}</span>
+        <span>{nodeData.archetype}</span>
+      </div>
+      <strong>{nodeData.color}</strong>
+      {result ? (
+        <div className="flow-node-copy__meta">
+          <span>{Math.round(result.utilization * 100)}% util</span>
+          <span>{formatCompactNumber(result.incoming_rps)} rps</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function getVisibleDropPosition(
+  flowInstance: ReactFlowInstance<Node<FlowNodeData>, Edge<FlowEdgeData>> | null,
+  container: HTMLDivElement | null,
+  nodeCount: number,
+) {
+  if (!flowInstance || !container) {
+    return {
+      x: 120 + (nodeCount % 3) * 240,
+      y: 120 + Math.floor(nodeCount / 3) * 160,
+    };
+  }
+
+  const rect = container.getBoundingClientRect();
+  const center = flowInstance.screenToFlowPosition({
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  });
+
+  return {
+    x: center.x - 110 + (nodeCount % 3) * 24,
+    y: center.y - 36 + (nodeCount % 3) * 18,
+  };
 }
 
 function defaultColorForArchetype(archetype: ComponentArchetype["archetype"]) {
