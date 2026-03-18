@@ -86,6 +86,11 @@ export function AppShell() {
   const [selectedNodeID, setSelectedNodeID] = useState<string | null>(null);
   const [requestsPerSecond, setRequestsPerSecond] = useState("100000");
   const [draggedArchetype, setDraggedArchetype] = useState<string | null>(null);
+  const [newEdgeSourceID, setNewEdgeSourceID] = useState("");
+  const [newEdgeTargetID, setNewEdgeTargetID] = useState("");
+  const [newEdgeInteraction, setNewEdgeInteraction] =
+    useState<EdgeInteractionType>("sync_request");
+  const [newEdgeRule, setNewEdgeRule] = useState<RoutingRuleType>("always");
   const [flowInstance, setFlowInstance] = useState<
     ReactFlowInstance<Node<FlowNodeData>, Edge<FlowEdgeData>> | null
   >(null);
@@ -108,6 +113,16 @@ export function AppShell() {
     () =>
       new Map((lastRun?.result?.nodes ?? []).map((node) => [node.node_id, node])),
     [lastRun],
+  );
+
+  const edgeOptions = useMemo(
+    () =>
+      getSupportedEdgeOptions({
+        sourceNodeID: newEdgeSourceID,
+        nodes: canvasNodes.map(flowNodeToGraphNode),
+        archetypes: catalog,
+      }),
+    [canvasNodes, catalog, newEdgeSourceID],
   );
 
   const displayNodes = useMemo(
@@ -174,6 +189,22 @@ export function AppShell() {
     void bootstrap();
   }, []);
 
+  useEffect(() => {
+    if (
+      edgeOptions.interactions.length > 0 &&
+      !edgeOptions.interactions.includes(newEdgeInteraction)
+    ) {
+      setNewEdgeInteraction(edgeOptions.interactions[0]);
+    }
+
+    if (
+      edgeOptions.routingRules.length > 0 &&
+      !edgeOptions.routingRules.includes(newEdgeRule)
+    ) {
+      setNewEdgeRule(edgeOptions.routingRules[0]);
+    }
+  }, [edgeOptions, newEdgeInteraction, newEdgeRule]);
+
   async function bootstrap() {
     try {
       const [status, archetypes] = await Promise.all([
@@ -220,6 +251,8 @@ export function AppShell() {
     setCanvasNodes([]);
     setCanvasEdges([]);
     setSelectedNodeID(null);
+    setNewEdgeSourceID("");
+    setNewEdgeTargetID("");
     setLastRun(null);
     setIsDirty(false);
   }
@@ -234,6 +267,8 @@ export function AppShell() {
     setCanvasNodes(draft.nodes.map(graphNodeToFlowNode));
     setCanvasEdges(draft.edges.map(graphEdgeToFlowEdge));
     setSelectedNodeID(draft.nodes[0]?.id ?? null);
+    setNewEdgeSourceID(draft.nodes[0]?.id ?? "");
+    setNewEdgeTargetID(draft.nodes[1]?.id ?? "");
     setLastRun(null);
     setIsDirty(false);
   }
@@ -341,6 +376,11 @@ export function AppShell() {
 
     setCanvasNodes((current) => [...current, flowNode]);
     setSelectedNodeID(flowNode.id);
+    if (!newEdgeSourceID) {
+      setNewEdgeSourceID(flowNode.id);
+    } else if (!newEdgeTargetID) {
+      setNewEdgeTargetID(flowNode.id);
+    }
     setLastRun(null);
     markDirty();
     setFeedback(`Added ${archetype.display_name}.`);
@@ -440,6 +480,31 @@ export function AppShell() {
     setLastRun(null);
     markDirty();
     setFeedback(`Connected ${connection.source} to ${connection.target}.`);
+  }
+
+  function handleCreateEdge() {
+    if (!newEdgeSourceID || !newEdgeTargetID) {
+      setFeedback("Choose both a source and a target node to create an arrow.");
+      return;
+    }
+
+    if (newEdgeSourceID === newEdgeTargetID) {
+      setFeedback("Source and target must be different nodes.");
+      return;
+    }
+
+    const graphEdge = buildEdge({
+      sourceNodeID: newEdgeSourceID,
+      targetNodeID: newEdgeTargetID,
+      interactionType: newEdgeInteraction,
+      ruleType: newEdgeRule,
+      existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
+    });
+
+    setCanvasEdges((current) => [...current, graphEdgeToFlowEdge(graphEdge)]);
+    setLastRun(null);
+    markDirty();
+    setFeedback(`Created arrow ${newEdgeSourceID} → ${newEdgeTargetID}.`);
   }
 
   const handleNodeClick: NodeMouseHandler<Node<FlowNodeData>> = (_, node) => {
@@ -737,9 +802,79 @@ export function AppShell() {
           <div className="panel">
             <p className="panel-kicker">Connections</p>
             <h2>{canvasEdges.length ? "Current edges" : "No edges yet"}</h2>
+            <div className="inspector">
+              <label className="field">
+                <span>Source</span>
+                <select
+                  value={newEdgeSourceID}
+                  onChange={(event) => setNewEdgeSourceID(event.target.value)}
+                >
+                  <option value="">Select source</option>
+                  {canvasNodes.map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {node.data.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Target</span>
+                <select
+                  value={newEdgeTargetID}
+                  onChange={(event) => setNewEdgeTargetID(event.target.value)}
+                >
+                  <option value="">Select target</option>
+                  {canvasNodes.map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {node.data.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Interaction</span>
+                <select
+                  value={newEdgeInteraction}
+                  onChange={(event) =>
+                    setNewEdgeInteraction(
+                      event.target.value as EdgeInteractionType,
+                    )
+                  }
+                >
+                  {edgeOptions.interactions.map((interaction) => (
+                    <option key={interaction} value={interaction}>
+                      {interaction}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Routing rule</span>
+                <select
+                  value={newEdgeRule}
+                  onChange={(event) =>
+                    setNewEdgeRule(event.target.value as RoutingRuleType)
+                  }
+                >
+                  {edgeOptions.routingRules.map((rule) => (
+                    <option key={rule} value={rule}>
+                      {rule}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <button onClick={handleCreateEdge} type="button">
+                Add Arrow
+              </button>
+            </div>
+
             {canvasEdges.length === 0 ? (
               <p className="empty-copy">
-                Draw from one node handle to another to create a connection.
+                Build your first connection with the arrow composer above.
               </p>
             ) : (
               <ul className="edge-list">
