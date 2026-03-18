@@ -1,0 +1,44 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node / frontend
+node_modules/
+.pnpm-store/
+client/node_modules/
+client/dist/
+client/.vite/
+client/coverage/
+client/playwright-report/
+client/test-results/
+client/.turbo/
+
+# Go / backend
+server/bin/
+server/dist/
+server/coverage.out
+server/coverage.html
+server/.cache/
+server/vendor/
+
+# Build artifacts
+dist/
+build/
+coverage/
+tmp/
+

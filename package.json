@@ -1,0 +1,11 @@
+{
+  "name": "luka",
+  "private": true,
+  "description": "Monorepo for Luka system design simulator",
+  "scripts": {
+    "client:dev": "pnpm --dir client dev",
+    "client:build": "pnpm --dir client build",
+    "client:lint": "pnpm --dir client lint",
+    "client:test": "pnpm --dir client test"
+  }
+}
