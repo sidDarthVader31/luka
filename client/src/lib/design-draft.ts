@@ -37,6 +37,7 @@ export function createBlankDraft() {
 export function createNodeFromArchetype(
   archetype: ComponentArchetype,
   existingNodes: GraphNode[],
+  position?: { x: number; y: number },
 ): GraphNode {
   const nextIndex = nextAvailableIndex(
     existingNodes
@@ -49,10 +50,11 @@ export function createNodeFromArchetype(
     id: `${archetype.archetype}-${nextIndex}`,
     label: `${archetype.display_name} ${nextIndex}`,
     archetype: archetype.archetype,
-    position: {
-      x: 160 + ((nextIndex - 1) % 3) * 240,
-      y: 120 + Math.floor((nextIndex - 1) / 3) * 180,
-    },
+    position:
+      position ?? {
+        x: 160 + ((nextIndex - 1) % 3) * 240,
+        y: 120 + Math.floor((nextIndex - 1) / 3) * 180,
+      },
     properties: { ...archetype.default_properties },
   };
 }
