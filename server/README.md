@@ -1,6 +1,6 @@
 # Server
 
-This folder will contain the Luka backend service.
+This folder contains the Luka backend service.
 
 ## Planned stack
 
@@ -19,3 +19,8 @@ The server owns:
 - result explanation generation
 
 The simulator core should live here so the backend remains the source of truth.
+
+## Available commands
+
+- `go run ./cmd/api`
+- `go test ./...`
