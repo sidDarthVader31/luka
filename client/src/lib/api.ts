@@ -11,6 +11,7 @@ export type GraphNode = {
   id: string;
   label: string;
   archetype: NodeArchetype;
+  color: "blue" | "green" | "yellow" | "red";
   position: {
     x: number;
     y: number;

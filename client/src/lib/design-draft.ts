@@ -37,6 +37,7 @@ export function createBlankDraft() {
 export function createNodeFromArchetype(
   archetype: ComponentArchetype,
   existingNodes: GraphNode[],
+  position?: { x: number; y: number },
 ): GraphNode {
   const nextIndex = nextAvailableIndex(
     existingNodes
@@ -49,10 +50,12 @@ export function createNodeFromArchetype(
     id: `${archetype.archetype}-${nextIndex}`,
     label: `${archetype.display_name} ${nextIndex}`,
     archetype: archetype.archetype,
-    position: {
-      x: 160 + ((nextIndex - 1) % 3) * 240,
-      y: 120 + Math.floor((nextIndex - 1) / 3) * 180,
-    },
+    color: getDefaultNodeColor(archetype.archetype),
+    position:
+      position ?? {
+        x: 160 + ((nextIndex - 1) % 3) * 240,
+        y: 120 + Math.floor((nextIndex - 1) / 3) * 180,
+      },
     properties: { ...archetype.default_properties },
   };
 }
@@ -129,4 +132,19 @@ function nextAvailableIndex(ids: string[], prefix: string) {
   }
 
   return candidate;
+}
+
+function getDefaultNodeColor(archetype: ComponentArchetype["archetype"]) {
+  switch (archetype) {
+    case "client":
+      return "blue";
+    case "stateless_service":
+      return "green";
+    case "cache":
+      return "yellow";
+    case "database":
+      return "red";
+    default:
+      return "blue";
+  }
 }

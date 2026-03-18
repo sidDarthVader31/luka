@@ -1,34 +1,45 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 import {
   Background,
   Controls,
   MarkerType,
-  MiniMap,
   ReactFlow,
-  applyNodeChanges,
+  addEdge,
+  useEdgesState,
+  useNodesState,
   type Connection,
   type Edge,
+  type EdgeChange,
   type Node,
   type NodeChange,
   type NodeMouseHandler,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 
 import type {
   ComponentArchetype,
   Design,
+  EdgeInteractionType,
+  GraphEdge,
   GraphNode,
+  RoutingRuleType,
   Run,
 } from "../lib/api";
 import {
   createDesign,
   createRun,
   getDesign,
-  getRun,
   getStatus,
   listComponentArchetypes,
   updateDesign,
 } from "../lib/api";
-import { SystemNode, type SystemNodeData } from "../components/system-node";
 import {
   buildDraftDesign,
   buildEdge,
@@ -37,93 +48,141 @@ import {
   createNodeFromArchetype,
   getSupportedEdgeOptions,
 } from "../lib/design-draft";
-import { buildDemoDesign } from "../lib/demo-design";
 
 const sampleDesignID = "sample-cache-aside";
 
-const nodeTypes = {
-  systemNode: SystemNode,
-};
-
+const colorOptions: GraphNode["color"][] = ["blue", "green", "yellow", "red"];
 const nodePropertyLabels: Record<keyof GraphNode["properties"], string> = {
   replicas: "Replicas",
-  capacity_rps: "Capacity RPS",
-  base_latency_ms: "Base latency (ms)",
+  capacity_rps: "Capacity / sec",
+  base_latency_ms: "Latency (ms)",
   cache_hit_rate: "Cache hit rate",
 };
 
+type FlowNodeData = {
+  label: string;
+  archetype: GraphNode["archetype"];
+  color: GraphNode["color"];
+  properties: GraphNode["properties"];
+};
+
+type FlowEdgeData = {
+  interactionType: EdgeInteractionType;
+  ruleType: RoutingRuleType;
+};
+
 export function AppShell() {
-  const [apiStatus, setApiStatus] = useState("Checking backend...");
+  const [apiStatus, setApiStatus] = useState("Connecting...");
   const [feedback, setFeedback] = useState(
-    "Use this screen to shape a draft on the canvas, save it, and run it.",
+    "Start with a blank board, drag colored components into place, then connect only what you want to simulate.",
   );
   const [catalog, setCatalog] = useState<ComponentArchetype[]>([]);
   const [savedDesign, setSavedDesign] = useState<Design | null>(null);
   const [lastRun, setLastRun] = useState<Run | null>(null);
-  const [requestsPerSecond, setRequestsPerSecond] = useState("100000");
   const [busyAction, setBusyAction] = useState<string | null>(null);
-
   const [draftID, setDraftID] = useState<string | null>(null);
-  const [draftName, setDraftName] = useState("Untitled Design");
+  const [draftName, setDraftName] = useState("Fresh Canvas");
   const [draftDescription, setDraftDescription] = useState("");
-  const [draftNodes, setDraftNodes] = useState<GraphNode[]>([]);
-  const [draftEdges, setDraftEdges] = useState<Design["graph"]["edges"]>([]);
   const [selectedNodeID, setSelectedNodeID] = useState<string | null>(null);
+  const [requestsPerSecond, setRequestsPerSecond] = useState("100000");
+  const [draggedArchetype, setDraggedArchetype] = useState<string | null>(null);
   const [newEdgeSourceID, setNewEdgeSourceID] = useState("");
   const [newEdgeTargetID, setNewEdgeTargetID] = useState("");
-  const [newEdgeInteraction, setNewEdgeInteraction] = useState<
-    "sync_request" | "conditional_branch"
-  >("sync_request");
-  const [newEdgeRule, setNewEdgeRule] = useState<
-    "always" | "cache_hit" | "cache_miss"
-  >("always");
+  const [newEdgeInteraction, setNewEdgeInteraction] =
+    useState<EdgeInteractionType>("sync_request");
+  const [newEdgeRule, setNewEdgeRule] = useState<RoutingRuleType>("always");
+  const [flowInstance, setFlowInstance] = useState<
+    ReactFlowInstance<Node<FlowNodeData>, Edge<FlowEdgeData>> | null
+  >(null);
   const [isDirty, setIsDirty] = useState(false);
+  const canvasShellRef = useRef<HTMLDivElement | null>(null);
+
+  const [canvasNodes, setCanvasNodes, onCanvasNodesChange] = useNodesState<
+    Node<FlowNodeData>
+  >([]);
+  const [canvasEdges, setCanvasEdges, onCanvasEdgesChange] = useEdgesState<
+    Edge<FlowEdgeData>
+  >([]);
 
   const selectedNode = useMemo(
-    () => draftNodes.find((node) => node.id === selectedNodeID) ?? null,
-    [draftNodes, selectedNodeID],
+    () => canvasNodes.find((node) => node.id === selectedNodeID) ?? null,
+    [canvasNodes, selectedNodeID],
   );
 
-  const supportedEdgeOptions = useMemo(
+  const resultNodesByID = useMemo(
+    () =>
+      new Map((lastRun?.result?.nodes ?? []).map((node) => [node.node_id, node])),
+    [lastRun],
+  );
+
+  const edgeOptions = useMemo(
     () =>
       getSupportedEdgeOptions({
         sourceNodeID: newEdgeSourceID,
-        nodes: draftNodes,
+        nodes: canvasNodes.map(flowNodeToGraphNode),
         archetypes: catalog,
       }),
-    [catalog, draftNodes, newEdgeSourceID],
+    [canvasNodes, catalog, newEdgeSourceID],
   );
 
-  const flowNodes = useMemo<Node<SystemNodeData>[]>(
+  const displayNodes = useMemo(
     () =>
-      draftNodes.map((node) => ({
-        id: node.id,
-        type: "systemNode",
-        position: node.position,
-        selected: node.id === selectedNodeID,
-        data: {
-          label: node.label,
-          archetype: node.archetype,
-        },
-      })),
-    [draftNodes, selectedNodeID],
+      canvasNodes.map((node) => {
+        const result = resultNodesByID.get(node.id);
+        const palette = getNodePalette(node.data.color);
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            label: buildNodeLabel(node.data, result),
+          },
+          sourcePosition: "right",
+          targetPosition: "left",
+          style: {
+            width: 220,
+            borderRadius: 18,
+            border: `2px solid ${palette.border}`,
+            background: palette.background,
+            color: palette.text,
+            boxShadow:
+              lastRun?.result?.bottleneck?.node_id === node.id
+                ? "0 0 0 3px rgba(216, 77, 58, 0.18), 0 10px 24px rgba(71, 93, 124, 0.14)"
+                : "0 10px 24px rgba(71, 93, 124, 0.12)",
+            padding: 0,
+          },
+          selected: node.id === selectedNodeID,
+        };
+      }),
+    [canvasNodes, lastRun, resultNodesByID, selectedNodeID],
   );
 
-  const flowEdges = useMemo<Edge[]>(
+  const displayEdges = useMemo(
     () =>
-      draftEdges.map((edge) => ({
-        id: edge.id,
-        source: edge.source_node_id,
-        target: edge.target_node_id,
+      canvasEdges.map((edge) => ({
+        ...edge,
         label:
-          edge.routing_rule.rule_type === "always"
-            ? edge.interaction_type
-            : `${edge.interaction_type} / ${edge.routing_rule.rule_type}`,
+          edge.data?.ruleType && edge.data.ruleType !== "always"
+            ? edge.data.ruleType
+            : edge.data?.interactionType ?? "sync_request",
         markerEnd: {
           type: MarkerType.ArrowClosed,
+          color: "#4f6ef7",
+        },
+        style: {
+          stroke: "#4f6ef7",
+          strokeWidth: 2.5,
+        },
+        labelStyle: {
+          fill: "#364152",
+          fontSize: 12,
+          fontWeight: 700,
+        },
+        labelBgStyle: {
+          fill: "rgba(255,255,255,0.96)",
         },
       })),
-    [draftEdges],
+    [canvasEdges],
   );
 
   useEffect(() => {
@@ -132,32 +191,33 @@ export function AppShell() {
 
   useEffect(() => {
     if (
-      supportedEdgeOptions.interactions.length > 0 &&
-      !supportedEdgeOptions.interactions.includes(newEdgeInteraction)
+      edgeOptions.interactions.length > 0 &&
+      !edgeOptions.interactions.includes(newEdgeInteraction)
     ) {
-      setNewEdgeInteraction(supportedEdgeOptions.interactions[0]);
+      setNewEdgeInteraction(edgeOptions.interactions[0]);
     }
 
     if (
-      supportedEdgeOptions.routingRules.length > 0 &&
-      !supportedEdgeOptions.routingRules.includes(newEdgeRule)
+      edgeOptions.routingRules.length > 0 &&
+      !edgeOptions.routingRules.includes(newEdgeRule)
     ) {
-      setNewEdgeRule(supportedEdgeOptions.routingRules[0]);
+      setNewEdgeRule(edgeOptions.routingRules[0]);
     }
-  }, [newEdgeInteraction, newEdgeRule, supportedEdgeOptions]);
+  }, [edgeOptions, newEdgeInteraction, newEdgeRule]);
 
   async function bootstrap() {
     try {
-      const [status, archetypes, design] = await Promise.all([
+      const [status, archetypes] = await Promise.all([
         getStatus(),
         listComponentArchetypes(),
-        getDesign(sampleDesignID),
       ]);
 
-      setApiStatus(`${status.name} ${status.version} (${status.api})`);
+      setApiStatus(`${status.name} ${status.version}`);
       setCatalog(archetypes);
-      applyDesignToEditor(design);
-      setFeedback("Backend connected. Sample design loaded.");
+      resetToBlankCanvas();
+      setFeedback(
+        "Blank canvas ready. Drag a component from the left shelf into the board.",
+      );
     } catch (error) {
       setApiStatus("Backend unavailable");
       setFeedback(readError(error));
@@ -181,6 +241,22 @@ export function AppShell() {
     }
   }
 
+  function resetToBlankCanvas() {
+    const blank = createBlankDraft();
+
+    setSavedDesign(null);
+    setDraftID(null);
+    setDraftName("Fresh Canvas");
+    setDraftDescription(blank.description);
+    setCanvasNodes([]);
+    setCanvasEdges([]);
+    setSelectedNodeID(null);
+    setNewEdgeSourceID("");
+    setNewEdgeTargetID("");
+    setLastRun(null);
+    setIsDirty(false);
+  }
+
   function applyDesignToEditor(design: Design) {
     const draft = cloneDesignIntoDraft(design);
 
@@ -188,32 +264,13 @@ export function AppShell() {
     setDraftID(draft.id);
     setDraftName(draft.name);
     setDraftDescription(draft.description);
-    setDraftNodes(draft.nodes);
-    setDraftEdges(draft.edges);
+    setCanvasNodes(draft.nodes.map(graphNodeToFlowNode));
+    setCanvasEdges(draft.edges.map(graphEdgeToFlowEdge));
     setSelectedNodeID(draft.nodes[0]?.id ?? null);
     setNewEdgeSourceID(draft.nodes[0]?.id ?? "");
     setNewEdgeTargetID(draft.nodes[1]?.id ?? "");
+    setLastRun(null);
     setIsDirty(false);
-  }
-
-  function resetToBlankDraft() {
-    const blank = createBlankDraft();
-
-    setSavedDesign(null);
-    setDraftID(null);
-    setDraftName(blank.name);
-    setDraftDescription(blank.description);
-    setDraftNodes(blank.nodes);
-    setDraftEdges(blank.edges);
-    setSelectedNodeID(null);
-    setNewEdgeSourceID("");
-    setNewEdgeTargetID("");
-    setIsDirty(false);
-    setFeedback("Started a blank canvas draft.");
-  }
-
-  function markDirty() {
-    setIsDirty(true);
   }
 
   function currentDraftDesign() {
@@ -221,71 +278,53 @@ export function AppShell() {
       id: draftID,
       name: draftName,
       description: draftDescription,
-      nodes: draftNodes,
-      edges: draftEdges,
+      nodes: canvasNodes.map(flowNodeToGraphNode),
+      edges: canvasEdges.map(flowEdgeToGraphEdge),
     });
   }
 
   async function handleLoadSample() {
-    const design = await withAction("Loading sample design", () =>
-      getDesign(sampleDesignID),
-    );
+    const design = await withAction("Loading sample", () => getDesign(sampleDesignID));
     if (!design) {
       return;
     }
 
     applyDesignToEditor(design);
-    setFeedback(`Loaded design ${design.id}.`);
-  }
-
-  function handleUseDemoDraft() {
-    const draft = buildDemoDesign("UI Demo Draft");
-
-    setSavedDesign(null);
-    setDraftID(null);
-    setDraftName(draft.name);
-    setDraftDescription(draft.description ?? "");
-    setDraftNodes(draft.graph.nodes);
-    setDraftEdges(draft.graph.edges);
-    setSelectedNodeID(draft.graph.nodes[0]?.id ?? null);
-    setNewEdgeSourceID(draft.graph.nodes[0]?.id ?? "");
-    setNewEdgeTargetID(draft.graph.nodes[1]?.id ?? "");
-    setIsDirty(true);
-    setFeedback("Loaded a demo draft into the canvas.");
+    setFeedback("Loaded sample design.");
   }
 
   async function handleSaveDesign() {
-    if (draftNodes.length === 0) {
-      setFeedback("Add at least one node before saving the draft.");
+    if (canvasNodes.length === 0) {
+      setFeedback("Add at least one component before saving.");
       return;
     }
 
     const payload = {
-      name: draftName.trim() || "Untitled Design",
+      name: draftName.trim() || "Fresh Canvas",
       description: draftDescription.trim(),
       graph: {
-        nodes: draftNodes,
-        edges: draftEdges,
+        nodes: canvasNodes.map(flowNodeToGraphNode),
+        edges: canvasEdges.map(flowEdgeToGraphEdge),
       },
     };
 
     const design = savedDesign
-      ? await withAction("Updating saved design", () =>
+      ? await withAction("Saving design", () =>
           updateDesign(savedDesign.id, payload),
         )
-      : await withAction("Creating saved design", () => createDesign(payload));
+      : await withAction("Saving design", () => createDesign(payload));
 
     if (!design) {
       return;
     }
 
     applyDesignToEditor(design);
-    setFeedback(`Saved design ${design.id}.`);
+    setFeedback(`Saved ${design.id}.`);
   }
 
-  async function handleCreateRun() {
-    if (draftNodes.length === 0) {
-      setFeedback("Add at least one node before starting a run.");
+  async function handleRunSimulation() {
+    if (canvasNodes.length === 0) {
+      setFeedback("Add components before running the simulation.");
       return;
     }
 
@@ -296,193 +335,90 @@ export function AppShell() {
     }
 
     const design = currentDraftDesign();
-    const useInlineDraft = isDirty || !savedDesign;
-
-    const run = await withAction("Creating run", () =>
+    const run = await withAction("Running simulation", () =>
       createRun(
-        useInlineDraft
+        isDirty || !savedDesign
           ? {
               design,
-              workload: {
-                requests_per_second: rps,
-              },
-              simulation_config: {
-                mode: "analytical",
-              },
+              workload: { requests_per_second: rps },
+              simulation_config: { mode: "analytical" },
             }
           : {
               design_id: savedDesign.id,
-              workload: {
-                requests_per_second: rps,
-              },
-              simulation_config: {
-                mode: "analytical",
-              },
+              workload: { requests_per_second: rps },
+              simulation_config: { mode: "analytical" },
             },
       ),
     );
+
     if (!run) {
       return;
     }
 
     setLastRun(run);
-    setFeedback(
-      useInlineDraft
-        ? `Created inline run ${run.id} from the current unsaved draft.`
-        : `Created run ${run.id} from saved design ${savedDesign.id}.`,
+    setFeedback(run.result?.summary ?? `Completed run ${run.id}.`);
+    if (run.result?.bottleneck?.node_id) {
+      setSelectedNodeID(run.result.bottleneck.node_id);
+    }
+  }
+
+  function markDirty() {
+    setIsDirty(true);
+  }
+
+  function addNode(archetype: ComponentArchetype) {
+    const graphNode = createNodeFromArchetype(
+      archetype,
+      canvasNodes.map(flowNodeToGraphNode),
+      getVisibleDropPosition(flowInstance, canvasShellRef.current, canvasNodes.length),
     );
-  }
+    const flowNode = graphNodeToFlowNode(graphNode);
 
-  async function handleReloadLastRun() {
-    if (!lastRun) {
-      setFeedback("Create a run before reloading it.");
-      return;
-    }
-
-    const run = await withAction("Reloading run", () => getRun(lastRun.id));
-    if (!run) {
-      return;
-    }
-
-    setLastRun(run);
-    setFeedback(`Reloaded run ${run.id}.`);
-  }
-
-  function handleAddNode(archetype: ComponentArchetype) {
-    const node = createNodeFromArchetype(archetype, draftNodes);
-
-    setDraftNodes((current) => [...current, node]);
-    setSelectedNodeID(node.id);
+    setCanvasNodes((current) => [...current, flowNode]);
+    setSelectedNodeID(flowNode.id);
     if (!newEdgeSourceID) {
-      setNewEdgeSourceID(node.id);
+      setNewEdgeSourceID(flowNode.id);
     } else if (!newEdgeTargetID) {
-      setNewEdgeTargetID(node.id);
+      setNewEdgeTargetID(flowNode.id);
     }
+    setLastRun(null);
     markDirty();
+    setFeedback(`Added ${archetype.display_name}.`);
   }
 
-  function handleRemoveNode(nodeID: string) {
-    setDraftNodes((current) => current.filter((node) => node.id !== nodeID));
-    setDraftEdges((current) =>
-      current.filter(
-        (edge) => edge.source_node_id !== nodeID && edge.target_node_id !== nodeID,
-      ),
-    );
-
-    if (selectedNodeID === nodeID) {
-      setSelectedNodeID(null);
-    }
-    if (newEdgeSourceID === nodeID) {
-      setNewEdgeSourceID("");
-    }
-    if (newEdgeTargetID === nodeID) {
-      setNewEdgeTargetID("");
-    }
-
-    markDirty();
+  function handleArchetypeDragStart(archetype: ComponentArchetype) {
+    return (event: DragEvent<HTMLButtonElement>) => {
+      event.dataTransfer.setData(
+        "application/luka-archetype",
+        archetype.archetype,
+      );
+      event.dataTransfer.effectAllowed = "copy";
+      setDraggedArchetype(archetype.archetype);
+    };
   }
 
-  function handleNodeLabelChange(nodeID: string, value: string) {
-    setDraftNodes((current) =>
-      current.map((node) => (node.id === nodeID ? { ...node, label: value } : node)),
-    );
-    markDirty();
+  function handleCanvasDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
   }
 
-  function handleNodePropertyChange(
-    nodeID: string,
-    key: keyof GraphNode["properties"],
-    value: string,
-  ) {
-    setDraftNodes((current) =>
-      current.map((node) => {
-        if (node.id !== nodeID) {
-          return node;
-        }
+  function handleCanvasDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
 
-        return {
-          ...node,
-          properties: {
-            ...node.properties,
-            [key]: value === "" ? undefined : Number(value),
-          },
-        };
-      }),
-    );
-    markDirty();
-  }
-
-  function handleNodeDragStop(nodeID: string, position: { x: number; y: number }) {
-    setDraftNodes((current) =>
-      current.map((node) => (node.id === nodeID ? { ...node, position } : node)),
-    );
-    markDirty();
-  }
-
-  function handleConnect(connection: Connection) {
-    if (!connection.source || !connection.target) {
+    const archetypeKey =
+      event.dataTransfer.getData("application/luka-archetype") || draggedArchetype;
+    const archetype = catalog.find((item) => item.archetype === archetypeKey);
+    if (!archetype) {
+      setDraggedArchetype(null);
       return;
     }
 
-    const defaults = getSupportedEdgeOptions({
-      sourceNodeID: connection.source,
-      nodes: draftNodes,
-      archetypes: catalog,
-    });
-
-    const edge = buildEdge({
-      sourceNodeID: connection.source,
-      targetNodeID: connection.target,
-      interactionType: defaults.interactions[0] ?? "sync_request",
-      ruleType: defaults.routingRules[0] ?? "always",
-      existingEdges: draftEdges,
-    });
-
-    setDraftEdges((current) => [...current, edge]);
-    setNewEdgeSourceID(connection.source);
-    setNewEdgeTargetID(connection.target);
-    setNewEdgeInteraction(edge.interaction_type);
-    setNewEdgeRule(edge.routing_rule.rule_type);
-    markDirty();
-    setFeedback(`Connected ${connection.source} -> ${connection.target}.`);
+    addNode(archetype);
+    setDraggedArchetype(null);
   }
 
-  function handleNodesChange(changes: NodeChange<Node<SystemNodeData>>[]) {
-    const hasStructuralChange = changes.some(
-      (change) => change.type === "position" || change.type === "remove",
-    );
-
-    setDraftNodes((current) => {
-      const nextFlowNodes = applyNodeChanges(
-        changes,
-        current.map((node) => ({
-          id: node.id,
-          type: "systemNode",
-          position: node.position,
-          selected: node.id === selectedNodeID,
-          data: {
-            label: node.label,
-            archetype: node.archetype,
-          },
-        })),
-      );
-
-      const nextFlowByID = new Map(nextFlowNodes.map((node) => [node.id, node]));
-
-      return current
-        .filter((node) => nextFlowByID.has(node.id))
-        .map((node) => {
-          const flowNode = nextFlowByID.get(node.id);
-          if (!flowNode) {
-            return node;
-          }
-
-          return {
-            ...node,
-            position: flowNode.position,
-          };
-        });
-    });
+  function handleNodesChange(changes: NodeChange<Node<FlowNodeData>>[]) {
+    onCanvasNodesChange(changes);
 
     const selectedChange = [...changes]
       .reverse()
@@ -491,92 +427,235 @@ export function AppShell() {
       setSelectedNodeID(selectedChange.selected ? selectedChange.id : null);
     }
 
-    const removedNodeIDs = new Set(
-      changes
-        .filter((change) => change.type === "remove")
-        .map((change) => change.id),
-    );
-    if (removedNodeIDs.size > 0) {
-      setDraftEdges((current) =>
+    if (changes.some((change) => change.type === "remove")) {
+      const removedIDs = new Set(
+        changes
+          .filter((change) => change.type === "remove")
+          .map((change) => change.id),
+      );
+      setCanvasEdges((current) =>
         current.filter(
-          (edge) =>
-            !removedNodeIDs.has(edge.source_node_id) &&
-            !removedNodeIDs.has(edge.target_node_id),
+          (edge) => !removedIDs.has(edge.source) && !removedIDs.has(edge.target),
         ),
       );
+      setLastRun(null);
+      markDirty();
     }
 
-    if (hasStructuralChange) {
+    if (changes.some((change) => change.type === "position")) {
+      setLastRun(null);
       markDirty();
     }
   }
 
-  function handleAddEdge() {
+  function handleEdgesChange(changes: EdgeChange<Edge<FlowEdgeData>>[]) {
+    onCanvasEdgesChange(changes);
+    if (changes.length > 0) {
+      setLastRun(null);
+      markDirty();
+    }
+  }
+
+  function handleConnect(connection: Connection) {
+    if (!connection.source || !connection.target) {
+      return;
+    }
+
+    const options = getSupportedEdgeOptions({
+      sourceNodeID: connection.source,
+      nodes: canvasNodes.map(flowNodeToGraphNode),
+      archetypes: catalog,
+    });
+    const graphEdge = buildEdge({
+      sourceNodeID: connection.source,
+      targetNodeID: connection.target,
+      interactionType: options.interactions[0] ?? "sync_request",
+      ruleType: options.routingRules[0] ?? "always",
+      existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
+    });
+
+    setCanvasEdges((current) =>
+      addEdge(graphEdgeToFlowEdge(graphEdge), current),
+    );
+    setLastRun(null);
+    markDirty();
+    setFeedback(`Connected ${connection.source} to ${connection.target}.`);
+  }
+
+  function handleCreateEdge() {
     if (!newEdgeSourceID || !newEdgeTargetID) {
-      setFeedback("Select both a source and a target node before adding an edge.");
+      setFeedback("Choose both a source and a target node to create an arrow.");
       return;
     }
 
     if (newEdgeSourceID === newEdgeTargetID) {
-      setFeedback("An edge source and target must be different nodes.");
+      setFeedback("Source and target must be different nodes.");
       return;
     }
 
-    const edge = buildEdge({
+    const graphEdge = buildEdge({
       sourceNodeID: newEdgeSourceID,
       targetNodeID: newEdgeTargetID,
       interactionType: newEdgeInteraction,
       ruleType: newEdgeRule,
-      existingEdges: draftEdges,
+      existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
     });
 
-    setDraftEdges((current) => [...current, edge]);
+    setCanvasEdges((current) => [...current, graphEdgeToFlowEdge(graphEdge)]);
+    setLastRun(null);
+    markDirty();
+    setFeedback(`Created arrow ${newEdgeSourceID} → ${newEdgeTargetID}.`);
+  }
+
+  const handleNodeClick: NodeMouseHandler<Node<FlowNodeData>> = (_, node) => {
+    setSelectedNodeID(node.id);
+  };
+
+  function handleColorChange(nodeID: string, color: GraphNode["color"]) {
+    setCanvasNodes((current) =>
+      current.map((node) =>
+        node.id === nodeID
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                color,
+              },
+            }
+          : node,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
+  function handleNodeLabelChange(nodeID: string, value: string) {
+    setCanvasNodes((current) =>
+      current.map((node) =>
+        node.id === nodeID
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                label: value,
+              },
+            }
+          : node,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
+  function handleNodePropertyChange(
+    nodeID: string,
+    key: keyof GraphNode["properties"],
+    value: string,
+  ) {
+    setCanvasNodes((current) =>
+      current.map((node) =>
+        node.id === nodeID
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                properties: {
+                  ...node.data.properties,
+                  [key]: value === "" ? undefined : Number(value),
+                },
+              },
+            }
+          : node,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
+  function handleRemoveNode(nodeID: string) {
+    setCanvasNodes((current) => current.filter((node) => node.id !== nodeID));
+    setCanvasEdges((current) =>
+      current.filter((edge) => edge.source !== nodeID && edge.target !== nodeID),
+    );
+    if (selectedNodeID === nodeID) {
+      setSelectedNodeID(null);
+    }
+    setLastRun(null);
     markDirty();
   }
 
   function handleRemoveEdge(edgeID: string) {
-    setDraftEdges((current) => current.filter((edge) => edge.id !== edgeID));
+    setCanvasEdges((current) => current.filter((edge) => edge.id !== edgeID));
+    setLastRun(null);
     markDirty();
   }
 
-  const handleNodeClick: NodeMouseHandler = (_, node) => {
-    setSelectedNodeID(node.id);
-  };
-
   return (
-    <main className="app-shell">
-      <section className="hero">
+    <main className="studio-shell studio-shell--light">
+      <header className="topbar">
         <div>
-          <p className="eyebrow">Luka</p>
-          <h1>System design, but stress-tested.</h1>
-          <p className="lede">
-            This is the first canvas-based editor slice powered by React Flow.
-            You can drag nodes, connect them on the canvas, save the design,
-            and run simulations against either the saved design or the current
-            unsaved draft.
-          </p>
+          <p className="brand-kicker">Luka</p>
+          <h1>System Design Canvas</h1>
+          <p className="brand-copy">{feedback}</p>
         </div>
 
-        <aside className="hero-panel">
-          <span className="panel-label">Backend status</span>
-          <strong>{apiStatus}</strong>
-          <p>{feedback}</p>
-        </aside>
+        <div className="topbar-actions">
+          <button className="ghost-button" onClick={resetToBlankCanvas} type="button">
+            New Canvas
+          </button>
+          <button className="ghost-button" onClick={handleLoadSample} type="button">
+            Load Sample
+          </button>
+          <button onClick={handleSaveDesign} type="button" disabled={busyAction !== null}>
+            Save Design
+          </button>
+          <button
+            className="run-button"
+            onClick={handleRunSimulation}
+            type="button"
+            disabled={busyAction !== null}
+          >
+            Run Simulation
+          </button>
+        </div>
+      </header>
+
+      <section className="info-strip">
+        <span>{apiStatus}</span>
+        <span>{savedDesign ? savedDesign.id : "Unsaved design"}</span>
+        <span>{isDirty ? "Unsaved changes" : "All changes synced"}</span>
+        <span>
+          {canvasNodes.length} nodes / {canvasEdges.length} edges
+        </span>
       </section>
 
-      <section className="workspace-grid workspace-grid--top">
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="panel-label">Editor Controls</p>
-              <h2>Draft and persistence</h2>
+      <section className="workspace">
+        <aside className="sidebar">
+          <div className="panel">
+            <p className="panel-kicker">Components</p>
+            <h2>Drag onto canvas</h2>
+            <div className="catalog-grid">
+              {catalog.map((item) => (
+                <button
+                  key={item.archetype}
+                  className={`catalog-card catalog-card--${defaultColorForArchetype(item.archetype)}`}
+                  draggable
+                  onDragStart={handleArchetypeDragStart(item)}
+                  onDragEnd={() => setDraggedArchetype(null)}
+                  onClick={() => addNode(item)}
+                  type="button"
+                >
+                  <strong>{item.display_name}</strong>
+                  <small>{item.archetype}</small>
+                </button>
+              ))}
             </div>
-            {busyAction ? <span className="badge busy">{busyAction}</span> : null}
           </div>
 
-          <div className="control-stack">
+          <div className="panel">
+            <p className="panel-kicker">Design</p>
             <label className="field">
-              <span>Design name</span>
+              <span>Name</span>
               <input
                 value={draftName}
                 onChange={(event) => {
@@ -585,11 +664,10 @@ export function AppShell() {
                 }}
               />
             </label>
-
             <label className="field">
               <span>Description</span>
               <textarea
-                rows={3}
+                rows={5}
                 value={draftDescription}
                 onChange={(event) => {
                   setDraftDescription(event.target.value);
@@ -597,191 +675,103 @@ export function AppShell() {
                 }}
               />
             </label>
-
             <label className="field">
-              <span>Requests per second</span>
+              <span>Requests / sec</span>
               <input
                 inputMode="numeric"
                 value={requestsPerSecond}
                 onChange={(event) => setRequestsPerSecond(event.target.value)}
               />
             </label>
-
-            <div className="button-row">
-              <button onClick={resetToBlankDraft} disabled={busyAction !== null}>
-                Start blank draft
-              </button>
-              <button onClick={handleLoadSample} disabled={busyAction !== null}>
-                Load sample design
-              </button>
-              <button onClick={handleUseDemoDraft} disabled={busyAction !== null}>
-                Use demo draft
-              </button>
-            </div>
-
-            <div className="button-row">
-              <button onClick={handleSaveDesign} disabled={busyAction !== null}>
-                {savedDesign ? "Save changes" : "Create saved design"}
-              </button>
-              <button onClick={handleCreateRun} disabled={busyAction !== null}>
-                Create run
-              </button>
-              <button
-                onClick={handleReloadLastRun}
-                disabled={busyAction !== null}
-              >
-                Reload last run
-              </button>
-            </div>
           </div>
-        </article>
+        </aside>
 
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="panel-label">Latest run</p>
-              <h2>{lastRun?.id ?? "No run created"}</h2>
-            </div>
-            {lastRun ? <span className="badge">{lastRun.status}</span> : null}
+        <section className="board-panel">
+          <div
+            ref={canvasShellRef}
+            className={`canvas-shell${draggedArchetype ? " canvas-shell--ready" : ""}`}
+            onDragOver={handleCanvasDragOver}
+            onDrop={handleCanvasDrop}
+          >
+            <ReactFlow
+              nodes={displayNodes}
+              edges={displayEdges}
+              onInit={setFlowInstance}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
+              onConnect={handleConnect}
+              onPaneClick={() => setSelectedNodeID(null)}
+              onNodeClick={handleNodeClick}
+            >
+              <Background gap={24} size={1} color="#d8e0ef" />
+              <Controls />
+            </ReactFlow>
+
+            {canvasNodes.length === 0 ? (
+              <div className="canvas-empty">
+                <strong>Drop components here</strong>
+                <p>
+                  New nodes are placed in the visible center of the board so they
+                  never disappear off-screen.
+                </p>
+              </div>
+            ) : null}
           </div>
 
           {lastRun?.result ? (
-            <div className="metric-stack">
-              <p>{lastRun.result.summary}</p>
-
+            <div className="run-summary">
+              <strong>{lastRun.result.summary}</strong>
               {lastRun.result.bottleneck ? (
-                <div className="result-callout">
-                  <span className="panel-label">Bottleneck</span>
-                  <strong>{lastRun.result.bottleneck.label}</strong>
-                  <p>{lastRun.result.bottleneck.explanation}</p>
-                </div>
+                <p>{lastRun.result.bottleneck.explanation}</p>
               ) : null}
-
-              <div className="metric-grid">
-                {lastRun.result.nodes.map((node) => (
-                  <div className="metric-card" key={node.node_id}>
-                    <span>{node.label}</span>
-                    <strong>{Math.round(node.utilization * 100)}%</strong>
-                  </div>
-                ))}
-              </div>
             </div>
-          ) : (
-            <p className="empty-state">
-              Create a run to inspect the bottleneck and node metrics.
-            </p>
-          )}
-        </article>
-      </section>
+          ) : null}
+        </section>
 
-      <section className="workspace-grid">
-        <article className="panel panel--canvas">
-          <div className="panel-header">
-            <div>
-              <p className="panel-label">Canvas</p>
-              <h2>{draftName || "Untitled Design"}</h2>
-            </div>
-            {savedDesign ? (
-              <span className="badge">{savedDesign.id}</span>
-            ) : (
-              <span className="badge busy">unsaved</span>
-            )}
-          </div>
+        <aside className="sidebar">
+          <div className="panel">
+            <p className="panel-kicker">Inspector</p>
+            <h2>{selectedNode?.data.label ?? "Select a node"}</h2>
+            {selectedNode ? (
+              <div className="inspector">
+                <label className="field">
+                  <span>Label</span>
+                  <input
+                    value={selectedNode.data.label}
+                    onChange={(event) =>
+                      handleNodeLabelChange(selectedNode.id, event.target.value)
+                    }
+                  />
+                </label>
 
-          <div className="metric-grid">
-            <div className="metric-card">
-              <span>Nodes</span>
-              <strong>{draftNodes.length}</strong>
-            </div>
-            <div className="metric-card">
-              <span>Edges</span>
-              <strong>{draftEdges.length}</strong>
-            </div>
-            <div className="metric-card">
-              <span>State</span>
-              <strong>{isDirty ? "Dirty" : "Synced"}</strong>
-            </div>
-          </div>
+                <label className="field">
+                  <span>Color</span>
+                  <select
+                    value={selectedNode.data.color}
+                    onChange={(event) =>
+                      handleColorChange(
+                        selectedNode.id,
+                        event.target.value as GraphNode["color"],
+                      )
+                    }
+                  >
+                    {colorOptions.map((color) => (
+                      <option key={color} value={color}>
+                        {color}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-          <div className="canvas-shell">
-            <ReactFlow
-              fitView
-              fitViewOptions={{ padding: 0.2 }}
-              nodes={flowNodes}
-              edges={flowEdges}
-              nodeTypes={nodeTypes}
-              onNodeClick={handleNodeClick}
-              onNodesChange={handleNodesChange}
-              onNodeDrag={(_, node) => handleNodeDragStop(node.id, node.position)}
-              onNodeDragStop={(_, node) =>
-                handleNodeDragStop(node.id, node.position)
-              }
-              onConnect={handleConnect}
-            >
-              <Background gap={24} size={1} />
-              <MiniMap pannable zoomable />
-              <Controls />
-            </ReactFlow>
-          </div>
-        </article>
-      </section>
-
-      <section className="workspace-grid">
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="panel-label">Component catalog</p>
-              <h2>Add nodes from backend archetypes</h2>
-            </div>
-          </div>
-
-          <ul className="catalog-list">
-            {catalog.map((item) => (
-              <li className="catalog-item" key={item.archetype}>
-                <div>
-                  <strong>{item.display_name}</strong>
-                  <p>{item.archetype}</p>
-                </div>
-                <div className="catalog-actions">
-                  <small>{item.supported_routing_rules.join(", ")}</small>
-                  <button onClick={() => handleAddNode(item)} type="button">
-                    Add node
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </article>
-
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="panel-label">Inspector</p>
-              <h2>{selectedNode?.label ?? "Select a node"}</h2>
-            </div>
-          </div>
-
-          {selectedNode ? (
-            <div className="control-stack">
-              <label className="field">
-                <span>Node label</span>
-                <input
-                  value={selectedNode.label}
-                  onChange={(event) =>
-                    handleNodeLabelChange(selectedNode.id, event.target.value)
-                  }
-                />
-              </label>
-
-              <div className="property-grid">
                 {Object.entries(nodePropertyLabels).map(([key, label]) => (
                   <label className="field" key={key}>
                     <span>{label}</span>
                     <input
                       inputMode="decimal"
                       value={
-                        selectedNode.properties[key as keyof GraphNode["properties"]] ??
-                        ""
+                        selectedNode.data.properties[
+                          key as keyof GraphNode["properties"]
+                        ] ?? ""
                       }
                       onChange={(event) =>
                         handleNodePropertyChange(
@@ -793,33 +783,26 @@ export function AppShell() {
                     />
                   </label>
                 ))}
+
+                <button
+                  className="ghost-button ghost-button--danger"
+                  onClick={() => handleRemoveNode(selectedNode.id)}
+                  type="button"
+                >
+                  Remove node
+                </button>
               </div>
-
-              <button
-                className="ghost-button"
-                onClick={() => handleRemoveNode(selectedNode.id)}
-                type="button"
-              >
-                Remove selected node
-              </button>
-            </div>
-          ) : (
-            <p className="empty-state">
-              Select a node on the canvas to edit its label and properties.
-            </p>
-          )}
-        </article>
-
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="panel-label">Edges</p>
-              <h2>Canvas connections and overrides</h2>
-            </div>
+            ) : (
+              <p className="empty-copy">
+                Click a node to edit its label, color, and capacity assumptions.
+              </p>
+            )}
           </div>
 
-          <div className="control-stack">
-            <div className="property-grid">
+          <div className="panel">
+            <p className="panel-kicker">Connections</p>
+            <h2>{canvasEdges.length ? "Current edges" : "No edges yet"}</h2>
+            <div className="inspector">
               <label className="field">
                 <span>Source</span>
                 <select
@@ -827,9 +810,9 @@ export function AppShell() {
                   onChange={(event) => setNewEdgeSourceID(event.target.value)}
                 >
                   <option value="">Select source</option>
-                  {draftNodes.map((node) => (
+                  {canvasNodes.map((node) => (
                     <option key={node.id} value={node.id}>
-                      {node.label}
+                      {node.data.label}
                     </option>
                   ))}
                 </select>
@@ -842,27 +825,25 @@ export function AppShell() {
                   onChange={(event) => setNewEdgeTargetID(event.target.value)}
                 >
                   <option value="">Select target</option>
-                  {draftNodes.map((node) => (
+                  {canvasNodes.map((node) => (
                     <option key={node.id} value={node.id}>
-                      {node.label}
+                      {node.data.label}
                     </option>
                   ))}
                 </select>
               </label>
-            </div>
 
-            <div className="property-grid">
               <label className="field">
-                <span>Interaction type</span>
+                <span>Interaction</span>
                 <select
                   value={newEdgeInteraction}
                   onChange={(event) =>
                     setNewEdgeInteraction(
-                      event.target.value as "sync_request" | "conditional_branch",
+                      event.target.value as EdgeInteractionType,
                     )
                   }
                 >
-                  {supportedEdgeOptions.interactions.map((interaction) => (
+                  {edgeOptions.interactions.map((interaction) => (
                     <option key={interaction} value={interaction}>
                       {interaction}
                     </option>
@@ -875,41 +856,38 @@ export function AppShell() {
                 <select
                   value={newEdgeRule}
                   onChange={(event) =>
-                    setNewEdgeRule(
-                      event.target.value as "always" | "cache_hit" | "cache_miss",
-                    )
+                    setNewEdgeRule(event.target.value as RoutingRuleType)
                   }
                 >
-                  {supportedEdgeOptions.routingRules.map((rule) => (
+                  {edgeOptions.routingRules.map((rule) => (
                     <option key={rule} value={rule}>
                       {rule}
                     </option>
                   ))}
                 </select>
               </label>
-            </div>
 
-            <div className="button-row">
-              <button onClick={handleAddEdge} type="button">
-                Add edge manually
+              <button onClick={handleCreateEdge} type="button">
+                Add Arrow
               </button>
             </div>
 
-            {draftEdges.length === 0 ? (
-              <p className="empty-state">
-                No edges yet. Drag a connection between nodes on the canvas, or
-                add one manually here.
+            {canvasEdges.length === 0 ? (
+              <p className="empty-copy">
+                Build your first connection with the arrow composer above.
               </p>
             ) : (
-              <ul className="simple-list">
-                {draftEdges.map((edge) => (
+              <ul className="edge-list">
+                {canvasEdges.map((edge) => (
                   <li key={edge.id}>
-                    <div className="edge-copy">
-                      <strong>{edge.source_node_id}</strong>
-                      <span>
-                        {edge.interaction_type} / {edge.routing_rule.rule_type}
-                      </span>
-                      <small>{edge.target_node_id}</small>
+                    <div>
+                      <strong>
+                        {edge.source} → {edge.target}
+                      </strong>
+                      <small>
+                        {edge.data?.interactionType ?? "sync_request"} /{" "}
+                        {edge.data?.ruleType ?? "always"}
+                      </small>
                     </div>
                     <button
                       className="ghost-button"
@@ -923,10 +901,172 @@ export function AppShell() {
               </ul>
             )}
           </div>
-        </article>
+        </aside>
       </section>
     </main>
   );
+}
+
+function graphNodeToFlowNode(node: GraphNode): Node<FlowNodeData> {
+  return {
+    id: node.id,
+    position: node.position,
+    data: {
+      label: node.label,
+      archetype: node.archetype,
+      color: node.color,
+      properties: node.properties,
+    },
+  };
+}
+
+function flowNodeToGraphNode(node: Node<FlowNodeData>): GraphNode {
+  return {
+    id: node.id,
+    label: node.data.label,
+    archetype: node.data.archetype,
+    color: node.data.color,
+    position: {
+      x: node.position.x,
+      y: node.position.y,
+    },
+    properties: node.data.properties,
+  };
+}
+
+function graphEdgeToFlowEdge(edge: GraphEdge): Edge<FlowEdgeData> {
+  return {
+    id: edge.id,
+    source: edge.source_node_id,
+    target: edge.target_node_id,
+    data: {
+      interactionType: edge.interaction_type,
+      ruleType: edge.routing_rule.rule_type,
+    },
+  };
+}
+
+function flowEdgeToGraphEdge(edge: Edge<FlowEdgeData>): GraphEdge {
+  return {
+    id: edge.id,
+    source_node_id: edge.source,
+    target_node_id: edge.target,
+    interaction_type: edge.data?.interactionType ?? "sync_request",
+    routing_rule: {
+      rule_type: edge.data?.ruleType ?? "always",
+    },
+  };
+}
+
+function buildNodeLabel(
+  nodeData: FlowNodeData,
+  result:
+    | {
+        utilization: number;
+        incoming_rps: number;
+      }
+    | undefined,
+): ReactNode {
+  return (
+    <div className="flow-node-copy">
+      <div className="flow-node-copy__eyebrow">
+        <span>{nodeData.label}</span>
+        <span>{nodeData.archetype}</span>
+      </div>
+      <strong>{nodeData.color}</strong>
+      {result ? (
+        <div className="flow-node-copy__meta">
+          <span>{Math.round(result.utilization * 100)}% util</span>
+          <span>{formatCompactNumber(result.incoming_rps)} rps</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function getVisibleDropPosition(
+  flowInstance: ReactFlowInstance<Node<FlowNodeData>, Edge<FlowEdgeData>> | null,
+  container: HTMLDivElement | null,
+  nodeCount: number,
+) {
+  if (!flowInstance || !container) {
+    return {
+      x: 120 + (nodeCount % 3) * 240,
+      y: 120 + Math.floor(nodeCount / 3) * 160,
+    };
+  }
+
+  const rect = container.getBoundingClientRect();
+  const center = flowInstance.screenToFlowPosition({
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  });
+
+  return {
+    x: center.x - 110 + (nodeCount % 3) * 24,
+    y: center.y - 36 + (nodeCount % 3) * 18,
+  };
+}
+
+function defaultColorForArchetype(archetype: ComponentArchetype["archetype"]) {
+  switch (archetype) {
+    case "client":
+      return "blue";
+    case "stateless_service":
+      return "green";
+    case "cache":
+      return "yellow";
+    case "database":
+      return "red";
+    default:
+      return "blue";
+  }
+}
+
+function getNodePalette(color: GraphNode["color"]) {
+  switch (color) {
+    case "blue":
+      return {
+        background: "#dfe9ff",
+        border: "#7fa4ff",
+        text: "#13284b",
+      };
+    case "green":
+      return {
+        background: "#ddf6e7",
+        border: "#71c98c",
+        text: "#153724",
+      };
+    case "yellow":
+      return {
+        background: "#fff2bf",
+        border: "#e1ba33",
+        text: "#5b4303",
+      };
+    case "red":
+      return {
+        background: "#ffdeda",
+        border: "#f28d80",
+        text: "#5e1e16",
+      };
+    default:
+      return {
+        background: "#dfe9ff",
+        border: "#7fa4ff",
+        text: "#13284b",
+      };
+  }
+}
+
+function formatCompactNumber(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
 function readError(error: unknown) {

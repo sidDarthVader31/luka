@@ -10,6 +10,7 @@ export function buildDemoDesign(name: string): CreateDesignInput {
           id: "client-1",
           label: "Client",
           archetype: "client",
+          color: "blue",
           position: {
             x: 80,
             y: 180,
@@ -20,6 +21,7 @@ export function buildDemoDesign(name: string): CreateDesignInput {
           id: "service-1",
           label: "Chat Service",
           archetype: "stateless_service",
+          color: "green",
           position: {
             x: 320,
             y: 160,
@@ -34,6 +36,7 @@ export function buildDemoDesign(name: string): CreateDesignInput {
           id: "cache-1",
           label: "Redis Cache",
           archetype: "cache",
+          color: "yellow",
           position: {
             x: 600,
             y: 90,
@@ -49,6 +52,7 @@ export function buildDemoDesign(name: string): CreateDesignInput {
           id: "db-1",
           label: "Postgres",
           archetype: "database",
+          color: "red",
           position: {
             x: 600,
             y: 280,
