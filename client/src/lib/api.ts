@@ -1,0 +1,194 @@
+export type NodeArchetype =
+  | "client"
+  | "stateless_service"
+  | "cache"
+  | "database";
+
+export type EdgeInteractionType = "sync_request" | "conditional_branch";
+export type RoutingRuleType = "always" | "cache_hit" | "cache_miss";
+
+export type GraphNode = {
+  id: string;
+  label: string;
+  archetype: NodeArchetype;
+  properties: {
+    replicas?: number;
+    capacity_rps?: number;
+    base_latency_ms?: number;
+    cache_hit_rate?: number;
+  };
+};
+
+export type GraphEdge = {
+  id: string;
+  source_node_id: string;
+  target_node_id: string;
+  interaction_type: EdgeInteractionType;
+  routing_rule: {
+    rule_type: RoutingRuleType;
+    value?: number;
+  };
+};
+
+export type Design = {
+  id: string;
+  name: string;
+  description?: string;
+  graph: {
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+  };
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type CreateDesignInput = {
+  name: string;
+  description?: string;
+  graph: Design["graph"];
+};
+
+export type UpdateDesignInput = {
+  name?: string;
+  description?: string;
+  graph?: Design["graph"];
+};
+
+export type ComponentArchetype = {
+  archetype: NodeArchetype;
+  display_name: string;
+  default_properties: Record<string, number>;
+  supported_interactions: EdgeInteractionType[];
+  supported_routing_rules: RoutingRuleType[];
+};
+
+export type Run = {
+  id: string;
+  design_id?: string;
+  design_snapshot: Design;
+  workload: {
+    requests_per_second: number;
+  };
+  simulation_config: {
+    mode: "analytical";
+  };
+  status: "completed";
+  result?: {
+    summary: string;
+    bottleneck?: {
+      node_id: string;
+      label: string;
+      archetype: NodeArchetype;
+      incoming_rps: number;
+      processed_rps: number;
+      dropped_rps: number;
+      effective_capacity_rps: number;
+      utilization: number;
+      estimated_latency_ms: number;
+      saturated: boolean;
+      explanation: string;
+    };
+    nodes: Array<{
+      node_id: string;
+      label: string;
+      archetype: NodeArchetype;
+      incoming_rps: number;
+      processed_rps: number;
+      dropped_rps: number;
+      effective_capacity_rps: number;
+      utilization: number;
+      estimated_latency_ms: number;
+      saturated: boolean;
+      explanation: string;
+    }>;
+    edges: Array<{
+      edge_id: string;
+      source_node_id: string;
+      target_node_id: string;
+      rule_type: RoutingRuleType;
+      routed_rps: number;
+    }>;
+  };
+  created_at: string;
+  completed_at?: string;
+};
+
+export type ApiStatus = {
+  name: string;
+  version: string;
+  api: string;
+};
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    ...init,
+  });
+
+  if (!response.ok) {
+    const errorBody = (await response.json().catch(() => null)) as
+      | { error?: string; details?: string }
+      | null;
+
+    throw new Error(
+      errorBody?.details ?? errorBody?.error ?? "Luka API request failed",
+    );
+  }
+
+  return (await response.json()) as T;
+}
+
+export function getStatus() {
+  return request<ApiStatus>("/status");
+}
+
+export async function listComponentArchetypes() {
+  const response = await request<{ items: ComponentArchetype[] }>(
+    "/component-archetypes",
+  );
+
+  return response.items;
+}
+
+export function getDesign(designId: string) {
+  return request<Design>(`/designs/${designId}`);
+}
+
+export function createDesign(input: CreateDesignInput) {
+  return request<Design>("/designs", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateDesign(designId: string, input: UpdateDesignInput) {
+  return request<Design>(`/designs/${designId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function createRun(input: {
+  design_id?: string;
+  design?: Design;
+  workload: {
+    requests_per_second: number;
+  };
+  simulation_config: {
+    mode: "analytical";
+  };
+}) {
+  return request<Run>("/runs", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getRun(runId: string) {
+  return request<Run>(`/runs/${runId}`);
+}

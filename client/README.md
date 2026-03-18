@@ -33,3 +33,20 @@ It should not own the authoritative simulation engine.
 - `corepack pnpm build`
 - `corepack pnpm lint`
 - `corepack pnpm test`
+
+## Local dev
+
+Run the backend first:
+
+```bash
+cd ../server
+go run ./cmd/api
+```
+
+Then run the frontend:
+
+```bash
+corepack pnpm dev
+```
+
+The Vite dev server proxies `/api/*` to `http://127.0.0.1:8080` by default.
