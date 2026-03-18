@@ -56,7 +56,13 @@ type Node struct {
 	ID         string         `json:"id"`
 	Label      string         `json:"label"`
 	Archetype  NodeArchetype  `json:"archetype"`
+	Position   NodePosition   `json:"position"`
 	Properties NodeProperties `json:"properties"`
+}
+
+type NodePosition struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 
 type NodeProperties struct {

@@ -38,14 +38,21 @@ export function createNodeFromArchetype(
   archetype: ComponentArchetype,
   existingNodes: GraphNode[],
 ): GraphNode {
-  const nextIndex =
-    existingNodes.filter((node) => node.archetype === archetype.archetype).length +
-    1;
+  const nextIndex = nextAvailableIndex(
+    existingNodes
+      .filter((node) => node.archetype === archetype.archetype)
+      .map((node) => node.id),
+    `${archetype.archetype}-`,
+  );
 
   return {
     id: `${archetype.archetype}-${nextIndex}`,
     label: `${archetype.display_name} ${nextIndex}`,
     archetype: archetype.archetype,
+    position: {
+      x: 160 + ((nextIndex - 1) % 3) * 240,
+      y: 120 + Math.floor((nextIndex - 1) / 3) * 180,
+    },
     properties: { ...archetype.default_properties },
   };
 }
@@ -57,8 +64,13 @@ export function buildEdge(input: {
   ruleType: RoutingRuleType;
   existingEdges: GraphEdge[];
 }): GraphEdge {
+  const nextIndex = nextAvailableIndex(
+    input.existingEdges.map((edge) => edge.id),
+    "edge-",
+  );
+
   return {
-    id: `edge-${input.existingEdges.length + 1}`,
+    id: `edge-${nextIndex}`,
     source_node_id: input.sourceNodeID,
     target_node_id: input.targetNodeID,
     interaction_type: input.interactionType,
@@ -102,4 +114,19 @@ export function cloneDesignIntoDraft(design: Design) {
     nodes: structuredClone(design.graph.nodes),
     edges: structuredClone(design.graph.edges),
   };
+}
+
+function nextAvailableIndex(ids: string[], prefix: string) {
+  const used = new Set(
+    ids
+      .map((id) => Number(id.replace(prefix, "")))
+      .filter((value) => Number.isInteger(value) && value > 0),
+  );
+
+  let candidate = 1;
+  while (used.has(candidate)) {
+    candidate += 1;
+  }
+
+  return candidate;
 }

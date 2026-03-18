@@ -11,6 +11,10 @@ export type GraphNode = {
   id: string;
   label: string;
   archetype: NodeArchetype;
+  position: {
+    x: number;
+    y: number;
+  };
   properties: {
     replicas?: number;
     capacity_rps?: number;
