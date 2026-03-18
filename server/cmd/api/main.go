@@ -7,7 +7,10 @@ import (
 )
 
 func main() {
-	server := app.NewServer()
+	server, err := app.NewServer()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	log.Printf("luka server listening on %s", server.Address())
 	if err := server.Run(); err != nil {
