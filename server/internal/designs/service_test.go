@@ -19,6 +19,7 @@ func TestCreateAndUpdateDesign(t *testing.T) {
 					ID:        "client-1",
 					Label:     "Client",
 					Archetype: domain.NodeArchetypeClient,
+					Color:     "blue",
 					Position: domain.NodePosition{
 						X: 80,
 						Y: 120,

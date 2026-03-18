@@ -5,6 +5,7 @@ import type { NodeArchetype } from "../lib/api";
 export type SystemNodeData = {
   label: string;
   archetype: NodeArchetype;
+  color: "blue" | "green" | "yellow" | "red";
   status: "idle" | "active" | "bottleneck";
   utilizationLabel?: string;
   trafficLabel?: string;
@@ -15,7 +16,7 @@ export function SystemNode({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`system-node system-node--${typedData.status}${
+      className={`system-node system-node--${typedData.color} system-node--${typedData.status}${
         selected ? " selected" : ""
       }`}
     >

@@ -50,6 +50,7 @@ export function createNodeFromArchetype(
     id: `${archetype.archetype}-${nextIndex}`,
     label: `${archetype.display_name} ${nextIndex}`,
     archetype: archetype.archetype,
+    color: getDefaultNodeColor(archetype.archetype),
     position:
       position ?? {
         x: 160 + ((nextIndex - 1) % 3) * 240,
@@ -131,4 +132,19 @@ function nextAvailableIndex(ids: string[], prefix: string) {
   }
 
   return candidate;
+}
+
+function getDefaultNodeColor(archetype: ComponentArchetype["archetype"]) {
+  switch (archetype) {
+    case "client":
+      return "blue";
+    case "stateless_service":
+      return "green";
+    case "cache":
+      return "yellow";
+    case "database":
+      return "red";
+    default:
+      return "blue";
+  }
 }
