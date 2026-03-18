@@ -269,81 +269,40 @@ button {
   display: block;
 }
 
-.system-node {
-  min-width: 190px;
-  border: 2px solid transparent;
-  border-radius: 18px;
+.flow-node-copy {
+  display: grid;
+  gap: 0.5rem;
   padding: 0.9rem 1rem;
-  color: #132033;
-  box-shadow: 0 10px 24px rgba(71, 93, 124, 0.12);
 }
 
-.system-node--blue {
-  background: #dfe9ff;
-  border-color: #7fa4ff;
-}
-
-.system-node--green {
-  background: #ddf6e7;
-  border-color: #71c98c;
-}
-
-.system-node--yellow {
-  background: #fff2bf;
-  border-color: #e1ba33;
-}
-
-.system-node--red {
-  background: #ffdeda;
-  border-color: #f28d80;
-}
-
-.system-node.selected {
-  box-shadow:
-    0 0 0 3px rgba(79, 110, 247, 0.16),
-    0 10px 24px rgba(71, 93, 124, 0.14);
-}
-
-.system-node--bottleneck {
-  border-color: #d84d3a;
-}
-
-.system-node__eyebrow {
+.flow-node-copy__eyebrow {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-bottom: 0.45rem;
-}
-
-.system-node__type,
-.system-node__status {
   color: #39516f;
   font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.system-node__meta {
+.flow-node-copy strong {
+  font-size: 1rem;
+  text-transform: capitalize;
+}
+
+.flow-node-copy__meta {
   display: flex;
   gap: 0.45rem;
   flex-wrap: wrap;
-  margin-top: 0.65rem;
 }
 
-.system-node__meta span {
+.flow-node-copy__meta span {
   border-radius: 999px;
   padding: 0.26rem 0.55rem;
   background: rgba(255, 255, 255, 0.68);
   color: #25374e;
   font-size: 0.76rem;
-}
-
-.system-handle {
-  width: 10px;
-  height: 10px;
-  border: 2px solid #fff;
-  background: #4f6ef7;
 }
 
 .react-flow__controls {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type DragEvent } from "react";
 import {
   Background,
   Controls,
+  Position,
   MarkerType,
   ReactFlow,
   applyNodeChanges,
@@ -22,7 +23,6 @@ import {
   listComponentArchetypes,
   updateDesign,
 } from "../lib/api";
-import { SystemNode, type SystemNodeData } from "../components/system-node";
 import {
   buildDraftDesign,
   buildEdge,
@@ -33,10 +33,6 @@ import {
 } from "../lib/design-draft";
 
 const sampleDesignID = "sample-cache-aside";
-
-const nodeTypes = {
-  systemNode: SystemNode,
-};
 
 const colorOptions: GraphNode["color"][] = ["blue", "green", "yellow", "red"];
 const nodePropertyLabels: Record<keyof GraphNode["properties"], string> = {
@@ -64,7 +60,7 @@ export function AppShell() {
   const [requestsPerSecond, setRequestsPerSecond] = useState("100000");
   const [draggedArchetype, setDraggedArchetype] = useState<string | null>(null);
   const [flowInstance, setFlowInstance] = useState<
-    ReactFlowInstance<Node<SystemNodeData>, Edge> | null
+    ReactFlowInstance<Node, Edge> | null
   >(null);
   const [isDirty, setIsDirty] = useState(false);
 
@@ -79,31 +75,45 @@ export function AppShell() {
     [lastRun],
   );
 
-  const flowNodes = useMemo<Node<SystemNodeData>[]>(
+  const flowNodes = useMemo<Node[]>(
     () =>
       draftNodes.map((node) => {
         const nodeResult = resultNodesByID.get(node.id);
+        const palette = getNodePalette(node.color);
+
         return {
           id: node.id,
-          type: "systemNode",
           position: node.position,
           data: {
-            label: node.label,
-            archetype: node.archetype,
-            color: node.color,
-            status:
+            label: (
+              <div className="flow-node-copy">
+                <div className="flow-node-copy__eyebrow">
+                  <span>{node.label}</span>
+                  <span>{node.archetype}</span>
+                </div>
+                <strong>{node.color}</strong>
+                {nodeResult ? (
+                  <div className="flow-node-copy__meta">
+                    <span>{Math.round(nodeResult.utilization * 100)}% util</span>
+                    <span>{formatCompactNumber(nodeResult.incoming_rps)} rps</span>
+                  </div>
+                ) : null}
+              </div>
+            ),
+          },
+          sourcePosition: Position.Right,
+          targetPosition: Position.Left,
+          style: {
+            width: 220,
+            borderRadius: 18,
+            border: `2px solid ${palette.border}`,
+            background: palette.background,
+            color: palette.text,
+            boxShadow:
               lastRun?.result?.bottleneck?.node_id === node.id
-                ? "bottleneck"
-                : nodeResult
-                  ? "active"
-                  : "idle",
-            utilizationLabel: nodeResult
-              ? `${Math.round(nodeResult.utilization * 100)}% util`
-              : undefined,
-            trafficLabel:
-              nodeResult && nodeResult.incoming_rps > 0
-                ? `${formatCompactNumber(nodeResult.incoming_rps)} rps`
-                : undefined,
+                ? "0 0 0 3px rgba(216, 77, 58, 0.18), 0 10px 24px rgba(71, 93, 124, 0.14)"
+                : "0 10px 24px rgba(71, 93, 124, 0.12)",
+            padding: 0,
           },
           selected: node.id === selectedNodeID,
         };
@@ -360,19 +370,15 @@ export function AppShell() {
     setFeedback(`Added ${archetype.display_name}.`);
   }
 
-  function handleNodesChange(changes: NodeChange<Node<SystemNodeData>>[]) {
+  function handleNodesChange(changes: NodeChange<Node>[]) {
     setDraftNodes((current) => {
       const nextFlowNodes = applyNodeChanges(
         changes,
         current.map((node) => ({
           id: node.id,
-          type: "systemNode",
           position: node.position,
           data: {
             label: node.label,
-            archetype: node.archetype,
-            color: node.color,
-            status: "idle",
           },
           selected: node.id === selectedNodeID,
         })),
@@ -449,7 +455,7 @@ export function AppShell() {
     };
   }
 
-  function handleNodeClick(_: unknown, node: Node<SystemNodeData>) {
+  function handleNodeClick(_: unknown, node: Node) {
     setSelectedNodeID(node.id);
   }
 
@@ -616,14 +622,11 @@ export function AppShell() {
             <ReactFlow
               nodes={flowNodes}
               edges={flowEdges}
-              nodeTypes={nodeTypes}
               onInit={setFlowInstance}
               onNodesChange={handleNodesChange}
               onConnect={handleConnect}
               onPaneClick={() => setSelectedNodeID(null)}
               onNodeClick={handleNodeClick as NodeMouseHandler}
-              fitView={draftNodes.length > 0}
-              fitViewOptions={{ padding: 0.18 }}
             >
               <Background gap={24} size={1} color="#d8e0ef" />
               <Controls />
@@ -769,6 +772,41 @@ function defaultColorForArchetype(archetype: ComponentArchetype["archetype"]) {
       return "red";
     default:
       return "blue";
+  }
+}
+
+function getNodePalette(color: GraphNode["color"]) {
+  switch (color) {
+    case "blue":
+      return {
+        background: "#dfe9ff",
+        border: "#7fa4ff",
+        text: "#13284b",
+      };
+    case "green":
+      return {
+        background: "#ddf6e7",
+        border: "#71c98c",
+        text: "#153724",
+      };
+    case "yellow":
+      return {
+        background: "#fff2bf",
+        border: "#e1ba33",
+        text: "#5b4303",
+      };
+    case "red":
+      return {
+        background: "#ffdeda",
+        border: "#f28d80",
+        text: "#5e1e16",
+      };
+    default:
+      return {
+        background: "#dfe9ff",
+        border: "#7fa4ff",
+        text: "#13284b",
+      };
   }
 }
 
