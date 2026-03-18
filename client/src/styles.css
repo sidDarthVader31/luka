@@ -157,7 +157,9 @@ body {
   font-size: 0.92rem;
 }
 
-.field input {
+.field input,
+.field textarea,
+.field select {
   width: 100%;
   border: 1px solid rgba(244, 239, 231, 0.12);
   border-radius: 16px;
@@ -187,6 +189,11 @@ button {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.ghost-button {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(244, 239, 231, 0.86);
 }
 
 .metric-grid {
@@ -248,6 +255,41 @@ button:disabled {
 
 .catalog-item {
   align-items: start;
+}
+
+.catalog-actions {
+  display: grid;
+  gap: 0.6rem;
+  justify-items: end;
+}
+
+.property-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.list-button {
+  display: grid;
+  gap: 0.2rem;
+  justify-items: start;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.list-button.active {
+  color: #ffd4a0;
+}
+
+.edge-copy {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.edge-copy small {
+  color: rgba(244, 239, 231, 0.58);
 }
 
 .result-callout {
