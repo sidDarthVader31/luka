@@ -10,6 +10,16 @@ import (
 
 type Service struct{}
 
+type normalizedWorkload struct {
+	RequestsPerSecond float64
+	ConcurrentUsers   float64
+	ReadWriteRatio    float64
+	ReadShare         float64
+	WriteShare        float64
+	PayloadKB         float64
+	FanoutCount       float64
+}
+
 func NewService() *Service {
 	return &Service{}
 }
@@ -19,10 +29,10 @@ func (s *Service) RunDesign(design domain.Design, workload domain.Workload) (*do
 		return nil, errors.New("workload.requests_per_second must be greater than zero")
 	}
 
-	return s.runGraph(design, workload)
+	return s.runGraph(design, normalizeWorkload(workload))
 }
 
-func (s *Service) runGraph(design domain.Design, workload domain.Workload) (*domain.SimulationResult, error) {
+func (s *Service) runGraph(design domain.Design, workload normalizedWorkload) (*domain.SimulationResult, error) {
 	nodeByID := make(map[string]domain.Node, len(design.Graph.Nodes))
 	inDegree := make(map[string]int, len(design.Graph.Nodes))
 	outgoing := make(map[string][]domain.Edge, len(design.Graph.Nodes))
@@ -79,12 +89,12 @@ func (s *Service) runGraph(design domain.Design, workload domain.Workload) (*dom
 			incoming = workload.RequestsPerSecond
 		}
 
-		result := simulateNode(node, incoming)
+		result := simulateNode(node, incoming, workload)
 		nodeResults[nodeID] = result
 		processedNodes++
 
 		for _, edge := range outgoing[nodeID] {
-			routed, err := applyRoutingRule(edge, node, result.ProcessedRPS)
+			routed, err := applyRoutingRule(edge, node, result.ProcessedRPS, workload)
 			if err != nil {
 				return nil, err
 			}
@@ -130,17 +140,15 @@ func (s *Service) runGraph(design domain.Design, workload domain.Workload) (*dom
 		return nil, errors.New("no bottleneck candidate found in design")
 	}
 
-	response := &domain.SimulationResult{
+	return &domain.SimulationResult{
 		Nodes:      nodeList,
 		Edges:      edgeResults,
 		Bottleneck: bottleneck,
 		Summary:    summarize(design, workload, *bottleneck),
-	}
-
-	return response, nil
+	}, nil
 }
 
-func simulateNode(node domain.Node, incomingRPS float64) domain.NodeSimulationResult {
+func simulateNode(node domain.Node, incomingRPS float64, workload normalizedWorkload) domain.NodeSimulationResult {
 	if node.Archetype == domain.NodeArchetypeClient {
 		return domain.NodeSimulationResult{
 			NodeID:               node.ID,
@@ -162,6 +170,7 @@ func simulateNode(node domain.Node, incomingRPS float64) domain.NodeSimulationRe
 		effectiveCapacity *= float64(node.Properties.Replicas)
 	}
 
+	effectiveCapacity = effectiveCapacity / capacityPenalty(node, workload)
 	if effectiveCapacity <= 0 {
 		effectiveCapacity = 1
 	}
@@ -169,7 +178,7 @@ func simulateNode(node domain.Node, incomingRPS float64) domain.NodeSimulationRe
 	processed := math.Min(incomingRPS, effectiveCapacity)
 	dropped := math.Max(0, incomingRPS-effectiveCapacity)
 	utilization := incomingRPS / effectiveCapacity
-	latency := estimateLatency(node.Properties.BaseLatencyMS, utilization)
+	latency := estimateLatency(node.Properties.BaseLatencyMS, utilization, node, workload)
 	saturated := utilization > 1
 
 	return domain.NodeSimulationResult{
@@ -187,35 +196,56 @@ func simulateNode(node domain.Node, incomingRPS float64) domain.NodeSimulationRe
 	}
 }
 
-func applyRoutingRule(edge domain.Edge, sourceNode domain.Node, processedRPS float64) (float64, error) {
+func applyRoutingRule(
+	edge domain.Edge,
+	sourceNode domain.Node,
+	processedRPS float64,
+	workload normalizedWorkload,
+) (float64, error) {
+	var routed float64
+
 	switch edge.RoutingRule.RuleType {
 	case domain.RoutingRuleAlways:
-		return processedRPS, nil
+		routed = processedRPS
 	case domain.RoutingRuleCacheHit:
 		if sourceNode.Archetype != domain.NodeArchetypeCache {
 			return 0, fmt.Errorf("edge %q uses cache_hit but source node %q is not a cache", edge.ID, sourceNode.ID)
 		}
 
-		return processedRPS * normalizedHitRate(sourceNode), nil
+		routed = processedRPS * normalizedHitRate(sourceNode)
 	case domain.RoutingRuleCacheMiss:
 		if sourceNode.Archetype != domain.NodeArchetypeCache {
 			return 0, fmt.Errorf("edge %q uses cache_miss but source node %q is not a cache", edge.ID, sourceNode.ID)
 		}
 
-		return processedRPS * (1 - normalizedHitRate(sourceNode)), nil
+		routed = processedRPS * (1 - normalizedHitRate(sourceNode))
 	default:
 		return 0, fmt.Errorf("edge %q uses unsupported routing rule %q", edge.ID, edge.RoutingRule.RuleType)
 	}
+
+	if edge.InteractionType == domain.EdgeInteractionAsyncEnqueue && workload.FanoutCount > 1 {
+		routed *= workload.FanoutCount
+	}
+
+	return routed, nil
 }
 
 func normalizedHitRate(node domain.Node) float64 {
 	return min(max(node.Properties.CacheHitRate, 0), 1)
 }
 
-func estimateLatency(baseLatencyMS, utilization float64) float64 {
+func estimateLatency(
+	baseLatencyMS float64,
+	utilization float64,
+	node domain.Node,
+	workload normalizedWorkload,
+) float64 {
 	if baseLatencyMS <= 0 {
 		baseLatencyMS = 1
 	}
+
+	baseLatencyMS *= 1 + ((payloadPenalty(workload.PayloadKB) - 1) * 0.4)
+	baseLatencyMS *= 1 + ((concurrencyPenalty(node, workload) - 1) * 0.35)
 
 	switch {
 	case utilization <= 0.7:
@@ -296,20 +326,120 @@ func explainNode(node domain.Node, incomingRPS, effectiveCapacity float64, satur
 	)
 }
 
-func summarize(design domain.Design, workload domain.Workload, bottleneck domain.NodeSimulationResult) string {
+func summarize(design domain.Design, workload normalizedWorkload, bottleneck domain.NodeSimulationResult) string {
 	status := "is the tightest component but still within capacity"
 	if bottleneck.Saturated {
 		status = "saturates first"
 	}
 
 	return fmt.Sprintf(
-		"For %.0f requests/sec on %q, %s %s at %.0f%% utilization.",
+		"For %.0f requests/sec with %.0f concurrent users, %.1f:1 read/write, %.0f KB payload, and fanout x%.0f on %q, %s %s at %.0f%% utilization.",
 		workload.RequestsPerSecond,
+		workload.ConcurrentUsers,
+		workload.ReadWriteRatio,
+		workload.PayloadKB,
+		workload.FanoutCount,
 		design.Name,
 		bottleneck.Label,
 		status,
 		bottleneck.Utilization*100,
 	)
+}
+
+func normalizeWorkload(workload domain.Workload) normalizedWorkload {
+	readWriteRatio := workload.ReadWriteRatio
+	if readWriteRatio <= 0 {
+		readWriteRatio = 4
+	}
+
+	payloadKB := workload.PayloadKB
+	if payloadKB <= 0 {
+		payloadKB = 4
+	}
+
+	fanoutCount := workload.FanoutCount
+	if fanoutCount <= 0 {
+		fanoutCount = 1
+	}
+
+	concurrentUsers := workload.ConcurrentUsers
+	if concurrentUsers < 0 {
+		concurrentUsers = 0
+	}
+
+	writeShare := 1 / (readWriteRatio + 1)
+	readShare := 1 - writeShare
+
+	return normalizedWorkload{
+		RequestsPerSecond: workload.RequestsPerSecond,
+		ConcurrentUsers:   float64(concurrentUsers),
+		ReadWriteRatio:    readWriteRatio,
+		ReadShare:         readShare,
+		WriteShare:        writeShare,
+		PayloadKB:         payloadKB,
+		FanoutCount:       float64(fanoutCount),
+	}
+}
+
+func capacityPenalty(node domain.Node, workload normalizedWorkload) float64 {
+	penalty := payloadPenalty(workload.PayloadKB)
+	penalty *= writePenalty(node.Archetype, workload.WriteShare)
+	penalty *= concurrencyPenalty(node, workload)
+
+	if penalty < 1 {
+		return 1
+	}
+
+	return penalty
+}
+
+func payloadPenalty(payloadKB float64) float64 {
+	if payloadKB <= 4 {
+		return 1
+	}
+
+	return 1 + ((payloadKB - 4) / 32)
+}
+
+func writePenalty(archetype domain.NodeArchetype, writeShare float64) float64 {
+	switch archetype {
+	case domain.NodeArchetypeDatabase:
+		return 1 + (writeShare * 1.35)
+	case domain.NodeArchetypeQueue, domain.NodeArchetypeWorker:
+		return 1 + (writeShare * 0.9)
+	case domain.NodeArchetypeStatelessService:
+		return 1 + (writeShare * 0.45)
+	case domain.NodeArchetypeGateway:
+		return 1 + (writeShare * 0.2)
+	case domain.NodeArchetypeCache:
+		return 1 + (writeShare * 0.1)
+	default:
+		return 1
+	}
+}
+
+func concurrencyPenalty(node domain.Node, workload normalizedWorkload) float64 {
+	if workload.ConcurrentUsers <= 0 {
+		return 1
+	}
+
+	replicas := 1
+	if node.Properties.Replicas > 1 {
+		replicas = node.Properties.Replicas
+	}
+
+	perReplicaSessions := workload.ConcurrentUsers / float64(replicas)
+
+	switch node.Archetype {
+	case domain.NodeArchetypeGateway:
+		return 1 + min(perReplicaSessions/120000, 1.4)
+	case domain.NodeArchetypeStatelessService, domain.NodeArchetypeWorker:
+		return 1 + min(perReplicaSessions/180000, 1.1)
+	case domain.NodeArchetypeQueue:
+		return 1 + min(perReplicaSessions/280000, 0.5)
+	default:
+		return 1
+	}
 }
 
 func round(value float64) float64 {

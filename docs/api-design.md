@@ -86,7 +86,11 @@ A single simulation execution.
     }
   },
   "workload": {
-    "requests_per_second": 100000
+    "requests_per_second": 100000,
+    "concurrent_users": 250000,
+    "read_write_ratio": 4,
+    "payload_kb": 8,
+    "fanout_count": 1
   },
   "simulation_config": {
     "mode": "analytical"
@@ -314,6 +318,7 @@ Inline design runs are also supported:
 Validation rules:
 
 - `workload.requests_per_second` is required and must be greater than zero
+- other workload fields are optional, but when provided they must be non-negative
 - exactly one of `design_id` or `design` must be provided
 
 Response:
@@ -448,3 +453,10 @@ This branch intentionally implements only the first useful slice:
 - cache-aside path with client, service, cache, and database archetypes
 
 The remaining APIs should be added as the persistence layer is introduced.
+Supported workload fields:
+
+- `requests_per_second`
+- `concurrent_users`
+- `read_write_ratio`
+- `payload_kb`
+- `fanout_count`

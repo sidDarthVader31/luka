@@ -16,6 +16,10 @@ const (
 
 type Workload struct {
 	RequestsPerSecond float64 `json:"requests_per_second"`
+	ConcurrentUsers   int     `json:"concurrent_users,omitempty"`
+	ReadWriteRatio    float64 `json:"read_write_ratio,omitempty"`
+	PayloadKB         float64 `json:"payload_kb,omitempty"`
+	FanoutCount       int     `json:"fanout_count,omitempty"`
 }
 
 type SimulationConfig struct {

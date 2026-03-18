@@ -184,6 +184,13 @@ button {
   gap: 0.6rem;
 }
 
+.field-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.9rem;
+}
+
 .field span {
   color: #42546d;
   font-size: 0.9rem;
@@ -243,6 +250,51 @@ button {
   display: block;
   margin-bottom: 0.35rem;
   color: #1c2a3d;
+}
+
+.run-summary__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.run-summary__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.run-summary--baseline {
+  background: rgba(247, 251, 255, 0.92);
+}
+
+.run-summary--comparison {
+  background: rgba(255, 251, 244, 0.92);
+}
+
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.9rem 0;
+}
+
+.comparison-card {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.9rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.comparison-card span {
+  color: #607089;
+  font-size: 0.82rem;
+}
+
+.comparison-card strong {
+  margin: 0;
 }
 
 .edge-list {
@@ -320,5 +372,14 @@ button {
 @media (max-width: 1180px) {
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .field-grid,
+  .comparison-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .run-summary__header {
+    flex-direction: column;
   }
 }

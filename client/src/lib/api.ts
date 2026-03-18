@@ -74,53 +74,53 @@ export type ComponentArchetype = {
   supported_routing_rules: RoutingRuleType[];
 };
 
+export type Workload = {
+  requests_per_second: number;
+  concurrent_users?: number;
+  read_write_ratio?: number;
+  payload_kb?: number;
+  fanout_count?: number;
+};
+
+export type RunNodeResult = {
+  node_id: string;
+  label: string;
+  archetype: NodeArchetype;
+  incoming_rps: number;
+  processed_rps: number;
+  dropped_rps: number;
+  effective_capacity_rps: number;
+  utilization: number;
+  estimated_latency_ms: number;
+  saturated: boolean;
+  explanation: string;
+};
+
+export type RunEdgeResult = {
+  edge_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  rule_type: RoutingRuleType;
+  routed_rps: number;
+};
+
+export type RunResult = {
+  summary: string;
+  bottleneck?: RunNodeResult;
+  nodes: RunNodeResult[];
+  edges: RunEdgeResult[];
+};
+
 export type Run = {
   id: string;
   design_id?: string;
   design_snapshot: Design;
-  workload: {
-    requests_per_second: number;
-  };
+  workload: Workload;
   simulation_config: {
     mode: "analytical";
   };
   status: "completed";
-  result?: {
-    summary: string;
-    bottleneck?: {
-      node_id: string;
-      label: string;
-      archetype: NodeArchetype;
-      incoming_rps: number;
-      processed_rps: number;
-      dropped_rps: number;
-      effective_capacity_rps: number;
-      utilization: number;
-      estimated_latency_ms: number;
-      saturated: boolean;
-      explanation: string;
-    };
-    nodes: Array<{
-      node_id: string;
-      label: string;
-      archetype: NodeArchetype;
-      incoming_rps: number;
-      processed_rps: number;
-      dropped_rps: number;
-      effective_capacity_rps: number;
-      utilization: number;
-      estimated_latency_ms: number;
-      saturated: boolean;
-      explanation: string;
-    }>;
-    edges: Array<{
-      edge_id: string;
-      source_node_id: string;
-      target_node_id: string;
-      rule_type: RoutingRuleType;
-      routed_rps: number;
-    }>;
-  };
+  result?: RunResult;
   created_at: string;
   completed_at?: string;
 };
@@ -188,9 +188,7 @@ export function updateDesign(designId: string, input: UpdateDesignInput) {
 export function createRun(input: {
   design_id?: string;
   design?: Design;
-  workload: {
-    requests_per_second: number;
-  };
+  workload: Workload;
   simulation_config: {
     mode: "analytical";
   };

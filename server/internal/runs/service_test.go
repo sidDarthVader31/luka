@@ -20,6 +20,10 @@ func TestCreateRunWithSeededDesign(t *testing.T) {
 		DesignID: store.SampleDesignID,
 		Workload: domain.Workload{
 			RequestsPerSecond: 100000,
+			ConcurrentUsers:   250000,
+			ReadWriteRatio:    4,
+			PayloadKB:         8,
+			FanoutCount:       1,
 		},
 		SimulationConfig: domain.SimulationConfig{
 			Mode: domain.SimulationModeAnalytical,
@@ -60,13 +64,14 @@ func TestCreateRunRejectsInvalidInlineGraph(t *testing.T) {
 						Label:     "Service",
 						Archetype: domain.NodeArchetypeStatelessService,
 						Color:     "green",
-						Position: domain.NodePosition{X: 10, Y: 10},
+						Position:  domain.NodePosition{X: 10, Y: 10},
 					},
 				},
 			},
 		},
 		Workload: domain.Workload{
 			RequestsPerSecond: 1000,
+			PayloadKB:         2,
 		},
 		SimulationConfig: domain.SimulationConfig{
 			Mode: domain.SimulationModeAnalytical,
@@ -78,5 +83,31 @@ func TestCreateRunRejectsInvalidInlineGraph(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "exactly one client node is required") {
 		t.Fatalf("error = %q, want client validation message", err.Error())
+	}
+}
+
+func TestCreateRunRejectsNegativeWorkloadValues(t *testing.T) {
+	service := NewService(
+		store.NewMemoryDesignRepository(),
+		store.NewMemoryRunRepository(),
+		simulator.NewService(),
+	)
+
+	_, err := service.Create(domain.CreateRunRequest{
+		DesignID: store.SampleDesignID,
+		Workload: domain.Workload{
+			RequestsPerSecond: 1000,
+			FanoutCount:       -2,
+		},
+		SimulationConfig: domain.SimulationConfig{
+			Mode: domain.SimulationModeAnalytical,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	if !strings.Contains(err.Error(), "workload.fanout_count cannot be negative") {
+		t.Fatalf("error = %q, want fanout validation message", err.Error())
 	}
 }

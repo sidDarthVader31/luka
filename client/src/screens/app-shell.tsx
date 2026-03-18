@@ -31,6 +31,8 @@ import type {
   GraphNode,
   RoutingRuleType,
   Run,
+  RunNodeResult,
+  Workload,
 } from "../lib/api";
 import {
   createDesign,
@@ -79,12 +81,17 @@ export function AppShell() {
   const [catalog, setCatalog] = useState<ComponentArchetype[]>([]);
   const [savedDesign, setSavedDesign] = useState<Design | null>(null);
   const [lastRun, setLastRun] = useState<Run | null>(null);
+  const [baselineRun, setBaselineRun] = useState<Run | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [draftID, setDraftID] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("Fresh Canvas");
   const [draftDescription, setDraftDescription] = useState("");
   const [selectedNodeID, setSelectedNodeID] = useState<string | null>(null);
   const [requestsPerSecond, setRequestsPerSecond] = useState("100000");
+  const [concurrentUsers, setConcurrentUsers] = useState("250000");
+  const [readWriteRatio, setReadWriteRatio] = useState("4");
+  const [payloadKB, setPayloadKB] = useState("8");
+  const [fanoutCount, setFanoutCount] = useState("1");
   const [draggedArchetype, setDraggedArchetype] = useState<string | null>(null);
   const [newEdgeSourceID, setNewEdgeSourceID] = useState("");
   const [newEdgeTargetID, setNewEdgeTargetID] = useState("");
@@ -113,6 +120,14 @@ export function AppShell() {
     () =>
       new Map((lastRun?.result?.nodes ?? []).map((node) => [node.node_id, node])),
     [lastRun],
+  );
+
+  const runComparison = useMemo(
+    () =>
+      baselineRun && lastRun && baselineRun.id !== lastRun.id
+        ? buildRunComparison(baselineRun, lastRun)
+        : null,
+    [baselineRun, lastRun],
   );
 
   const edgeOptions = useMemo(
@@ -254,6 +269,7 @@ export function AppShell() {
     setNewEdgeSourceID("");
     setNewEdgeTargetID("");
     setLastRun(null);
+    setBaselineRun(null);
     setIsDirty(false);
   }
 
@@ -270,6 +286,7 @@ export function AppShell() {
     setNewEdgeSourceID(draft.nodes[0]?.id ?? "");
     setNewEdgeTargetID(draft.nodes[1]?.id ?? "");
     setLastRun(null);
+    setBaselineRun(null);
     setIsDirty(false);
   }
 
@@ -328,9 +345,15 @@ export function AppShell() {
       return;
     }
 
-    const rps = Number(requestsPerSecond);
-    if (!Number.isFinite(rps) || rps <= 0) {
-      setFeedback("Requests per second must be a positive number.");
+    const workload = buildWorkloadFromInputs({
+      requestsPerSecond,
+      concurrentUsers,
+      readWriteRatio,
+      payloadKB,
+      fanoutCount,
+    });
+    if (!workload.ok) {
+      setFeedback(workload.error);
       return;
     }
 
@@ -340,12 +363,12 @@ export function AppShell() {
         isDirty || !savedDesign
           ? {
               design,
-              workload: { requests_per_second: rps },
+              workload: workload.value,
               simulation_config: { mode: "analytical" },
             }
           : {
               design_id: savedDesign.id,
-              workload: { requests_per_second: rps },
+              workload: workload.value,
               simulation_config: { mode: "analytical" },
             },
       ),
@@ -590,6 +613,16 @@ export function AppShell() {
     markDirty();
   }
 
+  function handleSetBaseline() {
+    if (!lastRun) {
+      setFeedback("Run a simulation first, then pin it as the baseline.");
+      return;
+    }
+
+    setBaselineRun(lastRun);
+    setFeedback(`Pinned ${lastRun.id} as the baseline scenario.`);
+  }
+
   return (
     <main className="studio-shell studio-shell--light">
       <header className="topbar">
@@ -653,7 +686,7 @@ export function AppShell() {
           </div>
 
           <div className="panel">
-            <p className="panel-kicker">Design</p>
+            <p className="panel-kicker">Scenario</p>
             <label className="field">
               <span>Name</span>
               <input
@@ -675,14 +708,48 @@ export function AppShell() {
                 }}
               />
             </label>
-            <label className="field">
-              <span>Requests / sec</span>
-              <input
-                inputMode="numeric"
-                value={requestsPerSecond}
-                onChange={(event) => setRequestsPerSecond(event.target.value)}
-              />
-            </label>
+            <div className="field-grid">
+              <label className="field">
+                <span>Requests / sec</span>
+                <input
+                  inputMode="numeric"
+                  value={requestsPerSecond}
+                  onChange={(event) => setRequestsPerSecond(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Concurrent users</span>
+                <input
+                  inputMode="numeric"
+                  value={concurrentUsers}
+                  onChange={(event) => setConcurrentUsers(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Read:write ratio</span>
+                <input
+                  inputMode="decimal"
+                  value={readWriteRatio}
+                  onChange={(event) => setReadWriteRatio(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Payload (KB)</span>
+                <input
+                  inputMode="decimal"
+                  value={payloadKB}
+                  onChange={(event) => setPayloadKB(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Fanout count</span>
+                <input
+                  inputMode="numeric"
+                  value={fanoutCount}
+                  onChange={(event) => setFanoutCount(event.target.value)}
+                />
+              </label>
+            </div>
           </div>
         </aside>
 
@@ -719,12 +786,78 @@ export function AppShell() {
           </div>
 
           {lastRun?.result ? (
-            <div className="run-summary">
-              <strong>{lastRun.result.summary}</strong>
-              {lastRun.result.bottleneck ? (
-                <p>{lastRun.result.bottleneck.explanation}</p>
+            <>
+              <div className="run-summary">
+                <div className="run-summary__header">
+                  <div>
+                    <p className="panel-kicker">Latest run</p>
+                    <strong>{lastRun.result.summary}</strong>
+                  </div>
+                  <div className="run-summary__actions">
+                    <button
+                      className="ghost-button"
+                      onClick={handleSetBaseline}
+                      type="button"
+                    >
+                      Pin Baseline
+                    </button>
+                    {baselineRun ? (
+                      <button
+                        className="ghost-button"
+                        onClick={() => setBaselineRun(null)}
+                        type="button"
+                      >
+                        Clear Baseline
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <p>{formatWorkload(lastRun.workload)}</p>
+                {lastRun.result.bottleneck ? (
+                  <p>{lastRun.result.bottleneck.explanation}</p>
+                ) : null}
+              </div>
+
+              {baselineRun ? (
+                <div className="run-summary run-summary--baseline">
+                  <p className="panel-kicker">Baseline</p>
+                  <strong>
+                    {baselineRun.result?.summary ?? `Pinned ${baselineRun.id}`}
+                  </strong>
+                  <p>{formatWorkload(baselineRun.workload)}</p>
+                </div>
               ) : null}
-            </div>
+
+              {runComparison ? (
+                <div className="run-summary run-summary--comparison">
+                  <p className="panel-kicker">Comparison</p>
+                  <div className="comparison-grid">
+                    <div className="comparison-card">
+                      <span>Bottleneck</span>
+                      <strong>
+                        {runComparison.baselineLabel} {"->"}{" "}
+                        {runComparison.latestLabel}
+                      </strong>
+                    </div>
+                    <div className="comparison-card">
+                      <span>Utilization delta</span>
+                      <strong>
+                        {formatSignedPercent(runComparison.utilizationDelta)}
+                      </strong>
+                    </div>
+                    <div className="comparison-card">
+                      <span>Latency delta</span>
+                      <strong>{formatSignedNumber(runComparison.latencyDelta)} ms</strong>
+                    </div>
+                    <div className="comparison-card">
+                      <span>Drop delta</span>
+                      <strong>{formatSignedNumber(runComparison.droppedDelta)} rps</strong>
+                    </div>
+                  </div>
+                  <p>{runComparison.message}</p>
+                </div>
+              ) : null}
+            </>
           ) : null}
         </section>
 
@@ -1059,6 +1192,120 @@ function getNodePalette(color: GraphNode["color"]) {
         text: "#13284b",
       };
   }
+}
+
+function buildWorkloadFromInputs(input: {
+  requestsPerSecond: string;
+  concurrentUsers: string;
+  readWriteRatio: string;
+  payloadKB: string;
+  fanoutCount: string;
+}): { ok: true; value: Workload } | { ok: false; error: string } {
+  const requestsPerSecond = Number(input.requestsPerSecond);
+  if (!Number.isFinite(requestsPerSecond) || requestsPerSecond <= 0) {
+    return { ok: false, error: "Requests per second must be a positive number." };
+  }
+
+  const concurrentUsers = Number(input.concurrentUsers);
+  if (!Number.isFinite(concurrentUsers) || concurrentUsers < 0) {
+    return { ok: false, error: "Concurrent users must be zero or greater." };
+  }
+
+  const readWriteRatio = Number(input.readWriteRatio);
+  if (!Number.isFinite(readWriteRatio) || readWriteRatio <= 0) {
+    return { ok: false, error: "Read:write ratio must be a positive number." };
+  }
+
+  const payloadKB = Number(input.payloadKB);
+  if (!Number.isFinite(payloadKB) || payloadKB <= 0) {
+    return { ok: false, error: "Payload size must be a positive number." };
+  }
+
+  const fanoutCount = Number(input.fanoutCount);
+  if (!Number.isInteger(fanoutCount) || fanoutCount <= 0) {
+    return { ok: false, error: "Fanout count must be a positive integer." };
+  }
+
+  return {
+    ok: true,
+    value: {
+      requests_per_second: requestsPerSecond,
+      concurrent_users: concurrentUsers,
+      read_write_ratio: readWriteRatio,
+      payload_kb: payloadKB,
+      fanout_count: fanoutCount,
+    },
+  };
+}
+
+function buildRunComparison(baselineRun: Run, latestRun: Run) {
+  const baseline = baselineRun.result?.bottleneck;
+  const latest = latestRun.result?.bottleneck;
+
+  return {
+    baselineLabel: baseline?.label ?? "No bottleneck",
+    latestLabel: latest?.label ?? "No bottleneck",
+    utilizationDelta: (latest?.utilization ?? 0) - (baseline?.utilization ?? 0),
+    latencyDelta:
+      (latest?.estimated_latency_ms ?? 0) - (baseline?.estimated_latency_ms ?? 0),
+    droppedDelta: (latest?.dropped_rps ?? 0) - (baseline?.dropped_rps ?? 0),
+    message: describeComparison(baseline, latest),
+  };
+}
+
+function describeComparison(
+  baseline: RunNodeResult | undefined,
+  latest: RunNodeResult | undefined,
+) {
+  if (!baseline && !latest) {
+    return "Neither run produced a bottleneck result yet.";
+  }
+
+  if (!baseline || !latest) {
+    return "Only one of the compared runs has a bottleneck result, so the comparison is partial.";
+  }
+
+  if (baseline.node_id !== latest.node_id) {
+    return `The bottleneck moved from ${baseline.label} to ${latest.label}, which means the pressure shifted to a different layer of the system.`;
+  }
+
+  if (latest.utilization > baseline.utilization) {
+    return `${latest.label} stayed the bottleneck and got worse under the latest workload assumptions.`;
+  }
+
+  if (latest.utilization < baseline.utilization) {
+    return `${latest.label} stayed the bottleneck, but the latest workload or design changes relieved some pressure.`;
+  }
+
+  return `${latest.label} remains the bottleneck with nearly unchanged pressure.`;
+}
+
+function formatWorkload(workload: Workload) {
+  const readWriteRatio = workload.read_write_ratio ?? 4;
+  const payloadKB = workload.payload_kb ?? 4;
+  const fanoutCount = workload.fanout_count ?? 1;
+  const concurrentUsers = workload.concurrent_users ?? 0;
+
+  return `${formatCompactNumber(workload.requests_per_second)} rps, ${formatCompactNumber(concurrentUsers)} concurrent users, ${readWriteRatio}:1 read/write, ${payloadKB} KB payload, fanout x${fanoutCount}`;
+}
+
+function formatSignedPercent(value: number) {
+  const percent = value * 100;
+  const rounded = Math.round(percent * 10) / 10;
+  if (rounded > 0) {
+    return `+${rounded}%`;
+  }
+
+  return `${rounded}%`;
+}
+
+function formatSignedNumber(value: number) {
+  const rounded = Math.round(value * 100) / 100;
+  if (rounded > 0) {
+    return `+${rounded}`;
+  }
+
+  return `${rounded}`;
 }
 
 function formatCompactNumber(value: number) {
