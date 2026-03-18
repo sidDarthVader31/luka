@@ -417,20 +417,24 @@ export function AppShell() {
     archetype: ComponentArchetype,
     position?: { x: number; y: number },
   ) {
-    let createdNode: GraphNode | null = null;
+    const createdNode = createNodeFromArchetype(archetype, draftNodes, position);
 
-    setDraftNodes((current) => {
-      createdNode = createNodeFromArchetype(archetype, current, position);
-      return createdNode ? [...current, createdNode] : current;
-    });
-
-    if (!createdNode) {
-      return;
-    }
+    setDraftNodes((current) => [...current, createdNode]);
 
     setSelectedNodeID(createdNode.id);
     markDirty();
     setFeedback(`Dropped ${createdNode.label} into the lab.`);
+
+    window.requestAnimationFrame(() => {
+      flowInstance?.setCenter(
+        createdNode.position.x + 110,
+        createdNode.position.y + 48,
+        {
+          zoom: 1,
+          duration: 280,
+        },
+      );
+    });
   }
 
   function handleArchetypeDragStart(archetype: ComponentArchetype) {
