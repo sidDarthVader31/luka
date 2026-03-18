@@ -32,7 +32,7 @@ body {
 .app-shell {
   display: grid;
   gap: 1.5rem;
-  max-width: 1240px;
+  max-width: 1380px;
   margin: 0 auto;
   padding: 3rem 1.25rem 4rem;
 }
@@ -62,7 +62,7 @@ body {
 }
 
 .lede {
-  max-width: 42rem;
+  max-width: 46rem;
   margin: 1.25rem 0 0;
   color: rgba(244, 239, 231, 0.78);
   font-size: 1.1rem;
@@ -100,8 +100,16 @@ body {
   gap: 1rem;
 }
 
+.workspace-grid--top {
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+}
+
 .panel {
   padding: 1.35rem;
+}
+
+.panel--canvas {
+  min-height: 620px;
 }
 
 .panel-header {
@@ -220,6 +228,48 @@ button:disabled {
   font-size: 1.3rem;
 }
 
+.canvas-shell {
+  margin-top: 1rem;
+  height: 480px;
+  border: 1px solid rgba(244, 239, 231, 0.08);
+  border-radius: 20px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(248, 126, 83, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(8, 9, 12, 0.84) 0%, rgba(11, 12, 16, 0.94) 100%);
+}
+
+.system-node {
+  min-width: 172px;
+  border: 1px solid rgba(244, 239, 231, 0.12);
+  border-radius: 18px;
+  padding: 0.9rem 1rem;
+  background: rgba(20, 22, 28, 0.94);
+  color: #f4efe7;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+}
+
+.system-node.selected {
+  border-color: rgba(244, 176, 97, 0.9);
+  box-shadow: 0 0 0 2px rgba(244, 176, 97, 0.18);
+}
+
+.system-node__type {
+  margin-bottom: 0.35rem;
+  color: #f4b061;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.system-handle {
+  width: 10px;
+  height: 10px;
+  border: 2px solid #15171b;
+  background: #f87e53;
+}
+
 .simple-list,
 .catalog-list {
   margin: 0;
@@ -269,20 +319,6 @@ button:disabled {
   gap: 0.75rem;
 }
 
-.list-button {
-  display: grid;
-  gap: 0.2rem;
-  justify-items: start;
-  width: 100%;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-}
-
-.list-button.active {
-  color: #ffd4a0;
-}
-
 .edge-copy {
   display: grid;
   gap: 0.15rem;
@@ -307,6 +343,12 @@ button:disabled {
   margin-bottom: 0.25rem;
 }
 
+@media (max-width: 900px) {
+  .workspace-grid--top {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 640px) {
   .app-shell {
     padding-top: 3rem;
@@ -318,5 +360,9 @@ button:disabled {
 
   .hero h1 {
     max-width: none;
+  }
+
+  .canvas-shell {
+    height: 420px;
   }
 }

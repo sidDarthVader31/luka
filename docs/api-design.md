@@ -22,13 +22,30 @@ The design principle is:
 
 A saved system design.
 
+Canvas layout is persisted as part of the graph through each node's `position`.
+
 ```json
 {
   "id": "des_123",
   "name": "Chat Read Path",
   "description": "Cache-aside read flow",
   "graph": {
-    "nodes": [],
+    "nodes": [
+      {
+        "id": "service-1",
+        "label": "Chat Service",
+        "archetype": "stateless_service",
+        "position": {
+          "x": 320,
+          "y": 160
+        },
+        "properties": {
+          "replicas": 4,
+          "capacity_rps": 30000,
+          "base_latency_ms": 20
+        }
+      }
+    ],
     "edges": []
   },
   "created_at": "2026-03-18T12:00:00Z",
@@ -49,7 +66,22 @@ A single simulation execution.
     "name": "Chat Read Path",
     "description": "Cache-aside read flow",
     "graph": {
-      "nodes": [],
+      "nodes": [
+        {
+          "id": "service-1",
+          "label": "Chat Service",
+          "archetype": "stateless_service",
+          "position": {
+            "x": 320,
+            "y": 160
+          },
+          "properties": {
+            "replicas": 4,
+            "capacity_rps": 30000,
+            "base_latency_ms": 20
+          }
+        }
+      ],
       "edges": []
     }
   },
@@ -108,7 +140,22 @@ Request:
   "name": "Chat Read Path",
   "description": "Cache-aside read flow",
   "graph": {
-    "nodes": [],
+    "nodes": [
+      {
+        "id": "service-1",
+        "label": "Chat Service",
+        "archetype": "stateless_service",
+        "position": {
+          "x": 320,
+          "y": 160
+        },
+        "properties": {
+          "replicas": 4,
+          "capacity_rps": 30000,
+          "base_latency_ms": 20
+        }
+      }
+    ],
     "edges": []
   }
 }
@@ -122,7 +169,22 @@ Response:
   "name": "Chat Read Path",
   "description": "Cache-aside read flow",
   "graph": {
-    "nodes": [],
+    "nodes": [
+      {
+        "id": "service-1",
+        "label": "Chat Service",
+        "archetype": "stateless_service",
+        "position": {
+          "x": 320,
+          "y": 160
+        },
+        "properties": {
+          "replicas": 4,
+          "capacity_rps": 30000,
+          "base_latency_ms": 20
+        }
+      }
+    ],
     "edges": []
   },
   "created_at": "2026-03-18T12:00:00Z",
@@ -221,7 +283,22 @@ Inline design runs are also supported:
     "name": "Unsaved Design",
     "description": "Temporary graph",
     "graph": {
-      "nodes": [],
+      "nodes": [
+        {
+          "id": "service-1",
+          "label": "Chat Service",
+          "archetype": "stateless_service",
+          "position": {
+            "x": 320,
+            "y": 160
+          },
+          "properties": {
+            "replicas": 4,
+            "capacity_rps": 30000,
+            "base_latency_ms": 20
+          }
+        }
+      ],
       "edges": []
     }
   },
@@ -250,7 +327,22 @@ Response:
     "name": "Sample Cache-Aside Read Path",
     "description": "Sample seeded design",
     "graph": {
-      "nodes": [],
+      "nodes": [
+        {
+          "id": "service-1",
+          "label": "Chat Service",
+          "archetype": "stateless_service",
+          "position": {
+            "x": 320,
+            "y": 160
+          },
+          "properties": {
+            "replicas": 4,
+            "capacity_rps": 30000,
+            "base_latency_ms": 20
+          }
+        }
+      ],
       "edges": []
     }
   },
