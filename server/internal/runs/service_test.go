@@ -41,6 +41,10 @@ func TestCreateRunWithSeededDesign(t *testing.T) {
 		t.Fatal("expected simulation result with bottleneck")
 	}
 
+	if len(run.Result.Flows) != 1 {
+		t.Fatalf("flows len = %d, want 1", len(run.Result.Flows))
+	}
+
 	if run.Result.Bottleneck.NodeID != "db-1" {
 		t.Fatalf("bottleneck = %q, want db-1", run.Result.Bottleneck.NodeID)
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
 )
@@ -20,6 +21,18 @@ type normalizedWorkload struct {
 	FanoutCount       float64
 }
 
+type normalizedRequestClass struct {
+	ID           string
+	Name         string
+	TrafficShare float64
+}
+
+type graphMetrics struct {
+	Nodes      []domain.NodeSimulationResult
+	Edges      []domain.EdgeSimulationResult
+	Bottleneck *domain.NodeSimulationResult
+}
+
 func NewService() *Service {
 	return &Service{}
 }
@@ -29,19 +42,78 @@ func (s *Service) RunDesign(design domain.Design, workload domain.Workload) (*do
 		return nil, errors.New("workload.requests_per_second must be greater than zero")
 	}
 
-	return s.runGraph(design, normalizeWorkload(workload))
+	globalWorkload := normalizeWorkload(workload)
+	requestClasses := normalizeRequestClasses(design.Graph.RequestClasses)
+	defaultRequestClassID := requestClasses[0].ID
+
+	flowResults := make([]domain.FlowSimulationResult, 0, len(requestClasses))
+	aggregateIncomingByNode := make(map[string]float64, len(design.Graph.Nodes))
+	aggregateRoutedByEdge := make(map[string]float64, len(design.Graph.Edges))
+
+	for _, requestClass := range requestClasses {
+		flowWorkload := scaleWorkload(workload, requestClass.TrafficShare)
+		normalizedFlowWorkload := normalizeWorkload(flowWorkload)
+		flowEdges := filterEdgesForRequestClass(
+			design.Graph.Edges,
+			requestClass.ID,
+			defaultRequestClassID,
+		)
+
+		metrics, err := s.runGraph(design.Graph.Nodes, flowEdges, normalizedFlowWorkload)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, node := range metrics.Nodes {
+			aggregateIncomingByNode[node.NodeID] += node.IncomingRPS
+		}
+
+		for _, edge := range metrics.Edges {
+			aggregateRoutedByEdge[edge.EdgeID] += edge.RoutedRPS
+		}
+
+		flowResults = append(flowResults, domain.FlowSimulationResult{
+			RequestClassID: requestClass.ID,
+			Name:           requestClass.Name,
+			TrafficShare:   round(requestClass.TrafficShare * 100),
+			Workload:       flowWorkload,
+			Summary:        summarizeFlow(design.Name, requestClass.Name, normalizedFlowWorkload, *metrics.Bottleneck),
+			Bottleneck:     metrics.Bottleneck,
+			Nodes:          metrics.Nodes,
+			Edges:          metrics.Edges,
+		})
+	}
+
+	overallMetrics := aggregateMetrics(
+		design,
+		globalWorkload,
+		aggregateIncomingByNode,
+		aggregateRoutedByEdge,
+	)
+
+	return &domain.SimulationResult{
+		Nodes:      overallMetrics.Nodes,
+		Edges:      overallMetrics.Edges,
+		Bottleneck: overallMetrics.Bottleneck,
+		Summary:    summarize(design, globalWorkload, *overallMetrics.Bottleneck),
+		Flows:      flowResults,
+	}, nil
 }
 
-func (s *Service) runGraph(design domain.Design, workload normalizedWorkload) (*domain.SimulationResult, error) {
-	nodeByID := make(map[string]domain.Node, len(design.Graph.Nodes))
-	inDegree := make(map[string]int, len(design.Graph.Nodes))
-	outgoing := make(map[string][]domain.Edge, len(design.Graph.Nodes))
-	incomingRate := make(map[string]float64, len(design.Graph.Nodes))
-	nodeResults := make(map[string]domain.NodeSimulationResult, len(design.Graph.Nodes))
-	edgeResults := make([]domain.EdgeSimulationResult, 0, len(design.Graph.Edges))
+func (s *Service) runGraph(
+	nodes []domain.Node,
+	edges []domain.Edge,
+	workload normalizedWorkload,
+) (*graphMetrics, error) {
+	nodeByID := make(map[string]domain.Node, len(nodes))
+	inDegree := make(map[string]int, len(nodes))
+	outgoing := make(map[string][]domain.Edge, len(nodes))
+	incomingRate := make(map[string]float64, len(nodes))
+	nodeResults := make(map[string]domain.NodeSimulationResult, len(nodes))
+	edgeResults := make([]domain.EdgeSimulationResult, 0, len(edges))
 
 	clientCount := 0
-	for _, node := range design.Graph.Nodes {
+	for _, node := range nodes {
 		if node.ID == "" {
 			return nil, errors.New("all nodes must have an id")
 		}
@@ -58,7 +130,7 @@ func (s *Service) runGraph(design domain.Design, workload normalizedWorkload) (*
 		return nil, fmt.Errorf("the first simulator slice supports exactly one client node, got %d", clientCount)
 	}
 
-	for _, edge := range design.Graph.Edges {
+	for _, edge := range edges {
 		if _, ok := nodeByID[edge.SourceNodeID]; !ok {
 			return nil, fmt.Errorf("edge %q references unknown source node %q", edge.ID, edge.SourceNodeID)
 		}
@@ -71,8 +143,8 @@ func (s *Service) runGraph(design domain.Design, workload normalizedWorkload) (*
 		outgoing[edge.SourceNodeID] = append(outgoing[edge.SourceNodeID], edge)
 	}
 
-	queue := make([]string, 0, len(design.Graph.Nodes))
-	for _, node := range design.Graph.Nodes {
+	queue := make([]string, 0, len(nodes))
+	for _, node := range nodes {
 		if inDegree[node.ID] == 0 {
 			queue = append(queue, node.ID)
 		}
@@ -117,14 +189,14 @@ func (s *Service) runGraph(design domain.Design, workload normalizedWorkload) (*
 		}
 	}
 
-	if processedNodes != len(design.Graph.Nodes) {
+	if processedNodes != len(nodes) {
 		return nil, errors.New("the first simulator slice supports DAG graphs only")
 	}
 
-	nodeList := make([]domain.NodeSimulationResult, 0, len(design.Graph.Nodes))
+	nodeList := make([]domain.NodeSimulationResult, 0, len(nodes))
 	var bottleneck *domain.NodeSimulationResult
 
-	for _, node := range design.Graph.Nodes {
+	for _, node := range nodes {
 		result := nodeResults[node.ID]
 		nodeList = append(nodeList, result)
 
@@ -142,11 +214,10 @@ func (s *Service) runGraph(design domain.Design, workload normalizedWorkload) (*
 		return nil, errors.New("no bottleneck candidate found in design")
 	}
 
-	return &domain.SimulationResult{
+	return &graphMetrics{
 		Nodes:      nodeList,
 		Edges:      edgeResults,
 		Bottleneck: bottleneck,
-		Summary:    summarize(design, workload, *bottleneck),
 	}, nil
 }
 
@@ -360,6 +431,142 @@ func summarize(design domain.Design, workload normalizedWorkload, bottleneck dom
 		status,
 		bottleneck.Utilization*100,
 	)
+}
+
+func summarizeFlow(
+	designName string,
+	flowName string,
+	workload normalizedWorkload,
+	bottleneck domain.NodeSimulationResult,
+) string {
+	status := "is the tightest component but still within capacity"
+	if bottleneck.Saturated {
+		status = "saturates first"
+	}
+
+	return fmt.Sprintf(
+		"%q on %q runs at %.0f requests/sec and %s %s at %.0f%% utilization.",
+		flowName,
+		designName,
+		workload.RequestsPerSecond,
+		bottleneck.Label,
+		status,
+		bottleneck.Utilization*100,
+	)
+}
+
+func normalizeRequestClasses(requestClasses []domain.RequestClass) []normalizedRequestClass {
+	if len(requestClasses) == 0 {
+		return []normalizedRequestClass{
+			{
+				ID:           "primary-flow",
+				Name:         "Primary Flow",
+				TrafficShare: 1,
+			},
+		}
+	}
+
+	totalShare := 0.0
+	normalized := make([]normalizedRequestClass, 0, len(requestClasses))
+	for _, requestClass := range requestClasses {
+		share := requestClass.TrafficShare
+		if share <= 0 {
+			share = 1
+		}
+
+		totalShare += share
+		normalized = append(normalized, normalizedRequestClass{
+			ID:           requestClass.ID,
+			Name:         requestClass.Name,
+			TrafficShare: share,
+		})
+	}
+
+	for index := range normalized {
+		normalized[index].TrafficShare /= totalShare
+	}
+
+	return normalized
+}
+
+func scaleWorkload(workload domain.Workload, share float64) domain.Workload {
+	return domain.Workload{
+		RequestsPerSecond: workload.RequestsPerSecond * share,
+		ConcurrentUsers:   int(math.Round(float64(workload.ConcurrentUsers) * share)),
+		ReadWriteRatio:    workload.ReadWriteRatio,
+		PayloadKB:         workload.PayloadKB,
+		FanoutCount:       workload.FanoutCount,
+	}
+}
+
+func filterEdgesForRequestClass(
+	edges []domain.Edge,
+	requestClassID string,
+	defaultRequestClassID string,
+) []domain.Edge {
+	filtered := make([]domain.Edge, 0, len(edges))
+	for _, edge := range edges {
+		if len(edge.RequestClassIDs) == 0 {
+			if requestClassID == defaultRequestClassID {
+				filtered = append(filtered, edge)
+			}
+			continue
+		}
+
+		if slices.Contains(edge.RequestClassIDs, requestClassID) {
+			filtered = append(filtered, edge)
+		}
+	}
+
+	return filtered
+}
+
+func aggregateMetrics(
+	design domain.Design,
+	workload normalizedWorkload,
+	incomingByNode map[string]float64,
+	routedByEdge map[string]float64,
+) *graphMetrics {
+	nodeList := make([]domain.NodeSimulationResult, 0, len(design.Graph.Nodes))
+	edgeList := make([]domain.EdgeSimulationResult, 0, len(design.Graph.Edges))
+	var bottleneck *domain.NodeSimulationResult
+
+	for _, node := range design.Graph.Nodes {
+		incoming := incomingByNode[node.ID]
+		if node.Archetype == domain.NodeArchetypeClient {
+			incoming = workload.RequestsPerSecond
+		}
+
+		result := simulateNode(node, incoming, workload)
+		nodeList = append(nodeList, result)
+
+		if node.Archetype == domain.NodeArchetypeClient {
+			continue
+		}
+
+		if bottleneck == nil || result.Utilization > bottleneck.Utilization {
+			current := result
+			bottleneck = &current
+		}
+	}
+
+	for _, edge := range design.Graph.Edges {
+		edgeList = append(edgeList, domain.EdgeSimulationResult{
+			EdgeID:           edge.ID,
+			SourceNodeID:     edge.SourceNodeID,
+			TargetNodeID:     edge.TargetNodeID,
+			InteractionType:  edge.InteractionType,
+			FanoutMultiplier: round(normalizedEdgeFanout(edge)),
+			RuleType:         edge.RoutingRule.RuleType,
+			RoutedRPS:        round(routedByEdge[edge.ID]),
+		})
+	}
+
+	return &graphMetrics{
+		Nodes:      nodeList,
+		Edges:      edgeList,
+		Bottleneck: bottleneck,
+	}
 }
 
 func normalizeWorkload(workload domain.Workload) normalizedWorkload {

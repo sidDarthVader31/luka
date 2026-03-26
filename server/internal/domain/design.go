@@ -33,8 +33,9 @@ const (
 )
 
 type Graph struct {
-	Nodes []Node `json:"nodes"`
-	Edges []Edge `json:"edges"`
+	Nodes          []Node         `json:"nodes"`
+	Edges          []Edge         `json:"edges"`
+	RequestClasses []RequestClass `json:"request_classes,omitempty"`
 }
 
 type Design struct {
@@ -84,12 +85,19 @@ type NodeProperties struct {
 	CacheHitRate  float64 `json:"cache_hit_rate,omitempty"`
 }
 
+type RequestClass struct {
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	TrafficShare float64 `json:"traffic_share,omitempty"`
+}
+
 type Edge struct {
 	ID               string              `json:"id"`
 	SourceNodeID     string              `json:"source_node_id"`
 	TargetNodeID     string              `json:"target_node_id"`
 	InteractionType  EdgeInteractionType `json:"interaction_type"`
 	FanoutMultiplier float64             `json:"fanout_multiplier,omitempty"`
+	RequestClassIDs  []string            `json:"request_class_ids,omitempty"`
 	RoutingRule      RoutingRule         `json:"routing_rule"`
 }
 

@@ -25,6 +25,13 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 				Name:        "Sample Cache-Aside Read Path",
 				Description: "Seeded sample design used until database persistence is added.",
 				Graph: domain.Graph{
+					RequestClasses: []domain.RequestClass{
+						{
+							ID:           "flow-read",
+							Name:         "Read Path",
+							TrafficShare: 100,
+						},
+					},
 					Nodes: []domain.Node{
 						{
 							ID:        "client-1",
@@ -89,6 +96,7 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 							SourceNodeID:    "client-1",
 							TargetNodeID:    "service-1",
 							InteractionType: domain.EdgeInteractionSyncRequest,
+							RequestClassIDs: []string{"flow-read"},
 							RoutingRule: domain.RoutingRule{
 								RuleType: domain.RoutingRuleAlways,
 							},
@@ -98,6 +106,7 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 							SourceNodeID:    "service-1",
 							TargetNodeID:    "cache-1",
 							InteractionType: domain.EdgeInteractionSyncRequest,
+							RequestClassIDs: []string{"flow-read"},
 							RoutingRule: domain.RoutingRule{
 								RuleType: domain.RoutingRuleAlways,
 							},
@@ -107,6 +116,7 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 							SourceNodeID:    "cache-1",
 							TargetNodeID:    "db-1",
 							InteractionType: domain.EdgeInteractionConditionalPath,
+							RequestClassIDs: []string{"flow-read"},
 							RoutingRule: domain.RoutingRule{
 								RuleType: domain.RoutingRuleCacheMiss,
 							},

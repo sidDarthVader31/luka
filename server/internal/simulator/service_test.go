@@ -261,3 +261,119 @@ func TestRunDesignRoutesDroppedLoadThroughFallbackEdges(t *testing.T) {
 		t.Fatalf("fallback edge interaction = %q, want fallback", result.Edges[1].InteractionType)
 	}
 }
+
+func TestRunDesignReturnsPerFlowResults(t *testing.T) {
+	service := NewService()
+
+	result, err := service.RunDesign(domain.Design{
+		ID:   "design-flows",
+		Name: "Read And Write Paths",
+		Graph: domain.Graph{
+			RequestClasses: []domain.RequestClass{
+				{ID: "flow-read", Name: "Read Path", TrafficShare: 70},
+				{ID: "flow-write", Name: "Write Path", TrafficShare: 30},
+			},
+			Nodes: []domain.Node{
+				{ID: "client-1", Label: "Client", Archetype: domain.NodeArchetypeClient, Color: "blue", Position: domain.NodePosition{X: 0, Y: 0}},
+				{
+					ID:        "service-1",
+					Label:     "API Service",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "green",
+					Position:  domain.NodePosition{X: 140, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      2,
+						CapacityRPS:   9000,
+						BaseLatencyMS: 20,
+					},
+				},
+				{
+					ID:        "cache-1",
+					Label:     "Cache",
+					Archetype: domain.NodeArchetypeCache,
+					Color:     "yellow",
+					Position:  domain.NodePosition{X: 320, Y: -80},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   14000,
+						BaseLatencyMS: 3,
+						CacheHitRate:  0.9,
+					},
+				},
+				{
+					ID:        "db-1",
+					Label:     "DB",
+					Archetype: domain.NodeArchetypeDatabase,
+					Color:     "red",
+					Position:  domain.NodePosition{X: 500, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   2500,
+						BaseLatencyMS: 25,
+					},
+				},
+				{
+					ID:        "queue-1",
+					Label:     "Queue",
+					Archetype: domain.NodeArchetypeQueue,
+					Color:     "yellow",
+					Position:  domain.NodePosition{X: 320, Y: 80},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   9000,
+						BaseLatencyMS: 4,
+					},
+				},
+			},
+			Edges: []domain.Edge{
+				{
+					ID:              "edge-client-service",
+					SourceNodeID:    "client-1",
+					TargetNodeID:    "service-1",
+					InteractionType: domain.EdgeInteractionSyncRequest,
+					RequestClassIDs: []string{"flow-read", "flow-write"},
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+				{
+					ID:              "edge-service-cache",
+					SourceNodeID:    "service-1",
+					TargetNodeID:    "cache-1",
+					InteractionType: domain.EdgeInteractionSyncRequest,
+					RequestClassIDs: []string{"flow-read"},
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+				{
+					ID:              "edge-cache-db",
+					SourceNodeID:    "cache-1",
+					TargetNodeID:    "db-1",
+					InteractionType: domain.EdgeInteractionConditionalPath,
+					RequestClassIDs: []string{"flow-read"},
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleCacheMiss},
+				},
+				{
+					ID:              "edge-service-queue",
+					SourceNodeID:    "service-1",
+					TargetNodeID:    "queue-1",
+					InteractionType: domain.EdgeInteractionAsyncEnqueue,
+					RequestClassIDs: []string{"flow-write"},
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+			},
+		},
+	}, domain.Workload{RequestsPerSecond: 10000})
+	if err != nil {
+		t.Fatalf("RunDesign() error = %v", err)
+	}
+
+	if len(result.Flows) != 2 {
+		t.Fatalf("flows len = %d, want 2", len(result.Flows))
+	}
+
+	if result.Flows[0].RequestClassID != "flow-read" {
+		t.Fatalf("first flow = %q, want flow-read", result.Flows[0].RequestClassID)
+	}
+
+	if result.Flows[0].Workload.RequestsPerSecond <= result.Flows[1].Workload.RequestsPerSecond {
+		t.Fatal("expected read flow to receive higher traffic share")
+	}
+}

@@ -29,6 +29,7 @@ import type {
   EdgeInteractionType,
   GraphEdge,
   GraphNode,
+  RequestClass,
   RoutingRuleType,
   Run,
   RunNodeResult,
@@ -48,6 +49,7 @@ import {
   buildDraftDesign,
   buildEdge,
   cloneDesignIntoDraft,
+  createRequestClass,
   createBlankDraft,
   createNodeFromArchetype,
   getSupportedEdgeOptions,
@@ -74,6 +76,7 @@ type FlowEdgeData = {
   interactionType: EdgeInteractionType;
   ruleType: RoutingRuleType;
   fanoutMultiplier: number;
+  requestClassIDs: string[];
 };
 
 export function AppShell() {
@@ -90,6 +93,7 @@ export function AppShell() {
   const [draftID, setDraftID] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("Fresh Canvas");
   const [draftDescription, setDraftDescription] = useState("");
+  const [requestClasses, setRequestClasses] = useState<RequestClass[]>([]);
   const [selectedNodeID, setSelectedNodeID] = useState<string | null>(null);
   const [requestsPerSecond, setRequestsPerSecond] = useState("100000");
   const [concurrentUsers, setConcurrentUsers] = useState("250000");
@@ -103,6 +107,8 @@ export function AppShell() {
     useState<EdgeInteractionType>("sync_request");
   const [newEdgeRule, setNewEdgeRule] = useState<RoutingRuleType>("always");
   const [newEdgeFanoutMultiplier, setNewEdgeFanoutMultiplier] = useState("1");
+  const [newEdgeRequestClassIDs, setNewEdgeRequestClassIDs] = useState<string[]>([]);
+  const [activeFlowResultID, setActiveFlowResultID] = useState("overall");
   const [flowInstance, setFlowInstance] = useState<
     ReactFlowInstance<Node<FlowNodeData>, Edge<FlowEdgeData>> | null
   >(null);
@@ -121,16 +127,28 @@ export function AppShell() {
     [canvasNodes, selectedNodeID],
   );
 
+  const activeFlowResult = useMemo(() => {
+    if (activeFlowResultID === "overall") {
+      return lastRun?.result ?? null;
+    }
+
+    return (
+      lastRun?.result?.flows?.find(
+        (flow) => flow.request_class_id === activeFlowResultID,
+      ) ?? null
+    );
+  }, [activeFlowResultID, lastRun]);
+
   const resultNodesByID = useMemo(
     () =>
-      new Map((lastRun?.result?.nodes ?? []).map((node) => [node.node_id, node])),
-    [lastRun],
+      new Map((activeFlowResult?.nodes ?? []).map((node) => [node.node_id, node])),
+    [activeFlowResult],
   );
 
   const resultEdgesByID = useMemo(
     () =>
-      new Map((lastRun?.result?.edges ?? []).map((edge) => [edge.edge_id, edge])),
-    [lastRun],
+      new Map((activeFlowResult?.edges ?? []).map((edge) => [edge.edge_id, edge])),
+    [activeFlowResult],
   );
 
   const runComparison = useMemo(
@@ -174,7 +192,7 @@ export function AppShell() {
               : palette.background,
             color: palette.text,
             boxShadow:
-              lastRun?.result?.bottleneck?.node_id === node.id
+              activeFlowResult?.bottleneck?.node_id === node.id
                 ? "0 0 0 4px rgba(216, 77, 58, 0.22), 0 14px 28px rgba(71, 93, 124, 0.2)"
                 : result && result.utilization >= 0.8
                   ? "0 0 0 2px rgba(232, 153, 29, 0.18), 0 10px 24px rgba(71, 93, 124, 0.14)"
@@ -185,14 +203,18 @@ export function AppShell() {
           selected: node.id === selectedNodeID,
         };
       }),
-    [canvasNodes, lastRun, resultNodesByID, selectedNodeID],
+    [activeFlowResult, canvasNodes, resultNodesByID, selectedNodeID],
   );
 
   const displayEdges = useMemo(
     () =>
       canvasEdges.map((edge) => {
         const result = resultEdgesByID.get(edge.id);
-        const highlight = getEdgeHighlight(edge, result, lastRun?.result?.edges ?? []);
+        const highlight = getEdgeHighlight(
+          edge,
+          result,
+          activeFlowResult?.edges ?? [],
+        );
 
         return {
           ...edge,
@@ -217,7 +239,7 @@ export function AppShell() {
           },
         };
       }),
-    [canvasEdges, lastRun, resultEdgesByID],
+    [activeFlowResult, canvasEdges, resultEdgesByID],
   );
 
   useEffect(() => {
@@ -243,6 +265,32 @@ export function AppShell() {
       setNewEdgeRule("always");
     }
   }, [edgeOptions, newEdgeInteraction, newEdgeRule]);
+
+  useEffect(() => {
+    if (requestClasses.length === 0) {
+      setNewEdgeRequestClassIDs([]);
+      return;
+    }
+
+    setNewEdgeRequestClassIDs((current) => {
+      const filtered = current.filter((requestClassID) =>
+        requestClasses.some((requestClass) => requestClass.id === requestClassID),
+      );
+
+      if (filtered.length > 0) {
+        return filtered;
+      }
+
+      return [requestClasses[0].id];
+    });
+
+    if (
+      activeFlowResultID !== "overall" &&
+      !requestClasses.some((requestClass) => requestClass.id === activeFlowResultID)
+    ) {
+      setActiveFlowResultID("overall");
+    }
+  }, [activeFlowResultID, requestClasses]);
 
   useEffect(() => {
     if (!savedDesign?.id) {
@@ -303,8 +351,9 @@ export function AppShell() {
 
     setSavedDesign(null);
     setDraftID(null);
-    setDraftName("Fresh Canvas");
+    setDraftName(blank.name);
     setDraftDescription(blank.description);
+    setRequestClasses(blank.requestClasses);
     setCanvasNodes([]);
     setCanvasEdges([]);
     setDesignRuns([]);
@@ -312,6 +361,8 @@ export function AppShell() {
     setNewEdgeSourceID("");
     setNewEdgeTargetID("");
     setNewEdgeFanoutMultiplier("1");
+    setNewEdgeRequestClassIDs(blank.requestClasses.map((requestClass) => requestClass.id));
+    setActiveFlowResultID("overall");
     setLastRun(null);
     setBaselineRun(null);
     setIsDirty(false);
@@ -327,12 +378,19 @@ export function AppShell() {
     setDraftID(draft.id);
     setDraftName(draft.name);
     setDraftDescription(draft.description);
+    setRequestClasses(draft.requestClasses);
     setCanvasNodes(draft.nodes.map(graphNodeToFlowNode));
     setCanvasEdges(draft.edges.map(graphEdgeToFlowEdge));
     setSelectedNodeID(draft.nodes[0]?.id ?? null);
     setNewEdgeSourceID(draft.nodes[0]?.id ?? "");
     setNewEdgeTargetID(draft.nodes[1]?.id ?? "");
     setNewEdgeFanoutMultiplier("1");
+    setNewEdgeRequestClassIDs(
+      draft.requestClasses
+        .slice(0, 1)
+        .map((requestClass) => requestClass.id),
+    );
+    setActiveFlowResultID("overall");
     setLastRun(null);
     if (!options?.preserveBaseline) {
       setBaselineRun(null);
@@ -347,6 +405,7 @@ export function AppShell() {
       description: draftDescription,
       nodes: canvasNodes.map(flowNodeToGraphNode),
       edges: canvasEdges.map(flowEdgeToGraphEdge),
+      requestClasses,
     });
   }
 
@@ -372,6 +431,7 @@ export function AppShell() {
       graph: {
         nodes: canvasNodes.map(flowNodeToGraphNode),
         edges: canvasEdges.map(flowEdgeToGraphEdge),
+        request_classes: requestClasses,
       },
     };
 
@@ -402,6 +462,7 @@ export function AppShell() {
       graph: {
         nodes: canvasNodes.map(flowNodeToGraphNode),
         edges: canvasEdges.map(flowEdgeToGraphEdge),
+        request_classes: requestClasses,
       },
     };
 
@@ -463,6 +524,7 @@ export function AppShell() {
     }
 
     setLastRun(run);
+    setActiveFlowResultID("overall");
     if (savedDesign?.id && run.design_id === savedDesign.id) {
       void loadRunHistory(run.design_id);
     }
@@ -582,6 +644,8 @@ export function AppShell() {
       interactionType: options.interactions[0] ?? "sync_request",
       ruleType: options.routingRules[0] ?? "always",
       fanoutMultiplier: 1,
+      requestClassIDs:
+        requestClasses.length > 0 ? [requestClasses[0].id] : undefined,
       existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
     });
 
@@ -616,6 +680,7 @@ export function AppShell() {
       interactionType: newEdgeInteraction,
       ruleType: newEdgeInteraction === "fallback" ? "always" : newEdgeRule,
       fanoutMultiplier: fanoutMultiplier.value,
+      requestClassIDs: newEdgeRequestClassIDs,
       existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
     });
 
@@ -787,6 +852,106 @@ export function AppShell() {
     setFeedback(`Using ${run.id} as the comparison baseline.`);
   }
 
+  function handleAddRequestFlow() {
+    const nextIndex = requestClasses.length + 1;
+    const requestClass = createRequestClass(`Flow ${nextIndex}`, 25, nextIndex);
+    setRequestClasses((current) => [...current, requestClass]);
+    setNewEdgeRequestClassIDs([requestClass.id]);
+    markDirty();
+  }
+
+  function handleRequestFlowNameChange(requestClassID: string, value: string) {
+    setRequestClasses((current) =>
+      current.map((requestClass) =>
+        requestClass.id === requestClassID
+          ? {
+              ...requestClass,
+              name: value,
+            }
+          : requestClass,
+      ),
+    );
+    markDirty();
+  }
+
+  function handleRequestFlowShareChange(requestClassID: string, value: string) {
+    const trafficShare = value === "" ? 1 : Number(value);
+    if (!Number.isFinite(trafficShare) || trafficShare <= 0) {
+      return;
+    }
+
+    setRequestClasses((current) =>
+      current.map((requestClass) =>
+        requestClass.id === requestClassID
+          ? {
+              ...requestClass,
+              traffic_share: trafficShare,
+            }
+          : requestClass,
+      ),
+    );
+    markDirty();
+  }
+
+  function handleRemoveRequestFlow(requestClassID: string) {
+    if (requestClasses.length === 1) {
+      setFeedback("At least one flow is required for the current MVP.");
+      return;
+    }
+
+    const remaining = requestClasses.filter(
+      (requestClass) => requestClass.id !== requestClassID,
+    );
+
+    setRequestClasses(remaining);
+    setCanvasEdges((current) =>
+      current.map((edge) => {
+        const filteredIDs = (edge.data?.requestClassIDs ?? []).filter(
+          (id) => id !== requestClassID,
+        );
+
+        return {
+          ...edge,
+          data: {
+            ...edge.data,
+            requestClassIDs:
+              filteredIDs.length > 0 ? filteredIDs : [remaining[0].id],
+          },
+        };
+      }),
+    );
+    if (activeFlowResultID === requestClassID) {
+      setActiveFlowResultID("overall");
+    }
+    markDirty();
+  }
+
+  function handleEdgeRequestClassToggle(edgeID: string, requestClassID: string) {
+    setCanvasEdges((current) =>
+      current.map((edge) => {
+        if (edge.id !== edgeID) {
+          return edge;
+        }
+
+        const currentIDs = edge.data?.requestClassIDs ?? [];
+        const nextIDs = currentIDs.includes(requestClassID)
+          ? currentIDs.filter((id) => id !== requestClassID)
+          : [...currentIDs, requestClassID];
+
+        return {
+          ...edge,
+          data: {
+            ...edge.data,
+            requestClassIDs:
+              nextIDs.length > 0 ? nextIDs : [requestClasses[0].id],
+          },
+        };
+      }),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
   return (
     <main className="studio-shell studio-shell--light">
       <header className="topbar">
@@ -923,6 +1088,52 @@ export function AppShell() {
               </label>
             </div>
           </div>
+
+          <div className="panel">
+            <p className="panel-kicker">Request Flows</p>
+            <h2>{requestClasses.length} active flows</h2>
+            <div className="flow-list">
+              {requestClasses.map((requestClass) => (
+                <div className="flow-card" key={requestClass.id}>
+                  <label className="field">
+                    <span>Name</span>
+                    <input
+                      value={requestClass.name}
+                      onChange={(event) =>
+                        handleRequestFlowNameChange(
+                          requestClass.id,
+                          event.target.value,
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Traffic share</span>
+                    <input
+                      inputMode="decimal"
+                      value={requestClass.traffic_share ?? ""}
+                      onChange={(event) =>
+                        handleRequestFlowShareChange(
+                          requestClass.id,
+                          event.target.value,
+                        )
+                      }
+                    />
+                  </label>
+                  <button
+                    className="ghost-button"
+                    onClick={() => handleRemoveRequestFlow(requestClass.id)}
+                    type="button"
+                  >
+                    Remove Flow
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button className="ghost-button" onClick={handleAddRequestFlow} type="button">
+              Add Flow
+            </button>
+          </div>
         </aside>
 
         <section className="board-panel">
@@ -963,7 +1174,7 @@ export function AppShell() {
                 <div className="run-summary__header">
                   <div>
                     <p className="panel-kicker">Latest run</p>
-                    <strong>{lastRun.result.summary}</strong>
+                    <strong>{activeFlowResult?.summary ?? lastRun.result.summary}</strong>
                   </div>
                   <div className="run-summary__actions">
                     <button
@@ -984,9 +1195,28 @@ export function AppShell() {
                     ) : null}
                   </div>
                 </div>
+                <div className="flow-toggle-bar">
+                  <button
+                    className={`flow-toggle${activeFlowResultID === "overall" ? " flow-toggle--active" : ""}`}
+                    onClick={() => setActiveFlowResultID("overall")}
+                    type="button"
+                  >
+                    Overall
+                  </button>
+                  {(lastRun.result.flows ?? []).map((flow) => (
+                    <button
+                      key={flow.request_class_id}
+                      className={`flow-toggle${activeFlowResultID === flow.request_class_id ? " flow-toggle--active" : ""}`}
+                      onClick={() => setActiveFlowResultID(flow.request_class_id)}
+                      type="button"
+                    >
+                      {flow.name}
+                    </button>
+                  ))}
+                </div>
                 <p>{formatWorkload(lastRun.workload)}</p>
-                {lastRun.result.bottleneck ? (
-                  <p>{lastRun.result.bottleneck.explanation}</p>
+                {activeFlowResult?.bottleneck ? (
+                  <p>{activeFlowResult.bottleneck.explanation}</p>
                 ) : null}
               </div>
 
@@ -1221,6 +1451,30 @@ export function AppShell() {
                 />
               </label>
 
+              <div className="field">
+                <span>Flows</span>
+                <div className="flow-checkboxes">
+                  {requestClasses.map((requestClass) => (
+                    <label className="flow-checkbox" key={requestClass.id}>
+                      <input
+                        checked={newEdgeRequestClassIDs.includes(requestClass.id)}
+                        onChange={() =>
+                          setNewEdgeRequestClassIDs((current) => {
+                            const next = current.includes(requestClass.id)
+                              ? current.filter((id) => id !== requestClass.id)
+                              : [...current, requestClass.id];
+
+                            return next.length > 0 ? next : [requestClasses[0].id];
+                          })
+                        }
+                        type="checkbox"
+                      />
+                      <span>{requestClass.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <button onClick={handleCreateEdge} type="button">
                 Add Arrow
               </button>
@@ -1296,6 +1550,23 @@ export function AppShell() {
                             handleEdgeFanoutChange(edge.id, event.target.value)
                           }
                         />
+                        <div className="flow-checkboxes">
+                          {requestClasses.map((requestClass) => (
+                            <label className="flow-checkbox" key={`${edge.id}-${requestClass.id}`}>
+                              <input
+                                checked={
+                                  edge.data?.requestClassIDs?.includes(requestClass.id) ??
+                                  false
+                                }
+                                onChange={() =>
+                                  handleEdgeRequestClassToggle(edge.id, requestClass.id)
+                                }
+                                type="checkbox"
+                              />
+                              <span>{requestClass.name}</span>
+                            </label>
+                          ))}
+                        </div>
                         <button
                           className="ghost-button"
                           onClick={() => handleRemoveEdge(edge.id)}
@@ -1352,6 +1623,7 @@ function graphEdgeToFlowEdge(edge: GraphEdge): Edge<FlowEdgeData> {
       interactionType: edge.interaction_type,
       ruleType: edge.routing_rule.rule_type,
       fanoutMultiplier: edge.fanout_multiplier ?? 1,
+      requestClassIDs: edge.request_class_ids ?? [],
     },
   };
 }
@@ -1363,6 +1635,7 @@ function flowEdgeToGraphEdge(edge: Edge<FlowEdgeData>): GraphEdge {
     target_node_id: edge.target,
     interaction_type: edge.data?.interactionType ?? "sync_request",
     fanout_multiplier: edge.data?.fanoutMultiplier ?? 1,
+    request_class_ids: edge.data?.requestClassIDs ?? [],
     routing_rule: {
       rule_type: edge.data?.ruleType ?? "always",
     },

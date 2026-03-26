@@ -43,7 +43,33 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 
 	nodeByID := make(map[string]domain.Node, len(graph.Nodes))
 	nodeIDs := make(map[string]struct{}, len(graph.Nodes))
+	requestClassIDs := make(map[string]struct{}, len(graph.RequestClasses))
 	clientCount := 0
+
+	for index, requestClass := range graph.RequestClasses {
+		prefix := fmt.Sprintf("request_class[%d]", index)
+
+		if strings.TrimSpace(requestClass.ID) == "" {
+			issues = append(issues, fmt.Sprintf("%s id is required", prefix))
+		} else {
+			if _, exists := requestClassIDs[requestClass.ID]; exists {
+				issues = append(issues, fmt.Sprintf("duplicate request class id %q", requestClass.ID))
+			}
+			requestClassIDs[requestClass.ID] = struct{}{}
+		}
+
+		if strings.TrimSpace(requestClass.Name) == "" {
+			issues = append(issues, fmt.Sprintf("%s name is required", prefix))
+		}
+
+		if !isFinite(requestClass.TrafficShare) {
+			issues = append(issues, fmt.Sprintf("%s traffic_share must be finite", prefix))
+		}
+
+		if requestClass.TrafficShare <= 0 {
+			issues = append(issues, fmt.Sprintf("%s traffic_share must be greater than zero", prefix))
+		}
+	}
 
 	for index, node := range graph.Nodes {
 		prefix := fmt.Sprintf("node[%d]", index)
@@ -122,6 +148,28 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 
 		if edge.FanoutMultiplier < 0 {
 			issues = append(issues, fmt.Sprintf("%s fanout_multiplier cannot be negative", prefix))
+		}
+
+		if len(graph.RequestClasses) > 0 && len(edge.RequestClassIDs) == 0 {
+			issues = append(issues, fmt.Sprintf("%s must reference at least one request class", prefix))
+		}
+
+		edgeRequestClassIDs := make(map[string]struct{}, len(edge.RequestClassIDs))
+		for _, requestClassID := range edge.RequestClassIDs {
+			if requestClassID == "" {
+				issues = append(issues, fmt.Sprintf("%s contains an empty request class id", prefix))
+				continue
+			}
+
+			if _, exists := edgeRequestClassIDs[requestClassID]; exists {
+				issues = append(issues, fmt.Sprintf("%s repeats request class id %q", prefix, requestClassID))
+				continue
+			}
+			edgeRequestClassIDs[requestClassID] = struct{}{}
+
+			if _, exists := requestClassIDs[requestClassID]; !exists {
+				issues = append(issues, fmt.Sprintf("%s references unknown request class %q", prefix, requestClassID))
+			}
 		}
 
 		if sourceExists {

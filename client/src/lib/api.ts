@@ -38,10 +38,17 @@ export type GraphEdge = {
   target_node_id: string;
   interaction_type: EdgeInteractionType;
   fanout_multiplier?: number;
+  request_class_ids?: string[];
   routing_rule: {
     rule_type: RoutingRuleType;
     value?: number;
   };
+};
+
+export type RequestClass = {
+  id: string;
+  name: string;
+  traffic_share?: number;
 };
 
 export type Design = {
@@ -51,6 +58,7 @@ export type Design = {
   graph: {
     nodes: GraphNode[];
     edges: GraphEdge[];
+    request_classes?: RequestClass[];
   };
   created_at?: string;
   updated_at?: string;
@@ -113,6 +121,16 @@ export type RunResult = {
   bottleneck?: RunNodeResult;
   nodes: RunNodeResult[];
   edges: RunEdgeResult[];
+  flows?: Array<{
+    request_class_id: string;
+    name: string;
+    traffic_share: number;
+    workload: Workload;
+    summary: string;
+    bottleneck?: RunNodeResult;
+    nodes: RunNodeResult[];
+    edges: RunEdgeResult[];
+  }>;
 };
 
 export type Run = {

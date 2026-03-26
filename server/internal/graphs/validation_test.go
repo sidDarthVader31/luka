@@ -122,3 +122,44 @@ func TestValidateGraphRejectsInvalidFallbackRule(t *testing.T) {
 		t.Fatalf("error = %q, want fallback validation message", err.Error())
 	}
 }
+
+func TestValidateGraphRejectsUnknownRequestClassReference(t *testing.T) {
+	err := ValidateGraph(domain.Graph{
+		RequestClasses: []domain.RequestClass{
+			{ID: "flow-read", Name: "Read Path", TrafficShare: 100},
+		},
+		Nodes: []domain.Node{
+			{
+				ID:        "client-1",
+				Label:     "Client",
+				Archetype: domain.NodeArchetypeClient,
+				Color:     "blue",
+				Position:  domain.NodePosition{X: 0, Y: 0},
+			},
+			{
+				ID:        "service-1",
+				Label:     "Service",
+				Archetype: domain.NodeArchetypeStatelessService,
+				Color:     "green",
+				Position:  domain.NodePosition{X: 100, Y: 0},
+			},
+		},
+		Edges: []domain.Edge{
+			{
+				ID:              "edge-1",
+				SourceNodeID:    "client-1",
+				TargetNodeID:    "service-1",
+				InteractionType: domain.EdgeInteractionSyncRequest,
+				RequestClassIDs: []string{"flow-missing"},
+				RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+			},
+		},
+	}, ModeSave)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	if !strings.Contains(err.Error(), `unknown request class "flow-missing"`) {
+		t.Fatalf("error = %q, want request class validation message", err.Error())
+	}
+}

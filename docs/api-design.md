@@ -30,6 +30,18 @@ Canvas layout is persisted as part of the graph through each node's `position`.
   "name": "Chat Read Path",
   "description": "Cache-aside read flow",
   "graph": {
+    "request_classes": [
+      {
+        "id": "flow-read",
+        "name": "Read Path",
+        "traffic_share": 70
+      },
+      {
+        "id": "flow-write",
+        "name": "Write Path",
+        "traffic_share": 30
+      }
+    ],
     "nodes": [
       {
         "id": "service-1",
@@ -46,7 +58,18 @@ Canvas layout is persisted as part of the graph through each node's `position`.
         }
       }
     ],
-    "edges": []
+    "edges": [
+      {
+        "id": "edge-1",
+        "source_node_id": "gateway-1",
+        "target_node_id": "service-1",
+        "interaction_type": "sync_request",
+        "request_class_ids": ["flow-read", "flow-write"],
+        "routing_rule": {
+          "rule_type": "always"
+        }
+      }
+    ]
   },
   "created_at": "2026-03-18T12:00:00Z",
   "updated_at": "2026-03-18T12:00:00Z"
@@ -66,6 +89,18 @@ A single simulation execution.
     "name": "Chat Read Path",
     "description": "Cache-aside read flow",
     "graph": {
+      "request_classes": [
+        {
+          "id": "flow-read",
+          "name": "Read Path",
+          "traffic_share": 70
+        },
+        {
+          "id": "flow-write",
+          "name": "Write Path",
+          "traffic_share": 30
+        }
+      ],
       "nodes": [
         {
           "id": "service-1",
@@ -82,7 +117,18 @@ A single simulation execution.
           }
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "id": "edge-1",
+          "source_node_id": "gateway-1",
+          "target_node_id": "service-1",
+          "interaction_type": "sync_request",
+          "request_class_ids": ["flow-read", "flow-write"],
+          "routing_rule": {
+            "rule_type": "always"
+          }
+        }
+      ]
     }
   },
   "workload": {
@@ -100,7 +146,21 @@ A single simulation execution.
     "summary": "Postgres saturates first at 143% utilization.",
     "bottleneck": {},
     "nodes": [],
-    "edges": []
+    "edges": [],
+    "flows": [
+      {
+        "request_class_id": "flow-read",
+        "name": "Read Path",
+        "traffic_share": 70,
+        "workload": {
+          "requests_per_second": 70000
+        },
+        "summary": "Read Path saturates Postgres first.",
+        "bottleneck": {},
+        "nodes": [],
+        "edges": []
+      }
+    ]
   },
   "error": null,
   "created_at": "2026-03-18T12:30:00Z",
@@ -144,6 +204,13 @@ Request:
   "name": "Chat Read Path",
   "description": "Cache-aside read flow",
   "graph": {
+    "request_classes": [
+      {
+        "id": "flow-read",
+        "name": "Read Path",
+        "traffic_share": 100
+      }
+    ],
     "nodes": [
       {
         "id": "service-1",
@@ -160,7 +227,18 @@ Request:
         }
       }
     ],
-    "edges": []
+    "edges": [
+      {
+        "id": "edge-1",
+        "source_node_id": "gateway-1",
+        "target_node_id": "service-1",
+        "interaction_type": "sync_request",
+        "request_class_ids": ["flow-read"],
+        "routing_rule": {
+          "rule_type": "always"
+        }
+      }
+    ]
   }
 }
 ```
@@ -173,6 +251,13 @@ Response:
   "name": "Chat Read Path",
   "description": "Cache-aside read flow",
   "graph": {
+    "request_classes": [
+      {
+        "id": "flow-read",
+        "name": "Read Path",
+        "traffic_share": 100
+      }
+    ],
     "nodes": [
       {
         "id": "service-1",
@@ -319,7 +404,18 @@ Inline design runs are also supported:
           }
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "id": "edge-1",
+          "source_node_id": "gateway-1",
+          "target_node_id": "service-1",
+          "interaction_type": "sync_request",
+          "request_class_ids": ["flow-read"],
+          "routing_rule": {
+            "rule_type": "always"
+          }
+        }
+      ]
     }
   },
   "workload": {
@@ -348,6 +444,13 @@ Response:
     "name": "Sample Cache-Aside Read Path",
     "description": "Sample seeded design",
     "graph": {
+      "request_classes": [
+        {
+          "id": "flow-read",
+          "name": "Read Path",
+          "traffic_share": 100
+        }
+      ],
       "nodes": [
         {
           "id": "service-1",
@@ -364,7 +467,18 @@ Response:
           }
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "id": "edge-1",
+          "source_node_id": "gateway-1",
+          "target_node_id": "service-1",
+          "interaction_type": "sync_request",
+          "request_class_ids": ["flow-read"],
+          "routing_rule": {
+            "rule_type": "always"
+          }
+        }
+      ]
     }
   },
   "workload": {
@@ -378,7 +492,21 @@ Response:
     "summary": "Postgres saturates first at 143% utilization.",
     "bottleneck": {},
     "nodes": [],
-    "edges": []
+    "edges": [],
+    "flows": [
+      {
+        "request_class_id": "flow-read",
+        "name": "Read Path",
+        "traffic_share": 100,
+        "workload": {
+          "requests_per_second": 100000
+        },
+        "summary": "Read Path saturates Postgres first.",
+        "bottleneck": {},
+        "nodes": [],
+        "edges": []
+      }
+    ]
   },
   "created_at": "2026-03-18T12:30:00Z",
   "completed_at": "2026-03-18T12:30:01Z"
@@ -432,7 +560,7 @@ Response:
 
 Status:
 
-- planned
+- implemented in this branch
 
 ## Contract Stability With Persistence
 
@@ -461,14 +589,14 @@ This is important because:
 
 ## Current Implementation Notes
 
-This branch intentionally implements only the first useful slice:
+This branch implements the current MVP-oriented slice:
 
-- seeded design lookup
-- in-memory run persistence
+- PostgreSQL-backed persistence with in-memory fallback for local bootstrapping
 - analytical simulation mode
-- cache-aside path with client, service, cache, and database archetypes
+- request classes with per-flow results
+- archetypes for client, gateway, service, cache, database, queue, and worker
+- semantic edges for sync, async enqueue, consume, conditional branch, fallback, and edge-level fanout
 
-The remaining APIs should be added as the persistence layer is introduced.
 Supported workload fields:
 
 - `requests_per_second`

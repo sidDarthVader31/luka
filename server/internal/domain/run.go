@@ -51,6 +51,18 @@ type SimulationResult struct {
 	Bottleneck *NodeSimulationResult  `json:"bottleneck,omitempty"`
 	Nodes      []NodeSimulationResult `json:"nodes"`
 	Edges      []EdgeSimulationResult `json:"edges"`
+	Flows      []FlowSimulationResult `json:"flows,omitempty"`
+}
+
+type FlowSimulationResult struct {
+	RequestClassID string                 `json:"request_class_id"`
+	Name           string                 `json:"name"`
+	TrafficShare   float64                `json:"traffic_share"`
+	Workload       Workload               `json:"workload"`
+	Summary        string                 `json:"summary"`
+	Bottleneck     *NodeSimulationResult  `json:"bottleneck,omitempty"`
+	Nodes          []NodeSimulationResult `json:"nodes"`
+	Edges          []EdgeSimulationResult `json:"edges"`
 }
 
 type NodeSimulationResult struct {

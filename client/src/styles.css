@@ -191,6 +191,20 @@ button {
   margin-top: 0.9rem;
 }
 
+.flow-list {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.9rem;
+}
+
+.flow-card {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.9rem;
+  border-radius: 18px;
+  background: rgba(244, 248, 255, 0.84);
+}
+
 .field span {
   color: #42546d;
   font-size: 0.9rem;
@@ -263,6 +277,25 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
+}
+
+.flow-toggle-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin: 0.85rem 0 0.4rem;
+}
+
+.flow-toggle {
+  padding: 0.55rem 0.85rem;
+  border-radius: 999px;
+  background: #edf2ff;
+  color: #31415b;
+}
+
+.flow-toggle--active {
+  background: #4f6ef7;
+  color: #fff;
 }
 
 .run-summary--baseline {
@@ -366,6 +399,23 @@ button {
   padding: 0.65rem 0.75rem;
   background: #fff;
   color: #17212f;
+}
+
+.flow-checkboxes {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.flow-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #42546d;
+  font-size: 0.9rem;
+}
+
+.flow-checkbox input {
+  width: auto;
 }
 
 .flow-node-copy {
