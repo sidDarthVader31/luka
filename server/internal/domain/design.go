@@ -21,6 +21,7 @@ const (
 	EdgeInteractionAsyncEnqueue    EdgeInteractionType = "async_enqueue"
 	EdgeInteractionConsume         EdgeInteractionType = "consume"
 	EdgeInteractionConditionalPath EdgeInteractionType = "conditional_branch"
+	EdgeInteractionFallback        EdgeInteractionType = "fallback"
 )
 
 type RoutingRuleType string
@@ -84,11 +85,12 @@ type NodeProperties struct {
 }
 
 type Edge struct {
-	ID              string              `json:"id"`
-	SourceNodeID    string              `json:"source_node_id"`
-	TargetNodeID    string              `json:"target_node_id"`
-	InteractionType EdgeInteractionType `json:"interaction_type"`
-	RoutingRule     RoutingRule         `json:"routing_rule"`
+	ID               string              `json:"id"`
+	SourceNodeID     string              `json:"source_node_id"`
+	TargetNodeID     string              `json:"target_node_id"`
+	InteractionType  EdgeInteractionType `json:"interaction_type"`
+	FanoutMultiplier float64             `json:"fanout_multiplier,omitempty"`
+	RoutingRule      RoutingRule         `json:"routing_rule"`
 }
 
 type RoutingRule struct {

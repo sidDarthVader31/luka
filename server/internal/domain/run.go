@@ -68,9 +68,11 @@ type NodeSimulationResult struct {
 }
 
 type EdgeSimulationResult struct {
-	EdgeID       string          `json:"edge_id"`
-	SourceNodeID string          `json:"source_node_id"`
-	TargetNodeID string          `json:"target_node_id"`
-	RuleType     RoutingRuleType `json:"rule_type"`
-	RoutedRPS    float64         `json:"routed_rps"`
+	EdgeID           string              `json:"edge_id"`
+	SourceNodeID     string              `json:"source_node_id"`
+	TargetNodeID     string              `json:"target_node_id"`
+	InteractionType  EdgeInteractionType `json:"interaction_type"`
+	FanoutMultiplier float64             `json:"fanout_multiplier"`
+	RuleType         RoutingRuleType     `json:"rule_type"`
+	RoutedRPS        float64             `json:"routed_rps"`
 }

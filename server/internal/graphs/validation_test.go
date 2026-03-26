@@ -50,14 +50,14 @@ func TestValidateGraphRunRejectsCycle(t *testing.T) {
 				Label:     "Client",
 				Archetype: domain.NodeArchetypeClient,
 				Color:     "blue",
-				Position: domain.NodePosition{X: 0, Y: 0},
+				Position:  domain.NodePosition{X: 0, Y: 0},
 			},
 			{
 				ID:        "service-1",
 				Label:     "Service",
 				Archetype: domain.NodeArchetypeStatelessService,
 				Color:     "green",
-				Position: domain.NodePosition{X: 100, Y: 0},
+				Position:  domain.NodePosition{X: 100, Y: 0},
 			},
 		},
 		Edges: []domain.Edge{
@@ -83,5 +83,42 @@ func TestValidateGraphRunRejectsCycle(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "cycles are not supported") {
 		t.Fatalf("error = %q, want cycle validation message", err.Error())
+	}
+}
+
+func TestValidateGraphRejectsInvalidFallbackRule(t *testing.T) {
+	err := ValidateGraph(domain.Graph{
+		Nodes: []domain.Node{
+			{
+				ID:        "service-1",
+				Label:     "Service",
+				Archetype: domain.NodeArchetypeStatelessService,
+				Color:     "green",
+				Position:  domain.NodePosition{X: 0, Y: 0},
+			},
+			{
+				ID:        "queue-1",
+				Label:     "Queue",
+				Archetype: domain.NodeArchetypeQueue,
+				Color:     "yellow",
+				Position:  domain.NodePosition{X: 100, Y: 0},
+			},
+		},
+		Edges: []domain.Edge{
+			{
+				ID:              "edge-1",
+				SourceNodeID:    "service-1",
+				TargetNodeID:    "queue-1",
+				InteractionType: domain.EdgeInteractionFallback,
+				RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleCacheMiss},
+			},
+		},
+	}, ModeSave)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	if !strings.Contains(err.Error(), "fallback edges must use routing rule") {
+		t.Fatalf("error = %q, want fallback validation message", err.Error())
 	}
 }

@@ -116,6 +116,14 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 			issues = append(issues, fmt.Sprintf("%s routing rule %q is not supported", prefix, edge.RoutingRule.RuleType))
 		}
 
+		if !isFinite(edge.FanoutMultiplier) {
+			issues = append(issues, fmt.Sprintf("%s fanout_multiplier must be finite", prefix))
+		}
+
+		if edge.FanoutMultiplier < 0 {
+			issues = append(issues, fmt.Sprintf("%s fanout_multiplier cannot be negative", prefix))
+		}
+
 		if sourceExists {
 			catalogEntry, exists := archetypeCatalog()[sourceNode.Archetype]
 			if exists {
@@ -132,6 +140,10 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 				if sourceNode.Archetype != domain.NodeArchetypeCache {
 					issues = append(issues, fmt.Sprintf("%s uses %q but source node %q is not a cache", prefix, edge.RoutingRule.RuleType, edge.SourceNodeID))
 				}
+			}
+
+			if edge.InteractionType == domain.EdgeInteractionFallback && edge.RoutingRule.RuleType != domain.RoutingRuleAlways {
+				issues = append(issues, fmt.Sprintf("%s fallback edges must use routing rule %q", prefix, domain.RoutingRuleAlways))
 			}
 		}
 

@@ -12,6 +12,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionSyncRequest,
+				domain.EdgeInteractionFallback,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
 				domain.RoutingRuleAlways,
@@ -43,6 +44,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionSyncRequest,
 				domain.EdgeInteractionAsyncEnqueue,
+				domain.EdgeInteractionFallback,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
 				domain.RoutingRuleAlways,
@@ -60,6 +62,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionSyncRequest,
 				domain.EdgeInteractionConditionalPath,
+				domain.EdgeInteractionFallback,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
 				domain.RoutingRuleAlways,
@@ -77,6 +80,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionSyncRequest,
+				domain.EdgeInteractionFallback,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
 				domain.RoutingRuleAlways,
@@ -108,6 +112,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionSyncRequest,
 				domain.EdgeInteractionAsyncEnqueue,
+				domain.EdgeInteractionFallback,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
 				domain.RoutingRuleAlways,

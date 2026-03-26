@@ -162,18 +162,16 @@ func TestRunDesignAppliesFanoutToAsyncEdges(t *testing.T) {
 					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
 				},
 				{
-					ID:              "edge-service-queue",
-					SourceNodeID:    "service-1",
-					TargetNodeID:    "queue-1",
-					InteractionType: domain.EdgeInteractionAsyncEnqueue,
-					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+					ID:               "edge-service-queue",
+					SourceNodeID:     "service-1",
+					TargetNodeID:     "queue-1",
+					InteractionType:  domain.EdgeInteractionAsyncEnqueue,
+					FanoutMultiplier: 3,
+					RoutingRule:      domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
 				},
 			},
 		},
-	}, domain.Workload{
-		RequestsPerSecond: 4000,
-		FanoutCount:       4,
-	})
+	}, domain.Workload{RequestsPerSecond: 4000})
 	if err != nil {
 		t.Fatalf("RunDesign() error = %v", err)
 	}
@@ -192,5 +190,74 @@ func TestRunDesignAppliesFanoutToAsyncEdges(t *testing.T) {
 
 	if result.Edges[1].RoutedRPS <= 4000 {
 		t.Fatalf("fanout edge routed_rps = %.0f, want more than source throughput", result.Edges[1].RoutedRPS)
+	}
+}
+
+func TestRunDesignRoutesDroppedLoadThroughFallbackEdges(t *testing.T) {
+	service := NewService()
+
+	result, err := service.RunDesign(domain.Design{
+		ID:   "design-fallback",
+		Name: "Fallback Path",
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{ID: "client-1", Label: "Client", Archetype: domain.NodeArchetypeClient, Color: "blue", Position: domain.NodePosition{X: 0, Y: 0}},
+				{
+					ID:        "service-1",
+					Label:     "Primary Service",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "green",
+					Position:  domain.NodePosition{X: 140, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   4000,
+						BaseLatencyMS: 20,
+					},
+				},
+				{
+					ID:        "queue-1",
+					Label:     "Fallback Queue",
+					Archetype: domain.NodeArchetypeQueue,
+					Color:     "yellow",
+					Position:  domain.NodePosition{X: 320, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   10000,
+						BaseLatencyMS: 4,
+					},
+				},
+			},
+			Edges: []domain.Edge{
+				{
+					ID:              "edge-client-service",
+					SourceNodeID:    "client-1",
+					TargetNodeID:    "service-1",
+					InteractionType: domain.EdgeInteractionSyncRequest,
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+				{
+					ID:              "edge-service-fallback",
+					SourceNodeID:    "service-1",
+					TargetNodeID:    "queue-1",
+					InteractionType: domain.EdgeInteractionFallback,
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+			},
+		},
+	}, domain.Workload{RequestsPerSecond: 9000})
+	if err != nil {
+		t.Fatalf("RunDesign() error = %v", err)
+	}
+
+	if len(result.Edges) != 2 {
+		t.Fatalf("edge results = %d, want 2", len(result.Edges))
+	}
+
+	if result.Edges[1].RoutedRPS <= 0 {
+		t.Fatalf("fallback edge routed_rps = %.0f, want dropped traffic routed", result.Edges[1].RoutedRPS)
+	}
+
+	if result.Edges[1].InteractionType != domain.EdgeInteractionFallback {
+		t.Fatalf("fallback edge interaction = %q, want fallback", result.Edges[1].InteractionType)
 	}
 }

@@ -352,6 +352,22 @@ button {
   display: block;
 }
 
+.edge-editor {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 180px;
+}
+
+.edge-editor select,
+.edge-editor input {
+  width: 100%;
+  border: 1px solid #d8e0ef;
+  border-radius: 14px;
+  padding: 0.65rem 0.75rem;
+  background: #fff;
+  color: #17212f;
+}
+
 .flow-node-copy {
   display: grid;
   gap: 0.5rem;

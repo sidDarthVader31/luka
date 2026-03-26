@@ -94,18 +94,20 @@ func (s *Service) runGraph(design domain.Design, workload normalizedWorkload) (*
 		processedNodes++
 
 		for _, edge := range outgoing[nodeID] {
-			routed, err := applyRoutingRule(edge, node, result.ProcessedRPS, workload)
+			routed, err := applyRoutingRule(edge, node, result, workload)
 			if err != nil {
 				return nil, err
 			}
 
 			incomingRate[edge.TargetNodeID] += routed
 			edgeResults = append(edgeResults, domain.EdgeSimulationResult{
-				EdgeID:       edge.ID,
-				SourceNodeID: edge.SourceNodeID,
-				TargetNodeID: edge.TargetNodeID,
-				RuleType:     edge.RoutingRule.RuleType,
-				RoutedRPS:    round(routed),
+				EdgeID:           edge.ID,
+				SourceNodeID:     edge.SourceNodeID,
+				TargetNodeID:     edge.TargetNodeID,
+				InteractionType:  edge.InteractionType,
+				FanoutMultiplier: round(normalizedEdgeFanout(edge)),
+				RuleType:         edge.RoutingRule.RuleType,
+				RoutedRPS:        round(routed),
 			})
 
 			inDegree[edge.TargetNodeID]--
@@ -199,35 +201,49 @@ func simulateNode(node domain.Node, incomingRPS float64, workload normalizedWork
 func applyRoutingRule(
 	edge domain.Edge,
 	sourceNode domain.Node,
-	processedRPS float64,
+	sourceResult domain.NodeSimulationResult,
 	workload normalizedWorkload,
 ) (float64, error) {
 	var routed float64
 
-	switch edge.RoutingRule.RuleType {
-	case domain.RoutingRuleAlways:
-		routed = processedRPS
-	case domain.RoutingRuleCacheHit:
-		if sourceNode.Archetype != domain.NodeArchetypeCache {
-			return 0, fmt.Errorf("edge %q uses cache_hit but source node %q is not a cache", edge.ID, sourceNode.ID)
-		}
+	if edge.InteractionType == domain.EdgeInteractionFallback {
+		routed = sourceResult.DroppedRPS
+	} else {
+		switch edge.RoutingRule.RuleType {
+		case domain.RoutingRuleAlways:
+			routed = sourceResult.ProcessedRPS
+		case domain.RoutingRuleCacheHit:
+			if sourceNode.Archetype != domain.NodeArchetypeCache {
+				return 0, fmt.Errorf("edge %q uses cache_hit but source node %q is not a cache", edge.ID, sourceNode.ID)
+			}
 
-		routed = processedRPS * normalizedHitRate(sourceNode)
-	case domain.RoutingRuleCacheMiss:
-		if sourceNode.Archetype != domain.NodeArchetypeCache {
-			return 0, fmt.Errorf("edge %q uses cache_miss but source node %q is not a cache", edge.ID, sourceNode.ID)
-		}
+			routed = sourceResult.ProcessedRPS * normalizedHitRate(sourceNode)
+		case domain.RoutingRuleCacheMiss:
+			if sourceNode.Archetype != domain.NodeArchetypeCache {
+				return 0, fmt.Errorf("edge %q uses cache_miss but source node %q is not a cache", edge.ID, sourceNode.ID)
+			}
 
-		routed = processedRPS * (1 - normalizedHitRate(sourceNode))
-	default:
-		return 0, fmt.Errorf("edge %q uses unsupported routing rule %q", edge.ID, edge.RoutingRule.RuleType)
+			routed = sourceResult.ProcessedRPS * (1 - normalizedHitRate(sourceNode))
+		default:
+			return 0, fmt.Errorf("edge %q uses unsupported routing rule %q", edge.ID, edge.RoutingRule.RuleType)
+		}
 	}
 
 	if edge.InteractionType == domain.EdgeInteractionAsyncEnqueue && workload.FanoutCount > 1 {
 		routed *= workload.FanoutCount
 	}
 
+	routed *= normalizedEdgeFanout(edge)
+
 	return routed, nil
+}
+
+func normalizedEdgeFanout(edge domain.Edge) float64 {
+	if edge.FanoutMultiplier <= 0 {
+		return 1
+	}
+
+	return edge.FanoutMultiplier
 }
 
 func normalizedHitRate(node domain.Node) float64 {

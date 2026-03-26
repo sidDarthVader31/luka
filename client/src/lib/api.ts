@@ -11,7 +11,8 @@ export type EdgeInteractionType =
   | "sync_request"
   | "async_enqueue"
   | "consume"
-  | "conditional_branch";
+  | "conditional_branch"
+  | "fallback";
 export type RoutingRuleType = "always" | "cache_hit" | "cache_miss";
 
 export type GraphNode = {
@@ -36,6 +37,7 @@ export type GraphEdge = {
   source_node_id: string;
   target_node_id: string;
   interaction_type: EdgeInteractionType;
+  fanout_multiplier?: number;
   routing_rule: {
     rule_type: RoutingRuleType;
     value?: number;
@@ -100,6 +102,8 @@ export type RunEdgeResult = {
   edge_id: string;
   source_node_id: string;
   target_node_id: string;
+  interaction_type: EdgeInteractionType;
+  fanout_multiplier: number;
   rule_type: RoutingRuleType;
   routed_rps: number;
 };

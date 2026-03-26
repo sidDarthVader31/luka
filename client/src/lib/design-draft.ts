@@ -65,6 +65,7 @@ export function buildEdge(input: {
   targetNodeID: string;
   interactionType: EdgeInteractionType;
   ruleType: RoutingRuleType;
+  fanoutMultiplier?: number;
   existingEdges: GraphEdge[];
 }): GraphEdge {
   const nextIndex = nextAvailableIndex(
@@ -77,6 +78,10 @@ export function buildEdge(input: {
     source_node_id: input.sourceNodeID,
     target_node_id: input.targetNodeID,
     interaction_type: input.interactionType,
+    fanout_multiplier:
+      input.fanoutMultiplier && input.fanoutMultiplier > 1
+        ? input.fanoutMultiplier
+        : undefined,
     routing_rule: {
       rule_type: input.ruleType,
     },

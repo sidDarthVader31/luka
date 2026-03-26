@@ -73,6 +73,7 @@ type FlowNodeData = {
 type FlowEdgeData = {
   interactionType: EdgeInteractionType;
   ruleType: RoutingRuleType;
+  fanoutMultiplier: number;
 };
 
 export function AppShell() {
@@ -101,6 +102,7 @@ export function AppShell() {
   const [newEdgeInteraction, setNewEdgeInteraction] =
     useState<EdgeInteractionType>("sync_request");
   const [newEdgeRule, setNewEdgeRule] = useState<RoutingRuleType>("always");
+  const [newEdgeFanoutMultiplier, setNewEdgeFanoutMultiplier] = useState("1");
   const [flowInstance, setFlowInstance] = useState<
     ReactFlowInstance<Node<FlowNodeData>, Edge<FlowEdgeData>> | null
   >(null);
@@ -122,6 +124,12 @@ export function AppShell() {
   const resultNodesByID = useMemo(
     () =>
       new Map((lastRun?.result?.nodes ?? []).map((node) => [node.node_id, node])),
+    [lastRun],
+  );
+
+  const resultEdgesByID = useMemo(
+    () =>
+      new Map((lastRun?.result?.edges ?? []).map((edge) => [edge.edge_id, edge])),
     [lastRun],
   );
 
@@ -160,14 +168,19 @@ export function AppShell() {
           style: {
             width: 220,
             borderRadius: 18,
-            border: `2px solid ${palette.border}`,
-            background: palette.background,
+            border: `2px solid ${result ? utilizationBorderColor(result.utilization, palette.border) : palette.border}`,
+            background: result
+              ? utilizationBackground(node.data.color, result.utilization)
+              : palette.background,
             color: palette.text,
             boxShadow:
               lastRun?.result?.bottleneck?.node_id === node.id
-                ? "0 0 0 3px rgba(216, 77, 58, 0.18), 0 10px 24px rgba(71, 93, 124, 0.14)"
-                : "0 10px 24px rgba(71, 93, 124, 0.12)",
+                ? "0 0 0 4px rgba(216, 77, 58, 0.22), 0 14px 28px rgba(71, 93, 124, 0.2)"
+                : result && result.utilization >= 0.8
+                  ? "0 0 0 2px rgba(232, 153, 29, 0.18), 0 10px 24px rgba(71, 93, 124, 0.14)"
+                  : "0 10px 24px rgba(71, 93, 124, 0.12)",
             padding: 0,
+            opacity: result ? 1 : 0.96,
           },
           selected: node.id === selectedNodeID,
         };
@@ -177,30 +190,34 @@ export function AppShell() {
 
   const displayEdges = useMemo(
     () =>
-      canvasEdges.map((edge) => ({
-        ...edge,
-        label:
-          edge.data?.ruleType && edge.data.ruleType !== "always"
-            ? edge.data.ruleType
-            : edge.data?.interactionType ?? "sync_request",
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: "#4f6ef7",
-        },
-        style: {
-          stroke: "#4f6ef7",
-          strokeWidth: 2.5,
-        },
-        labelStyle: {
-          fill: "#364152",
-          fontSize: 12,
-          fontWeight: 700,
-        },
-        labelBgStyle: {
-          fill: "rgba(255,255,255,0.96)",
-        },
-      })),
-    [canvasEdges],
+      canvasEdges.map((edge) => {
+        const result = resultEdgesByID.get(edge.id);
+        const highlight = getEdgeHighlight(edge, result, lastRun?.result?.edges ?? []);
+
+        return {
+          ...edge,
+          label: buildEdgeLabel(edge, result),
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: highlight.stroke,
+          },
+          animated: highlight.animated,
+          style: {
+            stroke: highlight.stroke,
+            strokeWidth: highlight.strokeWidth,
+            strokeDasharray: highlight.dashed ? "8 6" : undefined,
+          },
+          labelStyle: {
+            fill: "#364152",
+            fontSize: 12,
+            fontWeight: 700,
+          },
+          labelBgStyle: {
+            fill: "rgba(255,255,255,0.96)",
+          },
+        };
+      }),
+    [canvasEdges, lastRun, resultEdgesByID],
   );
 
   useEffect(() => {
@@ -220,6 +237,10 @@ export function AppShell() {
       !edgeOptions.routingRules.includes(newEdgeRule)
     ) {
       setNewEdgeRule(edgeOptions.routingRules[0]);
+    }
+
+    if (newEdgeInteraction === "fallback" && newEdgeRule !== "always") {
+      setNewEdgeRule("always");
     }
   }, [edgeOptions, newEdgeInteraction, newEdgeRule]);
 
@@ -290,6 +311,7 @@ export function AppShell() {
     setSelectedNodeID(null);
     setNewEdgeSourceID("");
     setNewEdgeTargetID("");
+    setNewEdgeFanoutMultiplier("1");
     setLastRun(null);
     setBaselineRun(null);
     setIsDirty(false);
@@ -310,6 +332,7 @@ export function AppShell() {
     setSelectedNodeID(draft.nodes[0]?.id ?? null);
     setNewEdgeSourceID(draft.nodes[0]?.id ?? "");
     setNewEdgeTargetID(draft.nodes[1]?.id ?? "");
+    setNewEdgeFanoutMultiplier("1");
     setLastRun(null);
     if (!options?.preserveBaseline) {
       setBaselineRun(null);
@@ -558,6 +581,7 @@ export function AppShell() {
       targetNodeID: connection.target,
       interactionType: options.interactions[0] ?? "sync_request",
       ruleType: options.routingRules[0] ?? "always",
+      fanoutMultiplier: 1,
       existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
     });
 
@@ -580,11 +604,18 @@ export function AppShell() {
       return;
     }
 
+    const fanoutMultiplier = parseEdgeFanoutInput(newEdgeFanoutMultiplier);
+    if (!fanoutMultiplier.ok) {
+      setFeedback(fanoutMultiplier.error);
+      return;
+    }
+
     const graphEdge = buildEdge({
       sourceNodeID: newEdgeSourceID,
       targetNodeID: newEdgeTargetID,
       interactionType: newEdgeInteraction,
-      ruleType: newEdgeRule,
+      ruleType: newEdgeInteraction === "fallback" ? "always" : newEdgeRule,
+      fanoutMultiplier: fanoutMultiplier.value,
       existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
     });
 
@@ -592,6 +623,70 @@ export function AppShell() {
     setLastRun(null);
     markDirty();
     setFeedback(`Created arrow ${newEdgeSourceID} → ${newEdgeTargetID}.`);
+  }
+
+  function handleEdgeInteractionChange(edgeID: string, interactionType: EdgeInteractionType) {
+    setCanvasEdges((current) =>
+      current.map((edge) =>
+        edge.id === edgeID
+          ? {
+              ...edge,
+              data: {
+                ...edge.data,
+                interactionType,
+                ruleType:
+                  interactionType === "fallback"
+                    ? "always"
+                    : edge.data?.ruleType ?? "always",
+              },
+            }
+          : edge,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
+  function handleEdgeRuleChange(edgeID: string, ruleType: RoutingRuleType) {
+    setCanvasEdges((current) =>
+      current.map((edge) =>
+        edge.id === edgeID
+          ? {
+              ...edge,
+              data: {
+                ...edge.data,
+                ruleType,
+              },
+            }
+          : edge,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
+  function handleEdgeFanoutChange(edgeID: string, value: string) {
+    const parsed = parseEdgeFanoutInput(value);
+    if (!parsed.ok && value !== "") {
+      return;
+    }
+
+    setCanvasEdges((current) =>
+      current.map((edge) =>
+        edge.id === edgeID
+          ? {
+              ...edge,
+              data: {
+                ...edge.data,
+                fanoutMultiplier:
+                  value === "" ? 1 : parsed.ok ? parsed.value : 1,
+              },
+            }
+          : edge,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
   }
 
   const handleNodeClick: NodeMouseHandler<Node<FlowNodeData>> = (_, node) => {
@@ -1102,6 +1197,7 @@ export function AppShell() {
                 <span>Routing rule</span>
                 <select
                   value={newEdgeRule}
+                  disabled={newEdgeInteraction === "fallback"}
                   onChange={(event) =>
                     setNewEdgeRule(event.target.value as RoutingRuleType)
                   }
@@ -1112,6 +1208,17 @@ export function AppShell() {
                     </option>
                   ))}
                 </select>
+              </label>
+
+              <label className="field">
+                <span>Edge fanout multiplier</span>
+                <input
+                  inputMode="decimal"
+                  value={newEdgeFanoutMultiplier}
+                  onChange={(event) =>
+                    setNewEdgeFanoutMultiplier(event.target.value)
+                  }
+                />
               </label>
 
               <button onClick={handleCreateEdge} type="button">
@@ -1125,26 +1232,81 @@ export function AppShell() {
               </p>
             ) : (
               <ul className="edge-list">
-                {canvasEdges.map((edge) => (
-                  <li key={edge.id}>
-                    <div>
-                      <strong>
-                        {edge.source} → {edge.target}
-                      </strong>
-                      <small>
-                        {edge.data?.interactionType ?? "sync_request"} /{" "}
-                        {edge.data?.ruleType ?? "always"}
-                      </small>
-                    </div>
-                    <button
-                      className="ghost-button"
-                      onClick={() => handleRemoveEdge(edge.id)}
-                      type="button"
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
+                {canvasEdges.map((edge) => {
+                  const edgeSpecificOptions = getSupportedEdgeOptions({
+                    sourceNodeID: edge.source,
+                    nodes: canvasNodes.map(flowNodeToGraphNode),
+                    archetypes: catalog,
+                  });
+
+                  return (
+                    <li key={edge.id}>
+                      <div>
+                        <strong>
+                          {edge.source} → {edge.target}
+                        </strong>
+                        <small>
+                          {edge.data?.interactionType ?? "sync_request"} /{" "}
+                          {edge.data?.ruleType ?? "always"}
+                          {edge.data?.fanoutMultiplier &&
+                          edge.data.fanoutMultiplier > 1
+                            ? ` / x${edge.data.fanoutMultiplier}`
+                            : ""}
+                        </small>
+                      </div>
+                      <div className="edge-editor">
+                        <select
+                          value={edge.data?.interactionType ?? "sync_request"}
+                          onChange={(event) =>
+                            handleEdgeInteractionChange(
+                              edge.id,
+                              event.target.value as EdgeInteractionType,
+                            )
+                          }
+                        >
+                          {edgeSpecificOptions.interactions.map((interaction) => (
+                            <option
+                              key={`${edge.id}-${interaction}`}
+                              value={interaction}
+                            >
+                              {interaction}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={edge.data?.ruleType ?? "always"}
+                          disabled={edge.data?.interactionType === "fallback"}
+                          onChange={(event) =>
+                            handleEdgeRuleChange(
+                              edge.id,
+                              event.target.value as RoutingRuleType,
+                            )
+                          }
+                        >
+                          {edgeSpecificOptions.routingRules.map((rule) => (
+                            <option key={`${edge.id}-${rule}`} value={rule}>
+                              {rule}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          inputMode="decimal"
+                          value={String(edge.data?.fanoutMultiplier ?? 1)}
+                          onChange={(event) =>
+                            handleEdgeFanoutChange(edge.id, event.target.value)
+                          }
+                        />
+                        <button
+                          className="ghost-button"
+                          onClick={() => handleRemoveEdge(edge.id)}
+                          type="button"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -1189,6 +1351,7 @@ function graphEdgeToFlowEdge(edge: GraphEdge): Edge<FlowEdgeData> {
     data: {
       interactionType: edge.interaction_type,
       ruleType: edge.routing_rule.rule_type,
+      fanoutMultiplier: edge.fanout_multiplier ?? 1,
     },
   };
 }
@@ -1199,9 +1362,106 @@ function flowEdgeToGraphEdge(edge: Edge<FlowEdgeData>): GraphEdge {
     source_node_id: edge.source,
     target_node_id: edge.target,
     interaction_type: edge.data?.interactionType ?? "sync_request",
+    fanout_multiplier: edge.data?.fanoutMultiplier ?? 1,
     routing_rule: {
       rule_type: edge.data?.ruleType ?? "always",
     },
+  };
+}
+
+function buildEdgeLabel(
+  edge: Edge<FlowEdgeData>,
+  result:
+    | {
+        routed_rps: number;
+      }
+    | undefined,
+) {
+  const semantic =
+    edge.data?.interactionType === "fallback"
+      ? "fallback"
+      : edge.data?.ruleType && edge.data.ruleType !== "always"
+        ? edge.data.ruleType
+        : edge.data?.interactionType ?? "sync_request";
+  const fanoutLabel =
+    edge.data?.fanoutMultiplier && edge.data.fanoutMultiplier > 1
+      ? ` x${edge.data.fanoutMultiplier}`
+      : "";
+  const throughputLabel = result
+    ? ` · ${formatCompactNumber(result.routed_rps)} rps`
+    : "";
+
+  return `${semantic}${fanoutLabel}${throughputLabel}`;
+}
+
+function getEdgeHighlight(
+  edge: Edge<FlowEdgeData>,
+  result:
+    | {
+        routed_rps: number;
+      }
+    | undefined,
+  allEdgeResults: Array<{
+    routed_rps: number;
+  }>,
+) {
+  const maxRouted = Math.max(
+    1,
+    ...allEdgeResults.map((edgeResult) => edgeResult.routed_rps),
+  );
+  const loadRatio = result ? result.routed_rps / maxRouted : 0;
+  const isFallback = edge.data?.interactionType === "fallback";
+
+  if (isFallback && result && result.routed_rps > 0) {
+    return {
+      stroke: "#d84d3a",
+      strokeWidth: 4,
+      dashed: true,
+      animated: true,
+    };
+  }
+
+  if (isFallback) {
+    return {
+      stroke: "#f0a76b",
+      strokeWidth: 2.5,
+      dashed: true,
+      animated: false,
+    };
+  }
+
+  if (loadRatio >= 0.85) {
+    return {
+      stroke: "#d84d3a",
+      strokeWidth: 4,
+      dashed: false,
+      animated: true,
+    };
+  }
+
+  if (loadRatio >= 0.45) {
+    return {
+      stroke: "#e8991d",
+      strokeWidth: 3.25,
+      dashed: false,
+      animated: false,
+    };
+  }
+
+  if (result && result.routed_rps > 0) {
+    return {
+      stroke: "#4f6ef7",
+      strokeWidth: 2.75,
+      dashed: false,
+      animated: false,
+    };
+  }
+
+  return {
+    stroke: "#a8b6cb",
+    strokeWidth: 2,
+    dashed: false,
+    animated: false,
   };
 }
 
@@ -1401,6 +1661,56 @@ function formatWorkload(workload: Workload) {
   const concurrentUsers = workload.concurrent_users ?? 0;
 
   return `${formatCompactNumber(workload.requests_per_second)} rps, ${formatCompactNumber(concurrentUsers)} concurrent users, ${readWriteRatio}:1 read/write, ${payloadKB} KB payload, fanout x${fanoutCount}`;
+}
+
+function utilizationBorderColor(utilization: number, fallbackColor: string) {
+  if (utilization >= 1) {
+    return "#d84d3a";
+  }
+
+  if (utilization >= 0.8) {
+    return "#e8991d";
+  }
+
+  if (utilization > 0) {
+    return "#4f6ef7";
+  }
+
+  return fallbackColor;
+}
+
+function utilizationBackground(
+  color: GraphNode["color"],
+  utilization: number,
+) {
+  if (utilization >= 1) {
+    return "linear-gradient(180deg, #ffe5e1 0%, #ffd8d1 100%)";
+  }
+
+  if (utilization >= 0.8) {
+    return "linear-gradient(180deg, #fff4d8 0%, #ffe9b6 100%)";
+  }
+
+  return getNodePalette(color).background;
+}
+
+function parseEdgeFanoutInput(
+  value: string,
+): { ok: true; value: number } | { ok: false; error: string } {
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return { ok: true, value: 1 };
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return {
+      ok: false,
+      error: "Edge fanout multiplier must be a positive number.",
+    };
+  }
+
+  return { ok: true, value: parsed };
 }
 
 function formatSignedPercent(value: number) {
