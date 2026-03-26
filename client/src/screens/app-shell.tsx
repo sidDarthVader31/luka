@@ -32,6 +32,7 @@ import type {
   RequestClass,
   RoutingRuleType,
   Run,
+  RunEdgeResult,
   RunNodeResult,
   Workload,
 } from "../lib/api";
@@ -126,6 +127,11 @@ export function AppShell() {
     () => canvasNodes.find((node) => node.id === selectedNodeID) ?? null,
     [canvasNodes, selectedNodeID],
   );
+  const nodeLabelsByID = useMemo(
+    () => new Map(canvasNodes.map((node) => [node.id, node.data.label])),
+    [canvasNodes],
+  );
+  const isRunningSimulation = busyAction === "Running simulation";
 
   const activeFlowResult = useMemo(() => {
     if (activeFlowResultID === "overall") {
@@ -240,6 +246,18 @@ export function AppShell() {
         };
       }),
     [activeFlowResult, canvasEdges, resultEdgesByID],
+  );
+
+  const hottestEdge = useMemo(
+    () =>
+      (activeFlowResult?.edges ?? []).reduce<RunEdgeResult | undefined>((current, edge) => {
+        if (!current || edge.routed_rps > current.routed_rps) {
+          return edge;
+        }
+
+        return current;
+      }, undefined),
+    [activeFlowResult],
   );
 
   useEffect(() => {
@@ -963,7 +981,7 @@ export function AppShell() {
 
         <div className="topbar-actions">
           <button className="ghost-button" onClick={resetToBlankCanvas} type="button">
-            New Canvas
+            Start Fresh
           </button>
           <button className="ghost-button" onClick={handleLoadSample} type="button">
             Load Sample
@@ -991,12 +1009,28 @@ export function AppShell() {
       </header>
 
       <section className="info-strip">
-        <span>{apiStatus}</span>
-        <span>{savedDesign ? savedDesign.id : "Unsaved design"}</span>
-        <span>{isDirty ? "Unsaved changes" : "All changes synced"}</span>
-        <span>
-          {canvasNodes.length} nodes / {canvasEdges.length} edges
-        </span>
+        <div className="info-pill">
+          <span>Backend</span>
+          <strong>{apiStatus}</strong>
+        </div>
+        <div className="info-pill">
+          <span>Design</span>
+          <strong>{savedDesign ? savedDesign.id : "Unsaved canvas"}</strong>
+        </div>
+        <div className="info-pill">
+          <span>Sync</span>
+          <strong>{isDirty ? "Unsaved changes" : "All changes synced"}</strong>
+        </div>
+        <div className="info-pill">
+          <span>Graph</span>
+          <strong>
+            {canvasNodes.length} nodes / {canvasEdges.length} edges
+          </strong>
+        </div>
+        <div className="info-pill">
+          <span>Flows</span>
+          <strong>{requestClasses.length} active</strong>
+        </div>
       </section>
 
       <section className="workspace">
@@ -1143,6 +1177,25 @@ export function AppShell() {
             onDragOver={handleCanvasDragOver}
             onDrop={handleCanvasDrop}
           >
+            <div className="canvas-toolbar">
+              <button
+                className="ghost-button ghost-button--toolbar"
+                onClick={() => flowInstance?.fitView({ duration: 350, padding: 0.2 })}
+                type="button"
+              >
+                Fit View
+              </button>
+              <button
+                className="ghost-button ghost-button--toolbar"
+                onClick={() =>
+                  flowInstance?.setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 350 })
+                }
+                type="button"
+              >
+                Reset View
+              </button>
+            </div>
+
             <ReactFlow
               nodes={displayNodes}
               edges={displayEdges}
@@ -1156,6 +1209,32 @@ export function AppShell() {
               <Background gap={24} size={1} color="#d8e0ef" />
               <Controls />
             </ReactFlow>
+
+            <div className="canvas-legend">
+              <div className="canvas-legend__row">
+                <span className="legend-swatch legend-swatch--hot" />
+                <span>Hot path</span>
+              </div>
+              <div className="canvas-legend__row">
+                <span className="legend-swatch legend-swatch--warm" />
+                <span>Under pressure</span>
+              </div>
+              <div className="canvas-legend__row">
+                <span className="legend-swatch legend-swatch--fallback" />
+                <span>Fallback active</span>
+              </div>
+            </div>
+
+            {isRunningSimulation ? (
+              <div className="canvas-run-overlay">
+                <div className="run-visualizer">
+                  <div className="run-visualizer__pulse" />
+                  <div className="run-visualizer__pulse run-visualizer__pulse--delay" />
+                  <strong>Running simulation</strong>
+                  <span>Propagating load through the current graph.</span>
+                </div>
+              </div>
+            ) : null}
 
             {canvasNodes.length === 0 ? (
               <div className="canvas-empty">
@@ -1213,6 +1292,38 @@ export function AppShell() {
                       {flow.name}
                     </button>
                   ))}
+                </div>
+                <div className="comparison-grid comparison-grid--run">
+                  <div className="comparison-card">
+                    <span>Bottleneck</span>
+                    <strong>
+                      {activeFlowResult?.bottleneck?.label ?? "No bottleneck"}
+                    </strong>
+                  </div>
+                  <div className="comparison-card">
+                    <span>Hot edge</span>
+                    <strong>
+                      {hottestEdge
+                        ? `${nodeLabelsByID.get(hottestEdge.source_node_id) ?? hottestEdge.source_node_id} → ${nodeLabelsByID.get(hottestEdge.target_node_id) ?? hottestEdge.target_node_id}`
+                        : "No routed edges"}
+                    </strong>
+                  </div>
+                  <div className="comparison-card">
+                    <span>Flow coverage</span>
+                    <strong>
+                      {activeFlowResultID === "overall"
+                        ? `${lastRun.result.flows?.length ?? 0} flows`
+                        : activeFlowResult?.name ?? "Single flow"}
+                    </strong>
+                  </div>
+                  <div className="comparison-card">
+                    <span>Peak load</span>
+                    <strong>
+                      {hottestEdge
+                        ? `${formatCompactNumber(hottestEdge.routed_rps)} rps`
+                        : "0 rps"}
+                    </strong>
+                  </div>
                 </div>
                 <p>{formatWorkload(lastRun.workload)}</p>
                 {activeFlowResult?.bottleneck ? (
@@ -1292,7 +1403,7 @@ export function AppShell() {
                   >
                     {colorOptions.map((color) => (
                       <option key={color} value={color}>
-                        {color}
+                        {colorLabel(color)}
                       </option>
                     ))}
                   </select>
@@ -1348,6 +1459,9 @@ export function AppShell() {
                       </div>
                       <div className="history-card__actions">
                         <span>{run.id}</span>
+                        <span className="history-chip">
+                          {run.result?.flows?.length ?? 0} flows
+                        </span>
                         <button
                           className="ghost-button"
                           onClick={() => handleUseHistoryRun(run)}
@@ -1497,7 +1611,8 @@ export function AppShell() {
                     <li key={edge.id}>
                       <div>
                         <strong>
-                          {edge.source} → {edge.target}
+                          {nodeLabelsByID.get(edge.source) ?? edge.source} →{" "}
+                          {nodeLabelsByID.get(edge.target) ?? edge.target}
                         </strong>
                         <small>
                           {edge.data?.interactionType ?? "sync_request"} /{" "}
@@ -1750,10 +1865,10 @@ function buildNodeLabel(
   return (
     <div className="flow-node-copy">
       <div className="flow-node-copy__eyebrow">
-        <span>{nodeData.label}</span>
-        <span>{nodeData.archetype}</span>
+        <span>{nodeData.archetype.replaceAll("_", " ")}</span>
+        <span>{result ? statusLabel(result.utilization) : "ready"}</span>
       </div>
-      <strong>{nodeData.color}</strong>
+      <strong>{nodeData.label}</strong>
       {result ? (
         <div className="flow-node-copy__meta">
           <span>{Math.round(result.utilization * 100)}% util</span>
@@ -1810,35 +1925,66 @@ function getNodePalette(color: GraphNode["color"]) {
   switch (color) {
     case "blue":
       return {
-        background: "#dfe9ff",
-        border: "#7fa4ff",
-        text: "#13284b",
+        background: "linear-gradient(180deg, #edf4ff 0%, #d9e9ff 100%)",
+        border: "#4f88da",
+        text: "#173561",
       };
     case "green":
       return {
-        background: "#ddf6e7",
-        border: "#71c98c",
-        text: "#153724",
+        background: "linear-gradient(180deg, #ecfbf3 0%, #d5f0e2 100%)",
+        border: "#3aa57a",
+        text: "#163a2c",
       };
     case "yellow":
       return {
-        background: "#fff2bf",
-        border: "#e1ba33",
-        text: "#5b4303",
+        background: "linear-gradient(180deg, #fff7de 0%, #fee9b1 100%)",
+        border: "#cc9732",
+        text: "#61430b",
       };
     case "red":
       return {
-        background: "#ffdeda",
-        border: "#f28d80",
-        text: "#5e1e16",
+        background: "linear-gradient(180deg, #fff0eb 0%, #ffd8cf 100%)",
+        border: "#d47a68",
+        text: "#5e2319",
       };
     default:
       return {
-        background: "#dfe9ff",
-        border: "#7fa4ff",
-        text: "#13284b",
+        background: "linear-gradient(180deg, #edf4ff 0%, #d9e9ff 100%)",
+        border: "#4f88da",
+        text: "#173561",
       };
   }
+}
+
+function colorLabel(color: GraphNode["color"]) {
+  switch (color) {
+    case "blue":
+      return "Cobalt";
+    case "green":
+      return "Mint";
+    case "yellow":
+      return "Amber";
+    case "red":
+      return "Coral";
+    default:
+      return color;
+  }
+}
+
+function statusLabel(utilization: number) {
+  if (utilization >= 1) {
+    return "saturated";
+  }
+
+  if (utilization >= 0.8) {
+    return "warming";
+  }
+
+  if (utilization > 0) {
+    return "healthy";
+  }
+
+  return "ready";
 }
 
 function buildWorkloadFromInputs(input: {
