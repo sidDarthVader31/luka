@@ -377,3 +377,97 @@ func TestRunDesignReturnsPerFlowResults(t *testing.T) {
 		t.Fatal("expected read flow to receive higher traffic share")
 	}
 }
+
+func TestRunDesignSplitsLoadAcrossParallelSyncEdges(t *testing.T) {
+	service := NewService()
+
+	result, err := service.RunDesign(domain.Design{
+		ID:   "design-load-split",
+		Name: "Gateway Load Split",
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{ID: "client-1", Label: "Client", Archetype: domain.NodeArchetypeClient, Color: "blue", Position: domain.NodePosition{X: 0, Y: 0}},
+				{
+					ID:        "gateway-1",
+					Label:     "Gateway",
+					Archetype: domain.NodeArchetypeGateway,
+					Color:     "blue",
+					Position:  domain.NodePosition{X: 140, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   12000,
+						BaseLatencyMS: 8,
+					},
+				},
+				{
+					ID:        "service-1",
+					Label:     "Service A",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "green",
+					Position:  domain.NodePosition{X: 320, Y: -80},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   7000,
+						BaseLatencyMS: 20,
+					},
+				},
+				{
+					ID:        "service-2",
+					Label:     "Service B",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "green",
+					Position:  domain.NodePosition{X: 320, Y: 80},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   7000,
+						BaseLatencyMS: 20,
+					},
+				},
+			},
+			Edges: []domain.Edge{
+				{
+					ID:              "edge-client-gateway",
+					SourceNodeID:    "client-1",
+					TargetNodeID:    "gateway-1",
+					InteractionType: domain.EdgeInteractionSyncRequest,
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+				{
+					ID:              "edge-gateway-service-a",
+					SourceNodeID:    "gateway-1",
+					TargetNodeID:    "service-1",
+					InteractionType: domain.EdgeInteractionSyncRequest,
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+				{
+					ID:              "edge-gateway-service-b",
+					SourceNodeID:    "gateway-1",
+					TargetNodeID:    "service-2",
+					InteractionType: domain.EdgeInteractionSyncRequest,
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+			},
+		},
+	}, domain.Workload{RequestsPerSecond: 10000})
+	if err != nil {
+		t.Fatalf("RunDesign() error = %v", err)
+	}
+
+	var serviceA, serviceB *domain.NodeSimulationResult
+	for index := range result.Nodes {
+		switch result.Nodes[index].NodeID {
+		case "service-1":
+			serviceA = &result.Nodes[index]
+		case "service-2":
+			serviceB = &result.Nodes[index]
+		}
+	}
+
+	if serviceA == nil || serviceB == nil {
+		t.Fatal("expected both services in node results")
+	}
+
+	if serviceA.IncomingRPS != 5000 || serviceB.IncomingRPS != 5000 {
+		t.Fatalf("parallel services got %.0f and %.0f rps, want 5000 each", serviceA.IncomingRPS, serviceB.IncomingRPS)
+	}
+}

@@ -171,6 +171,8 @@ func (s *Service) runGraph(
 				return nil, err
 			}
 
+			routed *= routeShare(edge, outgoing[nodeID])
+
 			incomingRate[edge.TargetNodeID] += routed
 			edgeResults = append(edgeResults, domain.EdgeSimulationResult{
 				EdgeID:           edge.ID,
@@ -307,6 +309,51 @@ func applyRoutingRule(
 	routed *= normalizedEdgeFanout(edge)
 
 	return routed, nil
+}
+
+func routeShare(edge domain.Edge, siblingEdges []domain.Edge) float64 {
+	if !shouldSplitOutgoingLoad(edge) {
+		return 1
+	}
+
+	peers := make([]domain.Edge, 0, len(siblingEdges))
+	totalWeight := 0.0
+
+	for _, sibling := range siblingEdges {
+		if sibling.InteractionType != edge.InteractionType {
+			continue
+		}
+
+		if sibling.RoutingRule.RuleType != edge.RoutingRule.RuleType {
+			continue
+		}
+
+		peers = append(peers, sibling)
+		totalWeight += routingWeight(sibling)
+	}
+
+	if len(peers) <= 1 || totalWeight <= 0 {
+		return 1
+	}
+
+	return routingWeight(edge) / totalWeight
+}
+
+func shouldSplitOutgoingLoad(edge domain.Edge) bool {
+	switch edge.InteractionType {
+	case domain.EdgeInteractionSyncRequest, domain.EdgeInteractionConsume, domain.EdgeInteractionConditionalPath, domain.EdgeInteractionFallback:
+		return true
+	default:
+		return false
+	}
+}
+
+func routingWeight(edge domain.Edge) float64 {
+	if edge.RoutingRule.Value > 0 {
+		return edge.RoutingRule.Value
+	}
+
+	return 1
 }
 
 func normalizedEdgeFanout(edge domain.Edge) float64 {

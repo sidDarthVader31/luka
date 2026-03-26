@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   Background,
+  ConnectionMode,
   ConnectionLineType,
   Controls,
   MarkerType,
@@ -320,6 +321,33 @@ export function AppShell() {
 
     void loadRunHistory(savedDesign.id);
   }, [savedDesign?.id]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!selectedNodeID) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (event.key === "Backspace" || event.key === "Delete") {
+        event.preventDefault();
+        handleRemoveNode(selectedNodeID);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedNodeID, canvasEdges]);
 
   async function bootstrap() {
     try {
@@ -1196,6 +1224,15 @@ export function AppShell() {
               >
                 Reset View
               </button>
+              {selectedNode ? (
+                <button
+                  className="ghost-button ghost-button--danger ghost-button--toolbar"
+                  onClick={() => handleRemoveNode(selectedNode.id)}
+                  type="button"
+                >
+                  Remove {selectedNode.data.label}
+                </button>
+              ) : null}
             </div>
 
             <ReactFlow
@@ -1205,6 +1242,8 @@ export function AppShell() {
               onNodesChange={handleNodesChange}
               onEdgesChange={handleEdgesChange}
               onConnect={handleConnect}
+              connectionMode={ConnectionMode.Loose}
+              connectionRadius={36}
               connectionLineType={ConnectionLineType.SmoothStep}
               connectionLineStyle={{
                 stroke: "#4f88da",

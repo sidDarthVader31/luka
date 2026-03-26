@@ -612,9 +612,16 @@ button {
   color: #32445f;
 }
 
+.react-flow__node {
+  overflow: visible;
+}
+
 .react-flow__handle {
-  width: 14px;
-  height: 14px;
+  top: 50%;
+  width: 18px;
+  height: calc(100% - 26px);
+  border-radius: 999px;
+  transform: translateY(-50%);
   border: 2px solid rgba(255, 255, 255, 0.98);
   background: #4f88da;
   box-shadow: 0 0 0 4px rgba(79, 136, 218, 0.14);
@@ -625,11 +632,13 @@ button {
 }
 
 .react-flow__handle-left {
+  left: -10px;
   background: #3aa57a;
   box-shadow: 0 0 0 4px rgba(58, 165, 122, 0.14);
 }
 
 .react-flow__handle-right {
+  right: -10px;
   background: #4f88da;
   box-shadow: 0 0 0 4px rgba(79, 136, 218, 0.14);
 }
