@@ -83,6 +83,16 @@ type FlowEdgeData = {
   requestClassIDs: string[];
 };
 
+type EditorSnapshot = {
+  draftName: string;
+  draftDescription: string;
+  requestClasses: RequestClass[];
+  canvasNodes: Node<FlowNodeData>[];
+  canvasEdges: Edge<FlowEdgeData>[];
+  selectedNodeID: string | null;
+  selectedEdgeID: string | null;
+};
+
 export function AppShell() {
   const [apiStatus, setApiStatus] = useState("Connecting...");
   const [feedback, setFeedback] = useState(
@@ -99,6 +109,7 @@ export function AppShell() {
   const [draftDescription, setDraftDescription] = useState("");
   const [requestClasses, setRequestClasses] = useState<RequestClass[]>([]);
   const [selectedNodeID, setSelectedNodeID] = useState<string | null>(null);
+  const [selectedEdgeID, setSelectedEdgeID] = useState<string | null>(null);
   const [requestsPerSecond, setRequestsPerSecond] = useState("100000");
   const [concurrentUsers, setConcurrentUsers] = useState("250000");
   const [readWriteRatio, setReadWriteRatio] = useState("4");
@@ -117,7 +128,9 @@ export function AppShell() {
     ReactFlowInstance<Node<FlowNodeData>, Edge<FlowEdgeData>> | null
   >(null);
   const [isDirty, setIsDirty] = useState(false);
+  const [undoDepth, setUndoDepth] = useState(0);
   const canvasShellRef = useRef<HTMLDivElement | null>(null);
+  const undoStackRef = useRef<EditorSnapshot[]>([]);
 
   const [canvasNodes, setCanvasNodes, onCanvasNodesChange] = useNodesState<
     Node<FlowNodeData>
@@ -129,6 +142,10 @@ export function AppShell() {
   const selectedNode = useMemo(
     () => canvasNodes.find((node) => node.id === selectedNodeID) ?? null,
     [canvasNodes, selectedNodeID],
+  );
+  const selectedEdge = useMemo(
+    () => canvasEdges.find((edge) => edge.id === selectedEdgeID) ?? null,
+    [canvasEdges, selectedEdgeID],
   );
   const nodeLabelsByID = useMemo(
     () => new Map(canvasNodes.map((node) => [node.id, node.data.label])),
@@ -228,14 +245,18 @@ export function AppShell() {
         return {
           ...edge,
           label: buildEdgeLabel(edge, result),
+          selected: edge.id === selectedEdgeID,
           markerEnd: {
             type: MarkerType.ArrowClosed,
             color: highlight.stroke,
           },
           animated: highlight.animated,
           style: {
-            stroke: highlight.stroke,
-            strokeWidth: highlight.strokeWidth,
+            stroke: edge.id === selectedEdgeID ? "#173561" : highlight.stroke,
+            strokeWidth:
+              edge.id === selectedEdgeID
+                ? highlight.strokeWidth + 1.5
+                : highlight.strokeWidth,
             strokeDasharray: highlight.dashed ? "8 6" : undefined,
           },
           labelStyle: {
@@ -248,7 +269,7 @@ export function AppShell() {
           },
         };
       }),
-    [activeFlowResult, canvasEdges, resultEdgesByID],
+    [activeFlowResult, canvasEdges, resultEdgesByID, selectedEdgeID],
   );
 
   const hottestEdge = useMemo(
@@ -262,6 +283,50 @@ export function AppShell() {
       }, undefined),
     [activeFlowResult],
   );
+
+  function captureSnapshot(): EditorSnapshot {
+    return {
+      draftName,
+      draftDescription,
+      requestClasses: structuredClone(requestClasses),
+      canvasNodes: structuredClone(canvasNodes),
+      canvasEdges: structuredClone(canvasEdges),
+      selectedNodeID,
+      selectedEdgeID,
+    };
+  }
+
+  function pushUndoSnapshot() {
+    const next = [...undoStackRef.current, captureSnapshot()].slice(-100);
+    undoStackRef.current = next;
+    setUndoDepth(next.length);
+  }
+
+  function applySnapshot(snapshot: EditorSnapshot) {
+    setDraftName(snapshot.draftName);
+    setDraftDescription(snapshot.draftDescription);
+    setRequestClasses(structuredClone(snapshot.requestClasses));
+    setCanvasNodes(structuredClone(snapshot.canvasNodes));
+    setCanvasEdges(structuredClone(snapshot.canvasEdges));
+    setSelectedNodeID(snapshot.selectedNodeID);
+    setSelectedEdgeID(snapshot.selectedEdgeID);
+    setLastRun(null);
+    setIsDirty(true);
+  }
+
+  function handleUndo() {
+    const current = undoStackRef.current;
+    const snapshot = current[current.length - 1];
+    if (!snapshot) {
+      setFeedback("Nothing to undo yet.");
+      return;
+    }
+
+    undoStackRef.current = current.slice(0, -1);
+    setUndoDepth(undoStackRef.current.length);
+    applySnapshot(snapshot);
+    setFeedback("Undid the last canvas change.");
+  }
 
   useEffect(() => {
     void bootstrap();
@@ -324,10 +389,6 @@ export function AppShell() {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (!selectedNodeID) {
-        return;
-      }
-
       const target = event.target as HTMLElement | null;
       if (
         target &&
@@ -339,6 +400,16 @@ export function AppShell() {
         return;
       }
 
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      if (!selectedNodeID) {
+        return;
+      }
+
       if (event.key === "Backspace" || event.key === "Delete") {
         event.preventDefault();
         handleRemoveNode(selectedNodeID);
@@ -347,7 +418,7 @@ export function AppShell() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedNodeID, canvasEdges]);
+  }, [selectedNodeID, canvasEdges, canvasNodes, requestClasses, draftName, draftDescription]);
 
   async function bootstrap() {
     try {
@@ -406,6 +477,7 @@ export function AppShell() {
     setCanvasEdges([]);
     setDesignRuns([]);
     setSelectedNodeID(null);
+    setSelectedEdgeID(null);
     setNewEdgeSourceID("");
     setNewEdgeTargetID("");
     setNewEdgeFanoutMultiplier("1");
@@ -414,6 +486,8 @@ export function AppShell() {
     setLastRun(null);
     setBaselineRun(null);
     setIsDirty(false);
+    undoStackRef.current = [];
+    setUndoDepth(0);
   }
 
   function applyDesignToEditor(
@@ -430,6 +504,7 @@ export function AppShell() {
     setCanvasNodes(draft.nodes.map(graphNodeToFlowNode));
     setCanvasEdges(draft.edges.map(graphEdgeToFlowEdge));
     setSelectedNodeID(draft.nodes[0]?.id ?? null);
+    setSelectedEdgeID(null);
     setNewEdgeSourceID(draft.nodes[0]?.id ?? "");
     setNewEdgeTargetID(draft.nodes[1]?.id ?? "");
     setNewEdgeFanoutMultiplier("1");
@@ -444,6 +519,8 @@ export function AppShell() {
       setBaselineRun(null);
     }
     setIsDirty(false);
+    undoStackRef.current = [];
+    setUndoDepth(0);
   }
 
   function currentDraftDesign() {
@@ -587,6 +664,7 @@ export function AppShell() {
   }
 
   function addNode(archetype: ComponentArchetype) {
+    pushUndoSnapshot();
     const graphNode = createNodeFromArchetype(
       archetype,
       canvasNodes.map(flowNodeToGraphNode),
@@ -596,6 +674,7 @@ export function AppShell() {
 
     setCanvasNodes((current) => [...current, flowNode]);
     setSelectedNodeID(flowNode.id);
+    setSelectedEdgeID(null);
     if (!newEdgeSourceID) {
       setNewEdgeSourceID(flowNode.id);
     } else if (!newEdgeTargetID) {
@@ -638,6 +717,10 @@ export function AppShell() {
   }
 
   function handleNodesChange(changes: NodeChange<Node<FlowNodeData>>[]) {
+    if (changes.some((change) => change.type === "remove")) {
+      pushUndoSnapshot();
+    }
+
     onCanvasNodesChange(changes);
 
     const selectedChange = [...changes]
@@ -645,6 +728,9 @@ export function AppShell() {
       .find((change) => change.type === "select");
     if (selectedChange?.type === "select") {
       setSelectedNodeID(selectedChange.selected ? selectedChange.id : null);
+      if (selectedChange.selected) {
+        setSelectedEdgeID(null);
+      }
     }
 
     if (changes.some((change) => change.type === "remove")) {
@@ -669,6 +755,10 @@ export function AppShell() {
   }
 
   function handleEdgesChange(changes: EdgeChange<Edge<FlowEdgeData>>[]) {
+    if (changes.some((change) => change.type === "remove")) {
+      pushUndoSnapshot();
+    }
+
     onCanvasEdgesChange(changes);
     if (changes.length > 0) {
       setLastRun(null);
@@ -680,6 +770,8 @@ export function AppShell() {
     if (!connection.source || !connection.target) {
       return;
     }
+
+    pushUndoSnapshot();
 
     const options = getSupportedEdgeOptions({
       sourceNodeID: connection.source,
@@ -700,6 +792,8 @@ export function AppShell() {
     setCanvasEdges((current) =>
       addEdge(graphEdgeToFlowEdge(graphEdge), current),
     );
+    setSelectedEdgeID(graphEdge.id);
+    setSelectedNodeID(null);
     setLastRun(null);
     markDirty();
     setFeedback(`Connected ${connection.source} to ${connection.target}.`);
@@ -732,13 +826,17 @@ export function AppShell() {
       existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
     });
 
+    pushUndoSnapshot();
     setCanvasEdges((current) => [...current, graphEdgeToFlowEdge(graphEdge)]);
+    setSelectedEdgeID(graphEdge.id);
+    setSelectedNodeID(null);
     setLastRun(null);
     markDirty();
     setFeedback(`Created arrow ${newEdgeSourceID} → ${newEdgeTargetID}.`);
   }
 
   function handleEdgeInteractionChange(edgeID: string, interactionType: EdgeInteractionType) {
+    pushUndoSnapshot();
     setCanvasEdges((current) =>
       current.map((edge) =>
         edge.id === edgeID
@@ -761,6 +859,7 @@ export function AppShell() {
   }
 
   function handleEdgeRuleChange(edgeID: string, ruleType: RoutingRuleType) {
+    pushUndoSnapshot();
     setCanvasEdges((current) =>
       current.map((edge) =>
         edge.id === edgeID
@@ -784,6 +883,7 @@ export function AppShell() {
       return;
     }
 
+    pushUndoSnapshot();
     setCanvasEdges((current) =>
       current.map((edge) =>
         edge.id === edgeID
@@ -804,9 +904,11 @@ export function AppShell() {
 
   const handleNodeClick: NodeMouseHandler<Node<FlowNodeData>> = (_, node) => {
     setSelectedNodeID(node.id);
+    setSelectedEdgeID(null);
   };
 
   function handleColorChange(nodeID: string, color: GraphNode["color"]) {
+    pushUndoSnapshot();
     setCanvasNodes((current) =>
       current.map((node) =>
         node.id === nodeID
@@ -825,6 +927,7 @@ export function AppShell() {
   }
 
   function handleNodeLabelChange(nodeID: string, value: string) {
+    pushUndoSnapshot();
     setCanvasNodes((current) =>
       current.map((node) =>
         node.id === nodeID
@@ -847,6 +950,7 @@ export function AppShell() {
     key: keyof GraphNode["properties"],
     value: string,
   ) {
+    pushUndoSnapshot();
     setCanvasNodes((current) =>
       current.map((node) =>
         node.id === nodeID
@@ -868,6 +972,7 @@ export function AppShell() {
   }
 
   function handleRemoveNode(nodeID: string) {
+    pushUndoSnapshot();
     setCanvasNodes((current) => current.filter((node) => node.id !== nodeID));
     setCanvasEdges((current) =>
       current.filter((edge) => edge.source !== nodeID && edge.target !== nodeID),
@@ -875,12 +980,17 @@ export function AppShell() {
     if (selectedNodeID === nodeID) {
       setSelectedNodeID(null);
     }
+    setSelectedEdgeID(null);
     setLastRun(null);
     markDirty();
   }
 
   function handleRemoveEdge(edgeID: string) {
+    pushUndoSnapshot();
     setCanvasEdges((current) => current.filter((edge) => edge.id !== edgeID));
+    if (selectedEdgeID === edgeID) {
+      setSelectedEdgeID(null);
+    }
     setLastRun(null);
     markDirty();
   }
@@ -901,6 +1011,7 @@ export function AppShell() {
   }
 
   function handleAddRequestFlow() {
+    pushUndoSnapshot();
     const nextIndex = requestClasses.length + 1;
     const requestClass = createRequestClass(`Flow ${nextIndex}`, 25, nextIndex);
     setRequestClasses((current) => [...current, requestClass]);
@@ -909,6 +1020,7 @@ export function AppShell() {
   }
 
   function handleRequestFlowNameChange(requestClassID: string, value: string) {
+    pushUndoSnapshot();
     setRequestClasses((current) =>
       current.map((requestClass) =>
         requestClass.id === requestClassID
@@ -928,6 +1040,7 @@ export function AppShell() {
       return;
     }
 
+    pushUndoSnapshot();
     setRequestClasses((current) =>
       current.map((requestClass) =>
         requestClass.id === requestClassID
@@ -947,6 +1060,7 @@ export function AppShell() {
       return;
     }
 
+    pushUndoSnapshot();
     const remaining = requestClasses.filter(
       (requestClass) => requestClass.id !== requestClassID,
     );
@@ -975,6 +1089,7 @@ export function AppShell() {
   }
 
   function handleEdgeRequestClassToggle(edgeID: string, requestClassID: string) {
+    pushUndoSnapshot();
     setCanvasEdges((current) =>
       current.map((edge) => {
         if (edge.id !== edgeID) {
@@ -1010,6 +1125,14 @@ export function AppShell() {
         </div>
 
         <div className="topbar-actions">
+          <button
+            className="ghost-button"
+            onClick={handleUndo}
+            type="button"
+            disabled={undoDepth === 0}
+          >
+            Undo
+          </button>
           <button className="ghost-button" onClick={resetToBlankCanvas} type="button">
             Start Fresh
           </button>
@@ -1239,6 +1362,7 @@ export function AppShell() {
               nodes={displayNodes}
               edges={displayEdges}
               onInit={setFlowInstance}
+              onNodeDragStart={() => pushUndoSnapshot()}
               onNodesChange={handleNodesChange}
               onEdgesChange={handleEdgesChange}
               onConnect={handleConnect}
@@ -1257,8 +1381,15 @@ export function AppShell() {
                   color: "#6f819a",
                 },
               }}
-              onPaneClick={() => setSelectedNodeID(null)}
+              onPaneClick={() => {
+                setSelectedNodeID(null);
+                setSelectedEdgeID(null);
+              }}
               onNodeClick={handleNodeClick}
+              onEdgeClick={(_, edge) => {
+                setSelectedEdgeID(edge.id);
+                setSelectedNodeID(null);
+              }}
             >
               <Background gap={24} size={1} color="#d8e0ef" />
               <Controls />
@@ -1552,6 +1683,99 @@ export function AppShell() {
               Use the form below when you want to fine-tune routing rules, fallbacks, or
               flow assignments.
             </p>
+            {selectedEdge ? (
+              <div className="edge-focus-card">
+                <div className="edge-focus-card__header">
+                  <div>
+                    <strong>
+                      {nodeLabelsByID.get(selectedEdge.source) ?? selectedEdge.source} →{" "}
+                      {nodeLabelsByID.get(selectedEdge.target) ?? selectedEdge.target}
+                    </strong>
+                    <small>Selected edge</small>
+                  </div>
+                  <button
+                    className="ghost-button"
+                    onClick={() => setSelectedEdgeID(null)}
+                    type="button"
+                  >
+                    Deselect
+                  </button>
+                </div>
+
+                <div className="edge-editor edge-editor--focused">
+                  <select
+                    value={selectedEdge.data?.interactionType ?? "sync_request"}
+                    onChange={(event) =>
+                      handleEdgeInteractionChange(
+                        selectedEdge.id,
+                        event.target.value as EdgeInteractionType,
+                      )
+                    }
+                  >
+                    {getSupportedEdgeOptions({
+                      sourceNodeID: selectedEdge.source,
+                      nodes: canvasNodes.map(flowNodeToGraphNode),
+                      archetypes: catalog,
+                    }).interactions.map((interaction) => (
+                      <option key={`${selectedEdge.id}-${interaction}`} value={interaction}>
+                        {interaction}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={selectedEdge.data?.ruleType ?? "always"}
+                    disabled={selectedEdge.data?.interactionType === "fallback"}
+                    onChange={(event) =>
+                      handleEdgeRuleChange(
+                        selectedEdge.id,
+                        event.target.value as RoutingRuleType,
+                      )
+                    }
+                  >
+                    {getSupportedEdgeOptions({
+                      sourceNodeID: selectedEdge.source,
+                      nodes: canvasNodes.map(flowNodeToGraphNode),
+                      archetypes: catalog,
+                    }).routingRules.map((rule) => (
+                      <option key={`${selectedEdge.id}-${rule}`} value={rule}>
+                        {rule}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    inputMode="decimal"
+                    value={String(selectedEdge.data?.fanoutMultiplier ?? 1)}
+                    onChange={(event) =>
+                      handleEdgeFanoutChange(selectedEdge.id, event.target.value)
+                    }
+                  />
+                  <div className="flow-checkboxes">
+                    {requestClasses.map((requestClass) => (
+                      <label className="flow-checkbox" key={`${selectedEdge.id}-${requestClass.id}`}>
+                        <input
+                          checked={
+                            selectedEdge.data?.requestClassIDs?.includes(requestClass.id) ??
+                            false
+                          }
+                          onChange={() =>
+                            handleEdgeRequestClassToggle(selectedEdge.id, requestClass.id)
+                          }
+                          type="checkbox"
+                        />
+                        <span>{requestClass.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    className="ghost-button ghost-button--danger"
+                    onClick={() => handleRemoveEdge(selectedEdge.id)}
+                    type="button"
+                  >
+                    Remove edge
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className="inspector">
               <label className="field">
                 <span>Source</span>
@@ -1672,7 +1896,14 @@ export function AppShell() {
                   });
 
                   return (
-                    <li key={edge.id}>
+                    <li
+                      key={edge.id}
+                      className={edge.id === selectedEdgeID ? "edge-list__item--selected" : ""}
+                      onClick={() => {
+                        setSelectedEdgeID(edge.id);
+                        setSelectedNodeID(null);
+                      }}
+                    >
                       <div>
                         <strong>
                           {nodeLabelsByID.get(edge.source) ?? edge.source} →{" "}
@@ -1935,10 +2166,15 @@ function buildNodeLabel(
       <strong>{nodeData.label}</strong>
       {result ? (
         <div className="flow-node-copy__meta">
+          <span>{Math.max(1, nodeData.properties.replicas ?? 1)} replicas</span>
           <span>{Math.round(result.utilization * 100)}% util</span>
           <span>{formatCompactNumber(result.incoming_rps)} rps</span>
         </div>
-      ) : null}
+      ) : (
+        <div className="flow-node-copy__meta">
+          <span>{Math.max(1, nodeData.properties.replicas ?? 1)} replicas</span>
+        </div>
+      )}
     </div>
   );
 }
