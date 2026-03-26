@@ -8,8 +8,10 @@ import {
 } from "react";
 import {
   Background,
+  ConnectionLineType,
   Controls,
   MarkerType,
+  Position,
   ReactFlow,
   addEdge,
   useEdgesState,
@@ -187,8 +189,8 @@ export function AppShell() {
             ...node.data,
             label: buildNodeLabel(node.data, result),
           },
-          sourcePosition: "right",
-          targetPosition: "left",
+          sourcePosition: Position.Right,
+          targetPosition: Position.Left,
           style: {
             width: 220,
             borderRadius: 18,
@@ -1203,6 +1205,19 @@ export function AppShell() {
               onNodesChange={handleNodesChange}
               onEdgesChange={handleEdgesChange}
               onConnect={handleConnect}
+              connectionLineType={ConnectionLineType.SmoothStep}
+              connectionLineStyle={{
+                stroke: "#4f88da",
+                strokeWidth: 3,
+                strokeDasharray: "8 6",
+              }}
+              defaultEdgeOptions={{
+                type: "smoothstep",
+                markerEnd: {
+                  type: MarkerType.ArrowClosed,
+                  color: "#6f819a",
+                },
+              }}
               onPaneClick={() => setSelectedNodeID(null)}
               onNodeClick={handleNodeClick}
             >
@@ -1244,7 +1259,12 @@ export function AppShell() {
                   never disappear off-screen.
                 </p>
               </div>
-            ) : null}
+            ) : (
+              <div className="canvas-hint">
+                Drag from a node&apos;s right handle into another node&apos;s left handle to
+                create an edge directly on the canvas.
+              </div>
+            )}
           </div>
 
           {lastRun?.result ? (
@@ -1488,6 +1508,11 @@ export function AppShell() {
           <div className="panel">
             <p className="panel-kicker">Connections</p>
             <h2>{canvasEdges.length ? "Current edges" : "No edges yet"}</h2>
+            <p className="empty-copy">
+              Drag from the visible handle on one node into another node to connect them.
+              Use the form below when you want to fine-tune routing rules, fallbacks, or
+              flow assignments.
+            </p>
             <div className="inspector">
               <label className="field">
                 <span>Source</span>
