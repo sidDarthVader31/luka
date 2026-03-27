@@ -628,12 +628,13 @@ export function AppShell() {
 
   function applyDesignToEditor(
     design: Design,
-    options?: { preserveBaseline?: boolean },
+    options?: { preserveBaseline?: boolean; treatAsDraft?: boolean },
   ) {
     const draft = cloneDesignIntoDraft(design);
+    const treatAsDraft = options?.treatAsDraft ?? false;
 
-    setSavedDesign(design);
-    setDraftID(draft.id);
+    setSavedDesign(treatAsDraft ? null : design);
+    setDraftID(treatAsDraft ? null : draft.id);
     setDraftName(draft.name);
     setDraftDescription(draft.description);
     setRequestClasses(draft.requestClasses);
@@ -656,7 +657,11 @@ export function AppShell() {
       setBaselineRun(null);
     }
     setIsDirty(false);
-    setAutosaveState(design.id ? "saved" : "idle");
+    if (treatAsDraft) {
+      setDesignRuns([]);
+      setDesignVersions([]);
+    }
+    setAutosaveState(!treatAsDraft && design.id ? "saved" : "idle");
     undoStackRef.current = [];
     setUndoDepth(0);
   }
@@ -678,8 +683,8 @@ export function AppShell() {
       return;
     }
 
-    applyDesignToEditor(design);
-    setFeedback("Loaded sample design.");
+    applyDesignToEditor(design, { treatAsDraft: true });
+    setFeedback("Loaded sample as a local draft. Save it to create your own copy.");
   }
 
   async function handleSaveDesign() {
@@ -1912,6 +1917,38 @@ export function AppShell() {
 
         <aside className="sidebar">
           <div className="panel">
+            <p className="panel-kicker">Graph Overview</p>
+            <h2>Nodes and edges</h2>
+            <div className="comparison-grid comparison-grid--run">
+              <div className="comparison-card">
+                <span>Nodes</span>
+                <strong>{canvasNodes.length}</strong>
+              </div>
+              <div className="comparison-card">
+                <span>Edges</span>
+                <strong>{canvasEdges.length}</strong>
+              </div>
+              <div className="comparison-card">
+                <span>Flows</span>
+                <strong>{requestClasses.length}</strong>
+              </div>
+              <div className="comparison-card">
+                <span>Selected</span>
+                <strong>
+                  {selectedNode
+                    ? selectedNode.data.label
+                    : selectedEdge
+                      ? "Edge"
+                      : "Nothing"}
+                </strong>
+              </div>
+            </div>
+            <p className="empty-copy">
+              Start here to sanity-check the current graph before you inspect nodes, connections, or previous runs.
+            </p>
+          </div>
+
+          <div className="panel">
             <p className="panel-kicker">Inspector</p>
             <h2>{selectedNode?.data.label ?? "Select a node"}</h2>
             {selectedNode ? (
@@ -1982,46 +2019,6 @@ export function AppShell() {
             ) : (
               <p className="empty-copy">
                 Click a node to edit its label, color, and capacity assumptions.
-              </p>
-            )}
-          </div>
-
-          <div className="panel">
-            <p className="panel-kicker">Run History</p>
-            <h2>{savedDesign ? "Persisted runs" : "Save to unlock history"}</h2>
-            {savedDesign ? (
-              designRuns.length > 0 ? (
-                <div className="history-list">
-                  {designRuns.map((run) => (
-                    <div className="history-card" key={run.id}>
-                      <div>
-                        <strong>{run.result?.bottleneck?.label ?? run.id}</strong>
-                        <small>{formatWorkload(run.workload)}</small>
-                      </div>
-                      <div className="history-card__actions">
-                        <span>{run.id}</span>
-                        <span className="history-chip">
-                          {run.result?.flows?.length ?? 0} flows
-                        </span>
-                        <button
-                          className="ghost-button"
-                          onClick={() => handleUseHistoryRun(run)}
-                          type="button"
-                        >
-                          Compare
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="empty-copy">
-                  This design does not have persisted runs yet. Save it and run a few scenarios to build comparison history.
-                </p>
-              )
-            ) : (
-              <p className="empty-copy">
-                Save the current design to build a run history you can compare against later.
               </p>
             )}
           </div>
@@ -2457,6 +2454,46 @@ export function AppShell() {
                   );
                 })}
               </ul>
+            )}
+          </div>
+
+          <div className="panel">
+            <p className="panel-kicker">Run History</p>
+            <h2>{savedDesign ? "Persisted runs" : "Save to unlock history"}</h2>
+            {savedDesign ? (
+              designRuns.length > 0 ? (
+                <div className="history-list">
+                  {designRuns.map((run) => (
+                    <div className="history-card" key={run.id}>
+                      <div>
+                        <strong>{run.result?.bottleneck?.label ?? run.id}</strong>
+                        <small>{formatWorkload(run.workload)}</small>
+                      </div>
+                      <div className="history-card__actions">
+                        <span>{run.id}</span>
+                        <span className="history-chip">
+                          {run.result?.flows?.length ?? 0} flows
+                        </span>
+                        <button
+                          className="ghost-button"
+                          onClick={() => handleUseHistoryRun(run)}
+                          type="button"
+                        >
+                          Compare
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-copy">
+                  This design does not have persisted runs yet. Save it and run a few scenarios to build comparison history.
+                </p>
+              )
+            ) : (
+              <p className="empty-copy">
+                Save the current design to build a run history you can compare against later.
+              </p>
             )}
           </div>
         </aside>
