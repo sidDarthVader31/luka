@@ -124,6 +124,7 @@ export function AppShell() {
   const [newEdgeFanoutMultiplier, setNewEdgeFanoutMultiplier] = useState("1");
   const [newEdgeRequestClassIDs, setNewEdgeRequestClassIDs] = useState<string[]>([]);
   const [activeFlowResultID, setActiveFlowResultID] = useState("overall");
+  const [canvasHintDismissed, setCanvasHintDismissed] = useState(false);
   const [flowInstance, setFlowInstance] = useState<
     ReactFlowInstance<Node<FlowNodeData>, Edge<FlowEdgeData>> | null
   >(null);
@@ -483,6 +484,7 @@ export function AppShell() {
     setNewEdgeFanoutMultiplier("1");
     setNewEdgeRequestClassIDs(blank.requestClasses.map((requestClass) => requestClass.id));
     setActiveFlowResultID("overall");
+    setCanvasHintDismissed(false);
     setLastRun(null);
     setBaselineRun(null);
     setIsDirty(false);
@@ -514,6 +516,7 @@ export function AppShell() {
         .map((requestClass) => requestClass.id),
     );
     setActiveFlowResultID("overall");
+    setCanvasHintDismissed(false);
     setLastRun(null);
     if (!options?.preserveBaseline) {
       setBaselineRun(null);
@@ -794,6 +797,7 @@ export function AppShell() {
     );
     setSelectedEdgeID(graphEdge.id);
     setSelectedNodeID(null);
+    setCanvasHintDismissed(true);
     setLastRun(null);
     markDirty();
     setFeedback(`Connected ${connection.source} to ${connection.target}.`);
@@ -830,6 +834,7 @@ export function AppShell() {
     setCanvasEdges((current) => [...current, graphEdgeToFlowEdge(graphEdge)]);
     setSelectedEdgeID(graphEdge.id);
     setSelectedNodeID(null);
+    setCanvasHintDismissed(true);
     setLastRun(null);
     markDirty();
     setFeedback(`Created arrow ${newEdgeSourceID} → ${newEdgeTargetID}.`);
@@ -1402,7 +1407,7 @@ export function AppShell() {
               </div>
               <div className="canvas-legend__row">
                 <span className="legend-swatch legend-swatch--warm" />
-                <span>Under pressure</span>
+                <span>Under pressure nodes</span>
               </div>
               <div className="canvas-legend__row">
                 <span className="legend-swatch legend-swatch--fallback" />
@@ -1429,12 +1434,21 @@ export function AppShell() {
                   never disappear off-screen.
                 </p>
               </div>
-            ) : (
+            ) : !canvasHintDismissed && canvasEdges.length === 0 ? (
               <div className="canvas-hint">
-                Drag from a node&apos;s right handle into another node&apos;s left handle to
-                create an edge directly on the canvas.
+                <span>
+                  Drag from a node&apos;s right handle into another node&apos;s left handle
+                  to create an edge directly on the canvas.
+                </span>
+                <button
+                  className="ghost-button ghost-button--hint"
+                  onClick={() => setCanvasHintDismissed(true)}
+                  type="button"
+                >
+                  Dismiss
+                </button>
               </div>
-            )}
+            ) : null}
           </div>
 
           {lastRun?.result ? (
@@ -2097,7 +2111,7 @@ function getEdgeHighlight(
 
   if (isFallback && result && result.routed_rps > 0) {
     return {
-      stroke: "#d84d3a",
+      stroke: "#d9903d",
       strokeWidth: 4,
       dashed: true,
       animated: true,
@@ -2106,7 +2120,7 @@ function getEdgeHighlight(
 
   if (isFallback) {
     return {
-      stroke: "#f0a76b",
+      stroke: "#e3b06f",
       strokeWidth: 2.5,
       dashed: true,
       animated: false,
@@ -2115,7 +2129,7 @@ function getEdgeHighlight(
 
   if (loadRatio >= 0.85) {
     return {
-      stroke: "#d84d3a",
+      stroke: "#2f9e63",
       strokeWidth: 4,
       dashed: false,
       animated: true,
@@ -2124,7 +2138,7 @@ function getEdgeHighlight(
 
   if (loadRatio >= 0.45) {
     return {
-      stroke: "#e8991d",
+      stroke: "#52b47b",
       strokeWidth: 3.25,
       dashed: false,
       animated: false,
@@ -2133,7 +2147,7 @@ function getEdgeHighlight(
 
   if (result && result.routed_rps > 0) {
     return {
-      stroke: "#4f6ef7",
+      stroke: "#7ac596",
       strokeWidth: 2.75,
       dashed: false,
       animated: false,
@@ -2388,7 +2402,7 @@ function utilizationBorderColor(utilization: number, fallbackColor: string) {
   }
 
   if (utilization >= 0.8) {
-    return "#e8991d";
+    return "#d84d3a";
   }
 
   if (utilization > 0) {
@@ -2407,7 +2421,7 @@ function utilizationBackground(
   }
 
   if (utilization >= 0.8) {
-    return "linear-gradient(180deg, #fff4d8 0%, #ffe9b6 100%)";
+    return "linear-gradient(180deg, #fff0ed 0%, #ffe2db 100%)";
   }
 
   return getNodePalette(color).background;

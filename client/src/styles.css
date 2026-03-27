@@ -263,6 +263,9 @@ button {
   left: 50%;
   bottom: 1rem;
   z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   transform: translateX(-50%);
   padding: 0.65rem 0.9rem;
   border: 1px solid rgba(128, 147, 176, 0.18);
@@ -271,6 +274,11 @@ button {
   box-shadow: 0 14px 28px rgba(71, 93, 124, 0.12);
   color: #42546d;
   font-size: 0.82rem;
+}
+
+.ghost-button--hint {
+  padding: 0.46rem 0.78rem;
+  white-space: nowrap;
 }
 
 .canvas-toolbar {
@@ -317,11 +325,11 @@ button {
 }
 
 .legend-swatch--hot {
-  background: #d84d3a;
+  background: #2f9e63;
 }
 
 .legend-swatch--warm {
-  background: #e8991d;
+  background: #d84d3a;
 }
 
 .legend-swatch--fallback {
