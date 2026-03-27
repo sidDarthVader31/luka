@@ -1613,6 +1613,11 @@ export function AppShell() {
                   </select>
                 </label>
 
+                <p className="empty-copy">
+                  Use replicas for identical instances of the same logical component.
+                  Use separate nodes when they represent different systems with different responsibilities.
+                </p>
+
                 {Object.entries(nodePropertyLabels).map(([key, label]) => (
                   <label className="field" key={key}>
                     <span>{label}</span>

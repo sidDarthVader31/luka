@@ -114,6 +114,145 @@ This means Luka is best thought of as:
 
 not a production load-testing platform
 
+## Modeling guide
+
+### Node properties
+
+#### Replicas
+
+`replicas` is the number of identical instances behind one logical component.
+
+- use `replicas > 1` when you mean "the same service or dependency scaled horizontally"
+- use separate nodes when they are actually different systems, like `payments-db` and `profile-db`
+
+Example:
+
+- one `Stateless Service` node with `replicas = 3` means three equivalent app instances
+- two different database nodes means two different data stores with different responsibilities
+
+#### Capacity / sec
+
+`capacity / sec` is the steady throughput one replica of that component can process before it starts saturating.
+
+Examples:
+
+- gateway: requests/sec it can forward
+- service: requests/sec it can process
+- database: effective query or operation throughput/sec
+- queue: operations/sec it can absorb or dispatch
+- worker: jobs/sec it can consume
+
+Luka multiplies this by `replicas` to estimate total node capacity.
+
+#### Latency (ms)
+
+`latency` is the base time that component adds when it is healthy.
+
+Luka increases latency as utilization rises, so this is the near-best-case latency, not the worst-case latency.
+
+#### Cache hit rate
+
+`cache hit rate` only applies to cache nodes.
+
+- `0.9` means 90% of eligible requests are served by cache
+- `0.1` means only 10% are served by cache
+
+Miss traffic continues downstream, which is why cache hit rate strongly affects database pressure.
+
+### Edge properties
+
+#### Interaction type
+
+This tells Luka what kind of connection the edge represents.
+
+- `sync_request`: normal synchronous request path
+- `async_enqueue`: send work to a queue asynchronously
+- `consume`: worker consumes queued work
+- `conditional_branch`: branch traffic, such as cache hit or cache miss
+- `fallback`: send dropped or failed traffic to a fallback path
+
+#### Routing rule
+
+This tells Luka how traffic should move across that edge.
+
+- `always`: all eligible traffic goes through
+- `cache_hit`: only cache-hit traffic goes through
+- `cache_miss`: only cache-miss traffic goes through
+
+#### Edge fanout multiplier
+
+This multiplies traffic on that specific edge.
+
+Use it when one operation creates multiple downstream operations on that connection.
+
+Example:
+
+- one message enqueue resulting in `10` delivery jobs on one edge means `fanout multiplier = 10`
+
+This is different from the global scenario fanout because it is local to one connection.
+
+### Scenario inputs
+
+#### Requests / sec
+
+The total incoming request rate to the system.
+
+This is the main load driver for the simulation.
+
+#### Concurrent users
+
+How many users are active at the same time.
+
+Luka uses this as an extra pressure signal in the simplified model.
+
+#### Read:write ratio
+
+How read-heavy the workload is.
+
+Examples:
+
+- `4:1` means reads dominate
+- `1:1` means balanced read and write pressure
+
+This helps Luka reason about how pressure should move across caches, queues, services, and databases.
+
+#### Payload (KB)
+
+Approximate request or message size.
+
+Larger payloads increase pressure and latency in the simulator.
+
+#### Fanout count
+
+Global amplification factor for fanout-heavy behavior.
+
+Use it when one user action creates multiple downstream deliveries or jobs, especially on async paths.
+
+### Request flows
+
+Request flows let you model different behaviors in one design.
+
+Examples:
+
+- `Read Path`
+- `Write Path`
+- `Async Processing`
+
+Each flow gets a traffic share, and edges can belong to one or more flows.
+
+### Replica modeling rule
+
+Use this rule to avoid ambiguity:
+
+- use one node with multiple replicas for the same logical capacity pool
+- use separate nodes for distinct systems with different responsibilities
+
+Good examples:
+
+- one `API Service` node with `replicas = 4`
+- one `Read Replica Pool` node with `replicas = 3`
+- separate `payments-db` and `profile-db` nodes if they are different databases
+
 ## Local development
 
 ### Install frontend dependencies
