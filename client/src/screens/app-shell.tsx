@@ -115,6 +115,7 @@ export function AppShell() {
   const [requestClasses, setRequestClasses] = useState<RequestClass[]>([]);
   const [selectedNodeID, setSelectedNodeID] = useState<string | null>(null);
   const [selectedEdgeID, setSelectedEdgeID] = useState<string | null>(null);
+  const [expandedEdgeID, setExpandedEdgeID] = useState<string | null>(null);
   const [requestsPerSecond, setRequestsPerSecond] = useState("100000");
   const [concurrentUsers, setConcurrentUsers] = useState("250000");
   const [readWriteRatio, setReadWriteRatio] = useState("4");
@@ -367,6 +368,7 @@ export function AppShell() {
     setCanvasEdges(structuredClone(snapshot.canvasEdges));
     setSelectedNodeID(snapshot.selectedNodeID);
     setSelectedEdgeID(snapshot.selectedEdgeID);
+    setExpandedEdgeID(snapshot.selectedEdgeID);
     setLastRun(null);
     setIsDirty(true);
   }
@@ -612,6 +614,7 @@ export function AppShell() {
     setDesignVersions([]);
     setSelectedNodeID(null);
     setSelectedEdgeID(null);
+    setExpandedEdgeID(null);
     setNewEdgeSourceID("");
     setNewEdgeTargetID("");
     setNewEdgeFanoutMultiplier("1");
@@ -642,6 +645,7 @@ export function AppShell() {
     setCanvasEdges(draft.edges.map(graphEdgeToFlowEdge));
     setSelectedNodeID(draft.nodes[0]?.id ?? null);
     setSelectedEdgeID(null);
+    setExpandedEdgeID(null);
     setNewEdgeSourceID(draft.nodes[0]?.id ?? "");
     setNewEdgeTargetID(draft.nodes[1]?.id ?? "");
     setNewEdgeFanoutMultiplier("1");
@@ -1243,8 +1247,21 @@ export function AppShell() {
     if (selectedEdgeID === edgeID) {
       setSelectedEdgeID(null);
     }
+    if (expandedEdgeID === edgeID) {
+      setExpandedEdgeID(null);
+    }
     setLastRun(null);
     markDirty();
+  }
+
+  function focusEdge(edgeID: string) {
+    setSelectedEdgeID(edgeID);
+    setSelectedNodeID(null);
+    setExpandedEdgeID(edgeID);
+  }
+
+  function toggleExpandedEdge(edgeID: string) {
+    setExpandedEdgeID((current) => (current === edgeID ? null : edgeID));
   }
 
   function handleSetBaseline() {
@@ -1648,11 +1665,11 @@ export function AppShell() {
               onPaneClick={() => {
                 setSelectedNodeID(null);
                 setSelectedEdgeID(null);
+                setExpandedEdgeID(null);
               }}
               onNodeClick={handleNodeClick}
               onEdgeClick={(_, edge) => {
-                setSelectedEdgeID(edge.id);
-                setSelectedNodeID(null);
+                focusEdge(edge.id);
               }}
             >
               <Background gap={24} size={1} color="#d8e0ef" />
@@ -2078,7 +2095,10 @@ export function AppShell() {
                   </div>
                   <button
                     className="ghost-button"
-                    onClick={() => setSelectedEdgeID(null)}
+                    onClick={() => {
+                      setSelectedEdgeID(null);
+                      setExpandedEdgeID(null);
+                    }}
                     type="button"
                   >
                     Deselect
@@ -2329,127 +2349,164 @@ export function AppShell() {
                     nodes: canvasNodes.map(flowNodeToGraphNode),
                     archetypes: catalog,
                   });
+                  const isExpanded = expandedEdgeID === edge.id;
+                  const assignedFlows =
+                    edge.data?.requestClassIDs
+                      ?.map(
+                        (requestClassID) =>
+                          requestClasses.find((requestClass) => requestClass.id === requestClassID)
+                            ?.name ?? requestClassID,
+                      )
+                      .slice(0, 2) ?? [];
+                  const additionalFlowCount =
+                    (edge.data?.requestClassIDs?.length ?? 0) - assignedFlows.length;
 
                   return (
                     <li
                       key={edge.id}
                       className={edge.id === selectedEdgeID ? "edge-list__item--selected" : ""}
-                      onClick={() => {
-                        setSelectedEdgeID(edge.id);
-                        setSelectedNodeID(null);
-                      }}
                     >
-                      <div>
-                        <strong>
-                          {nodeLabelsByID.get(edge.source) ?? edge.source} →{" "}
-                          {nodeLabelsByID.get(edge.target) ?? edge.target}
-                        </strong>
-                        <small>
-                          {edge.data?.interactionType ?? "sync_request"} /{" "}
-                          {edge.data?.ruleType ?? "always"}
-                          {edge.data?.routingWeight && edge.data.routingWeight > 1
-                            ? ` / w${edge.data.routingWeight}`
-                            : ""}
-                          {edge.data?.fanoutMultiplier &&
-                          edge.data.fanoutMultiplier > 1
-                            ? ` / x${edge.data.fanoutMultiplier}`
-                            : ""}
-                          {edge.data?.timeoutMS && edge.data.timeoutMS > 0
-                            ? ` / ${edge.data.timeoutMS}ms`
-                            : ""}
-                          {edge.data?.retryAttempts && edge.data.retryAttempts > 0
-                            ? ` / r${edge.data.retryAttempts}`
-                            : ""}
-                        </small>
-                      </div>
-                      <div className="edge-editor">
-                        <select
-                          value={edge.data?.interactionType ?? "sync_request"}
-                          onChange={(event) =>
-                            handleEdgeInteractionChange(
-                              edge.id,
-                              event.target.value as EdgeInteractionType,
-                            )
-                          }
-                        >
-                          {edgeSpecificOptions.interactions.map((interaction) => (
-                            <option
-                              key={`${edge.id}-${interaction}`}
-                              value={interaction}
-                            >
-                              {interaction}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={edge.data?.ruleType ?? "always"}
-                          disabled={edge.data?.interactionType === "fallback"}
-                          onChange={(event) =>
-                            handleEdgeRuleChange(
-                              edge.id,
-                              event.target.value as RoutingRuleType,
-                            )
-                          }
-                        >
-                          {edgeSpecificOptions.routingRules.map((rule) => (
-                            <option key={`${edge.id}-${rule}`} value={rule}>
-                              {rule}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          inputMode="decimal"
-                          value={String(edge.data?.routingWeight ?? 1)}
-                          onChange={(event) =>
-                            handleEdgeRoutingWeightChange(edge.id, event.target.value)
-                          }
-                        />
-                        <input
-                          inputMode="decimal"
-                          value={String(edge.data?.fanoutMultiplier ?? 1)}
-                          onChange={(event) =>
-                            handleEdgeFanoutChange(edge.id, event.target.value)
-                          }
-                        />
-                        <input
-                          inputMode="decimal"
-                          value={String(edge.data?.timeoutMS ?? 0)}
-                          onChange={(event) =>
-                            handleEdgeTimeoutChange(edge.id, event.target.value)
-                          }
-                        />
-                        <input
-                          inputMode="numeric"
-                          value={String(edge.data?.retryAttempts ?? 0)}
-                          onChange={(event) =>
-                            handleEdgeRetryChange(edge.id, event.target.value)
-                          }
-                        />
-                        <div className="flow-checkboxes">
-                          {requestClasses.map((requestClass) => (
-                            <label className="flow-checkbox" key={`${edge.id}-${requestClass.id}`}>
-                              <input
-                                checked={
-                                  edge.data?.requestClassIDs?.includes(requestClass.id) ??
-                                  false
-                                }
-                                onChange={() =>
-                                  handleEdgeRequestClassToggle(edge.id, requestClass.id)
-                                }
-                                type="checkbox"
-                              />
-                              <span>{requestClass.name}</span>
-                            </label>
-                          ))}
+                      <button
+                        className="edge-list__summary"
+                        onClick={() => {
+                          focusEdge(edge.id);
+                          toggleExpandedEdge(edge.id);
+                        }}
+                        type="button"
+                      >
+                        <div>
+                          <strong>
+                            {nodeLabelsByID.get(edge.source) ?? edge.source} →{" "}
+                            {nodeLabelsByID.get(edge.target) ?? edge.target}
+                          </strong>
+                          <small>
+                            {edge.data?.interactionType ?? "sync_request"} /{" "}
+                            {edge.data?.ruleType ?? "always"}
+                          </small>
                         </div>
-                        <button
-                          className="ghost-button"
-                          onClick={() => handleRemoveEdge(edge.id)}
-                          type="button"
-                        >
-                          Remove
-                        </button>
-                      </div>
+                        <div className="edge-list__chips">
+                          {edge.data?.routingWeight && edge.data.routingWeight > 1 ? (
+                            <span className="edge-chip">w{edge.data.routingWeight}</span>
+                          ) : null}
+                          {edge.data?.fanoutMultiplier && edge.data.fanoutMultiplier > 1 ? (
+                            <span className="edge-chip">x{edge.data.fanoutMultiplier}</span>
+                          ) : null}
+                          {edge.data?.timeoutMS && edge.data.timeoutMS > 0 ? (
+                            <span className="edge-chip">{edge.data.timeoutMS}ms</span>
+                          ) : null}
+                          {edge.data?.retryAttempts && edge.data.retryAttempts > 0 ? (
+                            <span className="edge-chip">r{edge.data.retryAttempts}</span>
+                          ) : null}
+                          {assignedFlows.map((flowName) => (
+                            <span className="edge-chip edge-chip--flow" key={`${edge.id}-${flowName}`}>
+                              {flowName}
+                            </span>
+                          ))}
+                          {additionalFlowCount > 0 ? (
+                            <span className="edge-chip edge-chip--flow">+{additionalFlowCount} more</span>
+                          ) : null}
+                          <span className="edge-list__toggle">{isExpanded ? "Hide" : "Edit"}</span>
+                        </div>
+                      </button>
+                      {isExpanded ? (
+                        <div className="edge-editor edge-editor--collapsible">
+                          <select
+                            value={edge.data?.interactionType ?? "sync_request"}
+                            onChange={(event) =>
+                              handleEdgeInteractionChange(
+                                edge.id,
+                                event.target.value as EdgeInteractionType,
+                              )
+                            }
+                          >
+                            {edgeSpecificOptions.interactions.map((interaction) => (
+                              <option
+                                key={`${edge.id}-${interaction}`}
+                                value={interaction}
+                              >
+                                {interaction}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={edge.data?.ruleType ?? "always"}
+                            disabled={edge.data?.interactionType === "fallback"}
+                            onChange={(event) =>
+                              handleEdgeRuleChange(
+                                edge.id,
+                                event.target.value as RoutingRuleType,
+                              )
+                            }
+                          >
+                            {edgeSpecificOptions.routingRules.map((rule) => (
+                              <option key={`${edge.id}-${rule}`} value={rule}>
+                                {rule}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            inputMode="decimal"
+                            value={String(edge.data?.routingWeight ?? 1)}
+                            onChange={(event) =>
+                              handleEdgeRoutingWeightChange(edge.id, event.target.value)
+                            }
+                          />
+                          <input
+                            inputMode="decimal"
+                            value={String(edge.data?.fanoutMultiplier ?? 1)}
+                            onChange={(event) =>
+                              handleEdgeFanoutChange(edge.id, event.target.value)
+                            }
+                          />
+                          <input
+                            inputMode="decimal"
+                            value={String(edge.data?.timeoutMS ?? 0)}
+                            onChange={(event) =>
+                              handleEdgeTimeoutChange(edge.id, event.target.value)
+                            }
+                          />
+                          <input
+                            inputMode="numeric"
+                            value={String(edge.data?.retryAttempts ?? 0)}
+                            onChange={(event) =>
+                              handleEdgeRetryChange(edge.id, event.target.value)
+                            }
+                          />
+                          <div className="flow-checkboxes">
+                            {requestClasses.map((requestClass) => (
+                              <label className="flow-checkbox" key={`${edge.id}-${requestClass.id}`}>
+                                <input
+                                  checked={
+                                    edge.data?.requestClassIDs?.includes(requestClass.id) ??
+                                    false
+                                  }
+                                  onChange={() =>
+                                    handleEdgeRequestClassToggle(edge.id, requestClass.id)
+                                  }
+                                  type="checkbox"
+                                />
+                                <span>{requestClass.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                          <div className="edge-editor__actions">
+                            <button
+                              className="ghost-button"
+                              onClick={() => setExpandedEdgeID(null)}
+                              type="button"
+                            >
+                              Collapse
+                            </button>
+                            <button
+                              className="ghost-button"
+                              onClick={() => handleRemoveEdge(edge.id)}
+                              type="button"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </li>
                   );
                 })}

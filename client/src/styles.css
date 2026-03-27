@@ -649,13 +649,10 @@ button {
 }
 
 .edge-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  display: grid;
+  gap: 0.8rem;
   padding: 0.8rem 0;
   border-top: 1px solid #e5ecf6;
-  cursor: pointer;
 }
 
 .edge-list li:first-child {
@@ -670,8 +667,49 @@ button {
   background: rgba(237, 244, 255, 0.88);
 }
 
+.edge-list__summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  border-radius: 0;
+  text-align: left;
+}
+
 .edge-list strong {
   display: block;
+}
+
+.edge-list__chips {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.edge-chip {
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  background: rgba(79, 136, 218, 0.08);
+  color: #27456d;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.edge-chip--flow {
+  background: rgba(47, 158, 99, 0.1);
+  color: #21583d;
+}
+
+.edge-list__toggle {
+  color: #4f6ef7;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .edge-editor {
@@ -680,8 +718,18 @@ button {
   min-width: 180px;
 }
 
+.edge-editor--collapsible {
+  padding-top: 0.1rem;
+}
+
 .edge-editor--focused {
   margin-top: 0.85rem;
+}
+
+.edge-editor__actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
 }
 
 .edge-focus-card {
