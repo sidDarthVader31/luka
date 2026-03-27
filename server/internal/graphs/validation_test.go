@@ -163,3 +163,49 @@ func TestValidateGraphRejectsUnknownRequestClassReference(t *testing.T) {
 		t.Fatalf("error = %q, want request class validation message", err.Error())
 	}
 }
+
+func TestValidateGraphRejectsInvalidEdgeIntelligenceValues(t *testing.T) {
+	err := ValidateGraph(domain.Graph{
+		Nodes: []domain.Node{
+			{
+				ID:        "client-1",
+				Label:     "Client",
+				Archetype: domain.NodeArchetypeClient,
+				Color:     "blue",
+				Position:  domain.NodePosition{X: 0, Y: 0},
+			},
+			{
+				ID:        "service-1",
+				Label:     "Service",
+				Archetype: domain.NodeArchetypeStatelessService,
+				Color:     "green",
+				Position:  domain.NodePosition{X: 100, Y: 0},
+			},
+		},
+		Edges: []domain.Edge{
+			{
+				ID:              "edge-1",
+				SourceNodeID:    "client-1",
+				TargetNodeID:    "service-1",
+				InteractionType: domain.EdgeInteractionSyncRequest,
+				TimeoutMS:       -1,
+				RetryAttempts:   -2,
+				RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways, Value: -0.5},
+			},
+		},
+	}, ModeSave)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	errorText := err.Error()
+	if !strings.Contains(errorText, "timeout_ms cannot be negative") {
+		t.Fatalf("error = %q, want timeout validation message", errorText)
+	}
+	if !strings.Contains(errorText, "retry_attempts cannot be negative") {
+		t.Fatalf("error = %q, want retry validation message", errorText)
+	}
+	if !strings.Contains(errorText, "routing_rule.value cannot be negative") {
+		t.Fatalf("error = %q, want routing weight validation message", errorText)
+	}
+}

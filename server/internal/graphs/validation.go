@@ -150,6 +150,26 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 			issues = append(issues, fmt.Sprintf("%s fanout_multiplier cannot be negative", prefix))
 		}
 
+		if !isFinite(edge.TimeoutMS) {
+			issues = append(issues, fmt.Sprintf("%s timeout_ms must be finite", prefix))
+		}
+
+		if edge.TimeoutMS < 0 {
+			issues = append(issues, fmt.Sprintf("%s timeout_ms cannot be negative", prefix))
+		}
+
+		if edge.RetryAttempts < 0 {
+			issues = append(issues, fmt.Sprintf("%s retry_attempts cannot be negative", prefix))
+		}
+
+		if !isFinite(edge.RoutingRule.Value) {
+			issues = append(issues, fmt.Sprintf("%s routing_rule.value must be finite", prefix))
+		}
+
+		if edge.RoutingRule.Value < 0 {
+			issues = append(issues, fmt.Sprintf("%s routing_rule.value cannot be negative", prefix))
+		}
+
 		if len(graph.RequestClasses) > 0 && len(edge.RequestClassIDs) == 0 {
 			issues = append(issues, fmt.Sprintf("%s must reference at least one request class", prefix))
 		}

@@ -30,8 +30,11 @@ type normalizedRequestClass struct {
 type graphMetrics struct {
 	Nodes      []domain.NodeSimulationResult
 	Edges      []domain.EdgeSimulationResult
+	Paths      []domain.PathExplanation
 	Bottleneck *domain.NodeSimulationResult
 }
+
+const queueBacklogWindowSeconds = 5.0
 
 func NewService() *Service {
 	return &Service{}
@@ -81,6 +84,7 @@ func (s *Service) RunDesign(design domain.Design, workload domain.Workload) (*do
 			Bottleneck:     metrics.Bottleneck,
 			Nodes:          metrics.Nodes,
 			Edges:          metrics.Edges,
+			Paths:          metrics.Paths,
 		})
 	}
 
@@ -94,6 +98,7 @@ func (s *Service) RunDesign(design domain.Design, workload domain.Workload) (*do
 	return &domain.SimulationResult{
 		Nodes:      overallMetrics.Nodes,
 		Edges:      overallMetrics.Edges,
+		Paths:      overallMetrics.Paths,
 		Bottleneck: overallMetrics.Bottleneck,
 		Summary:    summarize(design, globalWorkload, *overallMetrics.Bottleneck),
 		Flows:      flowResults,
@@ -110,7 +115,7 @@ func (s *Service) runGraph(
 	outgoing := make(map[string][]domain.Edge, len(nodes))
 	incomingRate := make(map[string]float64, len(nodes))
 	nodeResults := make(map[string]domain.NodeSimulationResult, len(nodes))
-	edgeResults := make([]domain.EdgeSimulationResult, 0, len(edges))
+	rawEdgeResults := make([]domain.EdgeSimulationResult, 0, len(edges))
 
 	clientCount := 0
 	for _, node := range nodes {
@@ -174,13 +179,17 @@ func (s *Service) runGraph(
 			routed *= routeShare(edge, outgoing[nodeID])
 
 			incomingRate[edge.TargetNodeID] += routed
-			edgeResults = append(edgeResults, domain.EdgeSimulationResult{
+			rawEdgeResults = append(rawEdgeResults, domain.EdgeSimulationResult{
 				EdgeID:           edge.ID,
 				SourceNodeID:     edge.SourceNodeID,
 				TargetNodeID:     edge.TargetNodeID,
 				InteractionType:  edge.InteractionType,
 				FanoutMultiplier: round(normalizedEdgeFanout(edge)),
+				TimeoutMS:        round(edge.TimeoutMS),
+				RetryAttempts:    edge.RetryAttempts,
 				RuleType:         edge.RoutingRule.RuleType,
+				RoutingWeight:    round(routingWeight(edge)),
+				AttemptedRPS:     round(routed),
 				RoutedRPS:        round(routed),
 			})
 
@@ -216,9 +225,13 @@ func (s *Service) runGraph(
 		return nil, errors.New("no bottleneck candidate found in design")
 	}
 
+	edgeResults := enrichEdgeResults(edges, rawEdgeResults, nodeResults)
+	paths := buildPathExplanations(nodes, edgeResults, nodeResults, bottleneck)
+
 	return &graphMetrics{
 		Nodes:      nodeList,
 		Edges:      edgeResults,
+		Paths:      paths,
 		Bottleneck: bottleneck,
 	}, nil
 }
@@ -254,6 +267,13 @@ func simulateNode(node domain.Node, incomingRPS float64, workload normalizedWork
 	dropped := math.Max(0, incomingRPS-effectiveCapacity)
 	utilization := incomingRPS / effectiveCapacity
 	latency := estimateLatency(node.Properties.BaseLatencyMS, utilization, node, workload)
+	queueDepthEstimate := 0.0
+	queueLagMS := 0.0
+	if node.Archetype == domain.NodeArchetypeQueue && effectiveCapacity > 0 {
+		queueDepthEstimate = math.Max(0, incomingRPS-effectiveCapacity) * queueBacklogWindowSeconds
+		queueLagMS = (queueDepthEstimate / effectiveCapacity) * 1000
+		latency += queueLagMS
+	}
 	saturated := utilization > 1
 
 	return domain.NodeSimulationResult{
@@ -266,8 +286,10 @@ func simulateNode(node domain.Node, incomingRPS float64, workload normalizedWork
 		EffectiveCapacityRPS: round(effectiveCapacity),
 		Utilization:          round(utilization),
 		EstimatedLatencyMS:   round(latency),
+		QueueDepthEstimate:   round(queueDepthEstimate),
+		QueueLagMS:           round(queueLagMS),
 		Saturated:            saturated,
-		Explanation:          explainNode(node, incomingRPS, effectiveCapacity, saturated),
+		Explanation:          explainNode(node, incomingRPS, effectiveCapacity, saturated, queueLagMS),
 	}
 }
 
@@ -391,7 +413,7 @@ func estimateLatency(
 	}
 }
 
-func explainNode(node domain.Node, incomingRPS, effectiveCapacity float64, saturated bool) string {
+func explainNode(node domain.Node, incomingRPS, effectiveCapacity float64, saturated bool, queueLagMS float64) string {
 	switch node.Archetype {
 	case domain.NodeArchetypeGateway:
 		if saturated {
@@ -412,10 +434,11 @@ func explainNode(node domain.Node, incomingRPS, effectiveCapacity float64, satur
 	case domain.NodeArchetypeQueue:
 		if saturated {
 			return fmt.Sprintf(
-				"%s is receiving work faster than it can buffer or dispatch it. At %.0f requests/sec in and %.0f requests/sec of effective throughput, queue lag would grow.",
+				"%s is receiving work faster than it can buffer or dispatch it. At %.0f requests/sec in and %.0f requests/sec of effective throughput, queue lag grows toward %.0f ms.",
 				node.Label,
 				incomingRPS,
 				effectiveCapacity,
+				queueLagMS,
 			)
 		}
 
@@ -576,6 +599,7 @@ func aggregateMetrics(
 ) *graphMetrics {
 	nodeList := make([]domain.NodeSimulationResult, 0, len(design.Graph.Nodes))
 	edgeList := make([]domain.EdgeSimulationResult, 0, len(design.Graph.Edges))
+	nodeResults := make(map[string]domain.NodeSimulationResult, len(design.Graph.Nodes))
 	var bottleneck *domain.NodeSimulationResult
 
 	for _, node := range design.Graph.Nodes {
@@ -586,6 +610,7 @@ func aggregateMetrics(
 
 		result := simulateNode(node, incoming, workload)
 		nodeList = append(nodeList, result)
+		nodeResults[node.ID] = result
 
 		if node.Archetype == domain.NodeArchetypeClient {
 			continue
@@ -604,16 +629,235 @@ func aggregateMetrics(
 			TargetNodeID:     edge.TargetNodeID,
 			InteractionType:  edge.InteractionType,
 			FanoutMultiplier: round(normalizedEdgeFanout(edge)),
+			TimeoutMS:        round(edge.TimeoutMS),
+			RetryAttempts:    edge.RetryAttempts,
 			RuleType:         edge.RoutingRule.RuleType,
+			RoutingWeight:    round(routingWeight(edge)),
+			AttemptedRPS:     round(routedByEdge[edge.ID]),
 			RoutedRPS:        round(routedByEdge[edge.ID]),
 		})
 	}
 
+	edgeList = enrichEdgeResults(design.Graph.Edges, edgeList, nodeResults)
+	paths := buildPathExplanations(design.Graph.Nodes, edgeList, nodeResults, bottleneck)
+
 	return &graphMetrics{
 		Nodes:      nodeList,
 		Edges:      edgeList,
+		Paths:      paths,
 		Bottleneck: bottleneck,
 	}
+}
+
+func enrichEdgeResults(
+	edges []domain.Edge,
+	rawEdgeResults []domain.EdgeSimulationResult,
+	nodeResults map[string]domain.NodeSimulationResult,
+) []domain.EdgeSimulationResult {
+	edgeByID := make(map[string]domain.Edge, len(edges))
+	for _, edge := range edges {
+		edgeByID[edge.ID] = edge
+	}
+
+	enriched := make([]domain.EdgeSimulationResult, 0, len(rawEdgeResults))
+	for _, edgeResult := range rawEdgeResults {
+		edge := edgeByID[edgeResult.EdgeID]
+		targetResult, hasTarget := nodeResults[edgeResult.TargetNodeID]
+		if !hasTarget {
+			enriched = append(enriched, edgeResult)
+			continue
+		}
+
+		attempted := edgeResult.RoutedRPS
+		delivered := edgeResult.RoutedRPS
+		retried := 0.0
+		timedOut := 0.0
+
+		timeoutRatio := timeoutFailureRatio(edge.TimeoutMS, targetResult.EstimatedLatencyMS)
+		if timeoutRatio > 0 {
+			baseFailures := edgeResult.RoutedRPS * timeoutRatio
+			delivered = edgeResult.RoutedRPS - baseFailures
+			remainingFailures := baseFailures
+
+			for attempt := 0; attempt < edge.RetryAttempts; attempt++ {
+				retried += remainingFailures
+				attempted += remainingFailures
+				recovered := remainingFailures * (1 - timeoutRatio)
+				delivered += recovered
+				remainingFailures = remainingFailures * timeoutRatio
+			}
+
+			timedOut = remainingFailures
+		}
+
+		edgeResult.AttemptedRPS = round(attempted)
+		edgeResult.RetriedRPS = round(retried)
+		edgeResult.TimedOutRPS = round(timedOut)
+		edgeResult.RoutedRPS = round(max(0, delivered))
+		enriched = append(enriched, edgeResult)
+	}
+
+	return enriched
+}
+
+func timeoutFailureRatio(timeoutMS, targetLatencyMS float64) float64 {
+	if timeoutMS <= 0 || targetLatencyMS <= timeoutMS {
+		return 0
+	}
+
+	ratio := (targetLatencyMS - timeoutMS) / max(targetLatencyMS, 1)
+	return min(max(ratio, 0.05), 0.95)
+}
+
+func buildPathExplanations(
+	nodes []domain.Node,
+	edges []domain.EdgeSimulationResult,
+	nodeResults map[string]domain.NodeSimulationResult,
+	bottleneck *domain.NodeSimulationResult,
+) []domain.PathExplanation {
+	if bottleneck == nil {
+		return nil
+	}
+
+	nodeByID := make(map[string]domain.Node, len(nodes))
+	incomingByTarget := make(map[string][]domain.EdgeSimulationResult, len(edges))
+	for _, node := range nodes {
+		nodeByID[node.ID] = node
+	}
+	for _, edge := range edges {
+		incomingByTarget[edge.TargetNodeID] = append(incomingByTarget[edge.TargetNodeID], edge)
+	}
+
+	criticalNodeIDs, criticalEdgeIDs := traceCriticalPath(bottleneck.NodeID, incomingByTarget)
+	criticalLatency := 0.0
+	totalQueueLag := 0.0
+	totalRetried := 0.0
+	totalTimedOut := 0.0
+	nodeLabels := make([]string, 0, len(criticalNodeIDs))
+	for _, nodeID := range criticalNodeIDs {
+		if node, ok := nodeByID[nodeID]; ok {
+			nodeLabels = append(nodeLabels, node.Label)
+		}
+		if result, ok := nodeResults[nodeID]; ok {
+			criticalLatency += result.EstimatedLatencyMS
+			totalQueueLag += result.QueueLagMS
+		}
+	}
+	for _, edgeID := range criticalEdgeIDs {
+		for _, edge := range edges {
+			if edge.EdgeID == edgeID {
+				totalRetried += edge.RetriedRPS
+				totalTimedOut += edge.TimedOutRPS
+				break
+			}
+		}
+	}
+
+	paths := []domain.PathExplanation{
+		{
+			Kind:               "critical_path",
+			Summary:            buildCriticalPathSummary(nodeLabels, *bottleneck, totalQueueLag, totalRetried, totalTimedOut),
+			NodeIDs:            criticalNodeIDs,
+			EdgeIDs:            criticalEdgeIDs,
+			EstimatedLatencyMS: round(criticalLatency),
+			QueueLagMS:         round(totalQueueLag),
+			RetriedRPS:         round(totalRetried),
+			TimedOutRPS:        round(totalTimedOut),
+		},
+	}
+
+	var slowestQueue *domain.NodeSimulationResult
+	for _, result := range nodeResults {
+		if result.Archetype != domain.NodeArchetypeQueue || result.QueueLagMS <= 0 {
+			continue
+		}
+		if slowestQueue == nil || result.QueueLagMS > slowestQueue.QueueLagMS {
+			current := result
+			slowestQueue = &current
+		}
+	}
+
+	if slowestQueue != nil {
+		queueNodeIDs, queueEdgeIDs := traceCriticalPath(slowestQueue.NodeID, incomingByTarget)
+		paths = append(paths, domain.PathExplanation{
+			Kind:               "queue_backlog",
+			Summary:            fmt.Sprintf("%s is building backlog with %.0f ms of queue lag while %.0f requests/sec arrive and %.0f requests/sec are processed.", slowestQueue.Label, slowestQueue.QueueLagMS, slowestQueue.IncomingRPS, slowestQueue.ProcessedRPS),
+			NodeIDs:            queueNodeIDs,
+			EdgeIDs:            queueEdgeIDs,
+			EstimatedLatencyMS: round(slowestQueue.EstimatedLatencyMS),
+			QueueLagMS:         round(slowestQueue.QueueLagMS),
+		})
+	}
+
+	return paths
+}
+
+func traceCriticalPath(targetNodeID string, incomingByTarget map[string][]domain.EdgeSimulationResult) ([]string, []string) {
+	nodeIDs := []string{targetNodeID}
+	edgeIDs := make([]string, 0)
+	visited := map[string]struct{}{targetNodeID: {}}
+	currentNodeID := targetNodeID
+
+	for {
+		incomingEdges := incomingByTarget[currentNodeID]
+		if len(incomingEdges) == 0 {
+			break
+		}
+
+		bestEdge := incomingEdges[0]
+		for _, candidate := range incomingEdges[1:] {
+			if candidate.RoutedRPS > bestEdge.RoutedRPS {
+				bestEdge = candidate
+			}
+		}
+
+		if bestEdge.RoutedRPS <= 0 {
+			break
+		}
+
+		if _, seen := visited[bestEdge.SourceNodeID]; seen {
+			break
+		}
+
+		nodeIDs = append([]string{bestEdge.SourceNodeID}, nodeIDs...)
+		edgeIDs = append([]string{bestEdge.EdgeID}, edgeIDs...)
+		visited[bestEdge.SourceNodeID] = struct{}{}
+		currentNodeID = bestEdge.SourceNodeID
+	}
+
+	return nodeIDs, edgeIDs
+}
+
+func buildCriticalPathSummary(
+	nodeLabels []string,
+	bottleneck domain.NodeSimulationResult,
+	queueLagMS float64,
+	retriedRPS float64,
+	timedOutRPS float64,
+) string {
+	pathLabel := bottleneck.Label
+	if len(nodeLabels) > 0 {
+		pathLabel = ""
+		for index, label := range nodeLabels {
+			if index > 0 {
+				pathLabel += " -> "
+			}
+			pathLabel += label
+		}
+	}
+
+	summary := fmt.Sprintf("%s is the hottest path and converges on %s at %.0f%% utilization.", pathLabel, bottleneck.Label, bottleneck.Utilization*100)
+	if queueLagMS > 0 {
+		summary += fmt.Sprintf(" Queue lag on this path adds about %.0f ms.", queueLagMS)
+	}
+	if retriedRPS > 0 {
+		summary += fmt.Sprintf(" Retries amplify load by %.0f requests/sec.", retriedRPS)
+	}
+	if timedOutRPS > 0 {
+		summary += fmt.Sprintf(" About %.0f requests/sec still time out after retries.", timedOutRPS)
+	}
+
+	return summary
 }
 
 func normalizeWorkload(workload domain.Workload) normalizedWorkload {

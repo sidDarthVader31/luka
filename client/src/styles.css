@@ -454,6 +454,54 @@ button {
   margin-top: 1rem;
 }
 
+.path-explanations {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.path-card {
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(128, 147, 176, 0.18);
+  border-radius: 18px;
+  background: rgba(246, 249, 255, 0.9);
+}
+
+.path-card p {
+  margin: 0.45rem 0 0.55rem;
+}
+
+.path-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.path-card__header span {
+  color: #61738f;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.path-card__metrics {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+
+.path-card__metrics span {
+  border-radius: 999px;
+  padding: 0.28rem 0.6rem;
+  background: rgba(79, 136, 218, 0.08);
+  color: #27456d;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
 .comparison-card {
   display: grid;
   gap: 0.25rem;

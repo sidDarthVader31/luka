@@ -81,7 +81,10 @@ type FlowNodeData = {
 type FlowEdgeData = {
   interactionType: EdgeInteractionType;
   ruleType: RoutingRuleType;
+  routingWeight: number;
   fanoutMultiplier: number;
+  timeoutMS: number;
+  retryAttempts: number;
   requestClassIDs: string[];
 };
 
@@ -124,7 +127,10 @@ export function AppShell() {
   const [newEdgeInteraction, setNewEdgeInteraction] =
     useState<EdgeInteractionType>("sync_request");
   const [newEdgeRule, setNewEdgeRule] = useState<RoutingRuleType>("always");
+  const [newEdgeRoutingWeight, setNewEdgeRoutingWeight] = useState("1");
   const [newEdgeFanoutMultiplier, setNewEdgeFanoutMultiplier] = useState("1");
+  const [newEdgeTimeoutMS, setNewEdgeTimeoutMS] = useState("0");
+  const [newEdgeRetryAttempts, setNewEdgeRetryAttempts] = useState("0");
   const [newEdgeRequestClassIDs, setNewEdgeRequestClassIDs] = useState<string[]>([]);
   const [activeFlowResultID, setActiveFlowResultID] = useState("overall");
   const [canvasHintDismissed, setCanvasHintDismissed] = useState(false);
@@ -290,6 +296,11 @@ export function AppShell() {
       }, undefined),
     [activeFlowResult],
   );
+
+  const activePaths = activeFlowResult?.paths ?? [];
+  const criticalPath = activePaths.find((path) => path.kind === "critical_path") ?? null;
+  const queueBacklogPath =
+    activePaths.find((path) => path.kind === "queue_backlog") ?? null;
 
   function captureSnapshot(): EditorSnapshot {
     return {
@@ -864,7 +875,10 @@ export function AppShell() {
       targetNodeID: connection.target,
       interactionType: options.interactions[0] ?? "sync_request",
       ruleType: options.routingRules[0] ?? "always",
+      routingWeight: 1,
       fanoutMultiplier: 1,
+      timeoutMS: 0,
+      retryAttempts: 0,
       requestClassIDs:
         requestClasses.length > 0 ? [requestClasses[0].id] : undefined,
       existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
@@ -898,12 +912,42 @@ export function AppShell() {
       return;
     }
 
+    const routingWeight = parsePositiveDecimalInput(
+      newEdgeRoutingWeight,
+      "Routing weight must be zero or greater.",
+    );
+    if (!routingWeight.ok) {
+      setFeedback(routingWeight.error);
+      return;
+    }
+
+    const timeoutMS = parsePositiveDecimalInput(
+      newEdgeTimeoutMS,
+      "Timeout (ms) must be zero or greater.",
+    );
+    if (!timeoutMS.ok) {
+      setFeedback(timeoutMS.error);
+      return;
+    }
+
+    const retryAttempts = parseWholeNumberInput(
+      newEdgeRetryAttempts,
+      "Retry attempts must be zero or greater.",
+    );
+    if (!retryAttempts.ok) {
+      setFeedback(retryAttempts.error);
+      return;
+    }
+
     const graphEdge = buildEdge({
       sourceNodeID: newEdgeSourceID,
       targetNodeID: newEdgeTargetID,
       interactionType: newEdgeInteraction,
       ruleType: newEdgeInteraction === "fallback" ? "always" : newEdgeRule,
+      routingWeight: routingWeight.value,
       fanoutMultiplier: fanoutMultiplier.value,
+      timeoutMS: timeoutMS.value,
+      retryAttempts: retryAttempts.value,
       requestClassIDs: newEdgeRequestClassIDs,
       existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
     });
@@ -976,6 +1020,87 @@ export function AppShell() {
                 ...edge.data,
                 fanoutMultiplier:
                   value === "" ? 1 : parsed.ok ? parsed.value : 1,
+              },
+            }
+          : edge,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
+  function handleEdgeRoutingWeightChange(edgeID: string, value: string) {
+    const parsed = parsePositiveDecimalInput(
+      value,
+      "Routing weight must be zero or greater.",
+    );
+    if (!parsed.ok && value !== "") {
+      return;
+    }
+
+    pushUndoSnapshot();
+    setCanvasEdges((current) =>
+      current.map((edge) =>
+        edge.id === edgeID
+          ? {
+              ...edge,
+              data: {
+                ...edge.data,
+                routingWeight: value === "" ? 1 : parsed.ok ? parsed.value : 1,
+              },
+            }
+          : edge,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
+  function handleEdgeTimeoutChange(edgeID: string, value: string) {
+    const parsed = parsePositiveDecimalInput(
+      value,
+      "Timeout (ms) must be zero or greater.",
+    );
+    if (!parsed.ok && value !== "") {
+      return;
+    }
+
+    pushUndoSnapshot();
+    setCanvasEdges((current) =>
+      current.map((edge) =>
+        edge.id === edgeID
+          ? {
+              ...edge,
+              data: {
+                ...edge.data,
+                timeoutMS: value === "" ? 0 : parsed.ok ? parsed.value : 0,
+              },
+            }
+          : edge,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
+  function handleEdgeRetryChange(edgeID: string, value: string) {
+    const parsed = parseWholeNumberInput(
+      value,
+      "Retry attempts must be zero or greater.",
+    );
+    if (!parsed.ok && value !== "") {
+      return;
+    }
+
+    pushUndoSnapshot();
+    setCanvasEdges((current) =>
+      current.map((edge) =>
+        edge.id === edgeID
+          ? {
+              ...edge,
+              data: {
+                ...edge.data,
+                retryAttempts: value === "" ? 0 : parsed.ok ? parsed.value : 0,
               },
             }
           : edge,
@@ -1614,10 +1739,59 @@ export function AppShell() {
                         : "0 rps"}
                     </strong>
                   </div>
+                  <div className="comparison-card">
+                    <span>Critical path</span>
+                    <strong>
+                      {criticalPath ? summarizePathForCard(criticalPath, nodeLabelsByID) : "No path yet"}
+                    </strong>
+                  </div>
+                  <div className="comparison-card">
+                    <span>Queue lag</span>
+                    <strong>
+                      {queueBacklogPath?.queue_lag_ms
+                        ? `${Math.round(queueBacklogPath.queue_lag_ms)} ms`
+                        : "Healthy"}
+                    </strong>
+                  </div>
                 </div>
                 <p>{formatWorkload(lastRun.workload)}</p>
                 {activeFlowResult?.bottleneck ? (
                   <p>{activeFlowResult.bottleneck.explanation}</p>
+                ) : null}
+                {activePaths.length > 0 ? (
+                  <div className="path-explanations">
+                    {activePaths.map((path) => (
+                      <article className="path-card" key={`${activeFlowResultID}-${path.kind}`}>
+                        <div className="path-card__header">
+                          <span>{path.kind.replaceAll("_", " ")}</span>
+                          <strong>
+                            {path.estimated_latency_ms
+                              ? `${Math.round(path.estimated_latency_ms)} ms`
+                              : "Path insight"}
+                          </strong>
+                        </div>
+                        <p>{path.summary}</p>
+                        <div className="path-card__metrics">
+                          {path.queue_lag_ms ? (
+                            <span>{Math.round(path.queue_lag_ms)} ms queue lag</span>
+                          ) : null}
+                          {path.retried_rps ? (
+                            <span>{formatCompactNumber(path.retried_rps)} retry rps</span>
+                          ) : null}
+                          {path.timed_out_rps ? (
+                            <span>{formatCompactNumber(path.timed_out_rps)} timed out rps</span>
+                          ) : null}
+                        </div>
+                        {path.node_ids.length > 0 ? (
+                          <small>
+                            {path.node_ids
+                              .map((nodeID) => nodeLabelsByID.get(nodeID) ?? nodeID)
+                              .join(" -> ")}
+                          </small>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
                 ) : null}
               </div>
 
@@ -1884,9 +2058,30 @@ export function AppShell() {
                   </select>
                   <input
                     inputMode="decimal"
+                    value={String(selectedEdge.data?.routingWeight ?? 1)}
+                    onChange={(event) =>
+                      handleEdgeRoutingWeightChange(selectedEdge.id, event.target.value)
+                    }
+                  />
+                  <input
+                    inputMode="decimal"
                     value={String(selectedEdge.data?.fanoutMultiplier ?? 1)}
                     onChange={(event) =>
                       handleEdgeFanoutChange(selectedEdge.id, event.target.value)
+                    }
+                  />
+                  <input
+                    inputMode="decimal"
+                    value={String(selectedEdge.data?.timeoutMS ?? 0)}
+                    onChange={(event) =>
+                      handleEdgeTimeoutChange(selectedEdge.id, event.target.value)
+                    }
+                  />
+                  <input
+                    inputMode="numeric"
+                    value={String(selectedEdge.data?.retryAttempts ?? 0)}
+                    onChange={(event) =>
+                      handleEdgeRetryChange(selectedEdge.id, event.target.value)
                     }
                   />
                   <div className="flow-checkboxes">
@@ -1983,12 +2178,43 @@ export function AppShell() {
               </label>
 
               <label className="field">
+                <span>Routing weight</span>
+                <input
+                  inputMode="decimal"
+                  value={newEdgeRoutingWeight}
+                  onChange={(event) =>
+                    setNewEdgeRoutingWeight(event.target.value)
+                  }
+                />
+              </label>
+
+              <label className="field">
                 <span>Edge fanout multiplier</span>
                 <input
                   inputMode="decimal"
                   value={newEdgeFanoutMultiplier}
                   onChange={(event) =>
                     setNewEdgeFanoutMultiplier(event.target.value)
+                  }
+                />
+              </label>
+
+              <label className="field">
+                <span>Timeout (ms)</span>
+                <input
+                  inputMode="decimal"
+                  value={newEdgeTimeoutMS}
+                  onChange={(event) => setNewEdgeTimeoutMS(event.target.value)}
+                />
+              </label>
+
+              <label className="field">
+                <span>Retry attempts</span>
+                <input
+                  inputMode="numeric"
+                  value={newEdgeRetryAttempts}
+                  onChange={(event) =>
+                    setNewEdgeRetryAttempts(event.target.value)
                   }
                 />
               </label>
@@ -2052,9 +2278,18 @@ export function AppShell() {
                         <small>
                           {edge.data?.interactionType ?? "sync_request"} /{" "}
                           {edge.data?.ruleType ?? "always"}
+                          {edge.data?.routingWeight && edge.data.routingWeight > 1
+                            ? ` / w${edge.data.routingWeight}`
+                            : ""}
                           {edge.data?.fanoutMultiplier &&
                           edge.data.fanoutMultiplier > 1
                             ? ` / x${edge.data.fanoutMultiplier}`
+                            : ""}
+                          {edge.data?.timeoutMS && edge.data.timeoutMS > 0
+                            ? ` / ${edge.data.timeoutMS}ms`
+                            : ""}
+                          {edge.data?.retryAttempts && edge.data.retryAttempts > 0
+                            ? ` / r${edge.data.retryAttempts}`
                             : ""}
                         </small>
                       </div>
@@ -2095,9 +2330,30 @@ export function AppShell() {
                         </select>
                         <input
                           inputMode="decimal"
+                          value={String(edge.data?.routingWeight ?? 1)}
+                          onChange={(event) =>
+                            handleEdgeRoutingWeightChange(edge.id, event.target.value)
+                          }
+                        />
+                        <input
+                          inputMode="decimal"
                           value={String(edge.data?.fanoutMultiplier ?? 1)}
                           onChange={(event) =>
                             handleEdgeFanoutChange(edge.id, event.target.value)
+                          }
+                        />
+                        <input
+                          inputMode="decimal"
+                          value={String(edge.data?.timeoutMS ?? 0)}
+                          onChange={(event) =>
+                            handleEdgeTimeoutChange(edge.id, event.target.value)
+                          }
+                        />
+                        <input
+                          inputMode="numeric"
+                          value={String(edge.data?.retryAttempts ?? 0)}
+                          onChange={(event) =>
+                            handleEdgeRetryChange(edge.id, event.target.value)
                           }
                         />
                         <div className="flow-checkboxes">
@@ -2172,7 +2428,10 @@ function graphEdgeToFlowEdge(edge: GraphEdge): Edge<FlowEdgeData> {
     data: {
       interactionType: edge.interaction_type,
       ruleType: edge.routing_rule.rule_type,
+      routingWeight: edge.routing_rule.value ?? 1,
       fanoutMultiplier: edge.fanout_multiplier ?? 1,
+      timeoutMS: edge.timeout_ms ?? 0,
+      retryAttempts: edge.retry_attempts ?? 0,
       requestClassIDs: edge.request_class_ids ?? [],
     },
   };
@@ -2185,9 +2444,12 @@ function flowEdgeToGraphEdge(edge: Edge<FlowEdgeData>): GraphEdge {
     target_node_id: edge.target,
     interaction_type: edge.data?.interactionType ?? "sync_request",
     fanout_multiplier: edge.data?.fanoutMultiplier ?? 1,
+    timeout_ms: edge.data?.timeoutMS ?? 0,
+    retry_attempts: edge.data?.retryAttempts ?? 0,
     request_class_ids: edge.data?.requestClassIDs ?? [],
     routing_rule: {
       rule_type: edge.data?.ruleType ?? "always",
+      value: edge.data?.routingWeight ?? 1,
     },
   };
 }
@@ -2206,15 +2468,27 @@ function buildEdgeLabel(
       : edge.data?.ruleType && edge.data.ruleType !== "always"
         ? edge.data.ruleType
         : edge.data?.interactionType ?? "sync_request";
+  const weightLabel =
+    edge.data?.routingWeight && edge.data.routingWeight > 1
+      ? ` w${edge.data.routingWeight}`
+      : "";
   const fanoutLabel =
     edge.data?.fanoutMultiplier && edge.data.fanoutMultiplier > 1
       ? ` x${edge.data.fanoutMultiplier}`
+      : "";
+  const timeoutLabel =
+    edge.data?.timeoutMS && edge.data.timeoutMS > 0
+      ? ` ${edge.data.timeoutMS}ms`
+      : "";
+  const retryLabel =
+    edge.data?.retryAttempts && edge.data.retryAttempts > 0
+      ? ` r${edge.data.retryAttempts}`
       : "";
   const throughputLabel = result
     ? ` · ${formatCompactNumber(result.routed_rps)} rps`
     : "";
 
-  return `${semantic}${fanoutLabel}${throughputLabel}`;
+  return `${semantic}${weightLabel}${fanoutLabel}${timeoutLabel}${retryLabel}${throughputLabel}`;
 }
 
 function getEdgeHighlight(
@@ -2250,6 +2524,15 @@ function getEdgeHighlight(
       strokeWidth: 2.5,
       dashed: true,
       animated: false,
+    };
+  }
+
+  if (result && (result.timed_out_rps ?? 0) > 0) {
+    return {
+      stroke: "#d84d3a",
+      strokeWidth: 4.25,
+      dashed: false,
+      animated: true,
     };
   }
 
@@ -2294,6 +2577,7 @@ function buildNodeLabel(
     | {
         utilization: number;
         incoming_rps: number;
+        queue_lag_ms?: number;
       }
     | undefined,
 ): ReactNode {
@@ -2309,6 +2593,7 @@ function buildNodeLabel(
           <span>{Math.max(1, nodeData.properties.replicas ?? 1)} replicas</span>
           <span>{Math.round(result.utilization * 100)}% util</span>
           <span>{formatCompactNumber(result.incoming_rps)} rps</span>
+          {result.queue_lag_ms ? <span>{Math.round(result.queue_lag_ms)} ms lag</span> : null}
         </div>
       ) : (
         <div className="flow-node-copy__meta">
@@ -2317,6 +2602,23 @@ function buildNodeLabel(
       )}
     </div>
   );
+}
+
+function summarizePathForCard(
+  path: {
+    node_ids: string[];
+  },
+  nodeLabelsByID: Map<string, string>,
+) {
+  const labels = path.node_ids
+    .slice(0, 3)
+    .map((nodeID) => nodeLabelsByID.get(nodeID) ?? nodeID);
+
+  if (path.node_ids.length > 3) {
+    labels.push("...");
+  }
+
+  return labels.join(" -> ");
 }
 
 function getVisibleDropPosition(
@@ -2570,6 +2872,46 @@ function parseEdgeFanoutInput(
     return {
       ok: false,
       error: "Edge fanout multiplier must be a positive number.",
+    };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+function parsePositiveDecimalInput(
+  value: string,
+  errorMessage: string,
+): { ok: true; value: number } | { ok: false; error: string } {
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return { ok: true, value: 0 };
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return {
+      ok: false,
+      error: errorMessage,
+    };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+function parseWholeNumberInput(
+  value: string,
+  errorMessage: string,
+): { ok: true; value: number } | { ok: false; error: string } {
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return { ok: true, value: 0 };
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return {
+      ok: false,
+      error: errorMessage,
     };
   }
 

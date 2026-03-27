@@ -97,6 +97,8 @@ type Edge struct {
 	TargetNodeID     string              `json:"target_node_id"`
 	InteractionType  EdgeInteractionType `json:"interaction_type"`
 	FanoutMultiplier float64             `json:"fanout_multiplier,omitempty"`
+	TimeoutMS        float64             `json:"timeout_ms,omitempty"`
+	RetryAttempts    int                 `json:"retry_attempts,omitempty"`
 	RequestClassIDs  []string            `json:"request_class_ids,omitempty"`
 	RoutingRule      RoutingRule         `json:"routing_rule"`
 }
