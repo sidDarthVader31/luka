@@ -20,4 +20,5 @@ type DesignRepository interface {
 type RunRepository interface {
 	Save(run domain.Run) error
 	GetByID(id string) (domain.Run, error)
+	ListByDesignID(designID string) ([]domain.Run, error)
 }

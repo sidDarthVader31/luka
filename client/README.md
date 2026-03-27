@@ -27,6 +27,12 @@ The client owns the visual modeling experience:
 
 It should not own the authoritative simulation engine.
 
+## Persistence note
+
+The frontend talks to a Go backend that now supports PostgreSQL persistence for saved designs and runs.
+
+The database choice is PostgreSQL because the product has both relational entities (`Design`, `Run`) and nested structured payloads (graph, snapshots, results), which fits PostgreSQL plus `JSONB` well.
+
 ## Available scripts
 
 - `corepack pnpm dev`

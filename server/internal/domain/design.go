@@ -6,16 +6,22 @@ type NodeArchetype string
 
 const (
 	NodeArchetypeClient           NodeArchetype = "client"
+	NodeArchetypeGateway          NodeArchetype = "gateway"
 	NodeArchetypeStatelessService NodeArchetype = "stateless_service"
 	NodeArchetypeCache            NodeArchetype = "cache"
 	NodeArchetypeDatabase         NodeArchetype = "database"
+	NodeArchetypeQueue            NodeArchetype = "queue"
+	NodeArchetypeWorker           NodeArchetype = "worker"
 )
 
 type EdgeInteractionType string
 
 const (
 	EdgeInteractionSyncRequest     EdgeInteractionType = "sync_request"
+	EdgeInteractionAsyncEnqueue    EdgeInteractionType = "async_enqueue"
+	EdgeInteractionConsume         EdgeInteractionType = "consume"
 	EdgeInteractionConditionalPath EdgeInteractionType = "conditional_branch"
+	EdgeInteractionFallback        EdgeInteractionType = "fallback"
 )
 
 type RoutingRuleType string
@@ -27,8 +33,9 @@ const (
 )
 
 type Graph struct {
-	Nodes []Node `json:"nodes"`
-	Edges []Edge `json:"edges"`
+	Nodes          []Node         `json:"nodes"`
+	Edges          []Edge         `json:"edges"`
+	RequestClasses []RequestClass `json:"request_classes,omitempty"`
 }
 
 type Design struct {
@@ -52,6 +59,11 @@ type UpdateDesignRequest struct {
 	Graph       *Graph  `json:"graph,omitempty"`
 }
 
+type DuplicateDesignRequest struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 type Node struct {
 	ID         string         `json:"id"`
 	Label      string         `json:"label"`
@@ -73,12 +85,20 @@ type NodeProperties struct {
 	CacheHitRate  float64 `json:"cache_hit_rate,omitempty"`
 }
 
+type RequestClass struct {
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	TrafficShare float64 `json:"traffic_share,omitempty"`
+}
+
 type Edge struct {
-	ID              string              `json:"id"`
-	SourceNodeID    string              `json:"source_node_id"`
-	TargetNodeID    string              `json:"target_node_id"`
-	InteractionType EdgeInteractionType `json:"interaction_type"`
-	RoutingRule     RoutingRule         `json:"routing_rule"`
+	ID               string              `json:"id"`
+	SourceNodeID     string              `json:"source_node_id"`
+	TargetNodeID     string              `json:"target_node_id"`
+	InteractionType  EdgeInteractionType `json:"interaction_type"`
+	FanoutMultiplier float64             `json:"fanout_multiplier,omitempty"`
+	RequestClassIDs  []string            `json:"request_class_ids,omitempty"`
+	RoutingRule      RoutingRule         `json:"routing_rule"`
 }
 
 type RoutingRule struct {

@@ -16,6 +16,10 @@ const (
 
 type Workload struct {
 	RequestsPerSecond float64 `json:"requests_per_second"`
+	ConcurrentUsers   int     `json:"concurrent_users,omitempty"`
+	ReadWriteRatio    float64 `json:"read_write_ratio,omitempty"`
+	PayloadKB         float64 `json:"payload_kb,omitempty"`
+	FanoutCount       int     `json:"fanout_count,omitempty"`
 }
 
 type SimulationConfig struct {
@@ -47,6 +51,18 @@ type SimulationResult struct {
 	Bottleneck *NodeSimulationResult  `json:"bottleneck,omitempty"`
 	Nodes      []NodeSimulationResult `json:"nodes"`
 	Edges      []EdgeSimulationResult `json:"edges"`
+	Flows      []FlowSimulationResult `json:"flows,omitempty"`
+}
+
+type FlowSimulationResult struct {
+	RequestClassID string                 `json:"request_class_id"`
+	Name           string                 `json:"name"`
+	TrafficShare   float64                `json:"traffic_share"`
+	Workload       Workload               `json:"workload"`
+	Summary        string                 `json:"summary"`
+	Bottleneck     *NodeSimulationResult  `json:"bottleneck,omitempty"`
+	Nodes          []NodeSimulationResult `json:"nodes"`
+	Edges          []EdgeSimulationResult `json:"edges"`
 }
 
 type NodeSimulationResult struct {
@@ -64,9 +80,11 @@ type NodeSimulationResult struct {
 }
 
 type EdgeSimulationResult struct {
-	EdgeID       string          `json:"edge_id"`
-	SourceNodeID string          `json:"source_node_id"`
-	TargetNodeID string          `json:"target_node_id"`
-	RuleType     RoutingRuleType `json:"rule_type"`
-	RoutedRPS    float64         `json:"routed_rps"`
+	EdgeID           string              `json:"edge_id"`
+	SourceNodeID     string              `json:"source_node_id"`
+	TargetNodeID     string              `json:"target_node_id"`
+	InteractionType  EdgeInteractionType `json:"interaction_type"`
+	FanoutMultiplier float64             `json:"fanout_multiplier"`
+	RuleType         RoutingRuleType     `json:"rule_type"`
+	RoutedRPS        float64             `json:"routed_rps"`
 }

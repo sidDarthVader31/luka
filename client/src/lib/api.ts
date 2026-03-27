@@ -1,10 +1,18 @@
 export type NodeArchetype =
   | "client"
+  | "gateway"
   | "stateless_service"
   | "cache"
-  | "database";
+  | "database"
+  | "queue"
+  | "worker";
 
-export type EdgeInteractionType = "sync_request" | "conditional_branch";
+export type EdgeInteractionType =
+  | "sync_request"
+  | "async_enqueue"
+  | "consume"
+  | "conditional_branch"
+  | "fallback";
 export type RoutingRuleType = "always" | "cache_hit" | "cache_miss";
 
 export type GraphNode = {
@@ -29,10 +37,18 @@ export type GraphEdge = {
   source_node_id: string;
   target_node_id: string;
   interaction_type: EdgeInteractionType;
+  fanout_multiplier?: number;
+  request_class_ids?: string[];
   routing_rule: {
     rule_type: RoutingRuleType;
     value?: number;
   };
+};
+
+export type RequestClass = {
+  id: string;
+  name: string;
+  traffic_share?: number;
 };
 
 export type Design = {
@@ -42,6 +58,7 @@ export type Design = {
   graph: {
     nodes: GraphNode[];
     edges: GraphEdge[];
+    request_classes?: RequestClass[];
   };
   created_at?: string;
   updated_at?: string;
@@ -67,53 +84,65 @@ export type ComponentArchetype = {
   supported_routing_rules: RoutingRuleType[];
 };
 
+export type Workload = {
+  requests_per_second: number;
+  concurrent_users?: number;
+  read_write_ratio?: number;
+  payload_kb?: number;
+  fanout_count?: number;
+};
+
+export type RunNodeResult = {
+  node_id: string;
+  label: string;
+  archetype: NodeArchetype;
+  incoming_rps: number;
+  processed_rps: number;
+  dropped_rps: number;
+  effective_capacity_rps: number;
+  utilization: number;
+  estimated_latency_ms: number;
+  saturated: boolean;
+  explanation: string;
+};
+
+export type RunEdgeResult = {
+  edge_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  interaction_type: EdgeInteractionType;
+  fanout_multiplier: number;
+  rule_type: RoutingRuleType;
+  routed_rps: number;
+};
+
+export type RunResult = {
+  summary: string;
+  bottleneck?: RunNodeResult;
+  nodes: RunNodeResult[];
+  edges: RunEdgeResult[];
+  flows?: Array<{
+    request_class_id: string;
+    name: string;
+    traffic_share: number;
+    workload: Workload;
+    summary: string;
+    bottleneck?: RunNodeResult;
+    nodes: RunNodeResult[];
+    edges: RunEdgeResult[];
+  }>;
+};
+
 export type Run = {
   id: string;
   design_id?: string;
   design_snapshot: Design;
-  workload: {
-    requests_per_second: number;
-  };
+  workload: Workload;
   simulation_config: {
     mode: "analytical";
   };
   status: "completed";
-  result?: {
-    summary: string;
-    bottleneck?: {
-      node_id: string;
-      label: string;
-      archetype: NodeArchetype;
-      incoming_rps: number;
-      processed_rps: number;
-      dropped_rps: number;
-      effective_capacity_rps: number;
-      utilization: number;
-      estimated_latency_ms: number;
-      saturated: boolean;
-      explanation: string;
-    };
-    nodes: Array<{
-      node_id: string;
-      label: string;
-      archetype: NodeArchetype;
-      incoming_rps: number;
-      processed_rps: number;
-      dropped_rps: number;
-      effective_capacity_rps: number;
-      utilization: number;
-      estimated_latency_ms: number;
-      saturated: boolean;
-      explanation: string;
-    }>;
-    edges: Array<{
-      edge_id: string;
-      source_node_id: string;
-      target_node_id: string;
-      rule_type: RoutingRuleType;
-      routed_rps: number;
-    }>;
-  };
+  result?: RunResult;
   created_at: string;
   completed_at?: string;
 };
@@ -178,12 +207,23 @@ export function updateDesign(designId: string, input: UpdateDesignInput) {
   });
 }
 
+export function duplicateDesign(
+  designId: string,
+  input?: {
+    name?: string;
+    description?: string;
+  },
+) {
+  return request<Design>(`/designs/${designId}/duplicate`, {
+    method: "POST",
+    body: JSON.stringify(input ?? {}),
+  });
+}
+
 export function createRun(input: {
   design_id?: string;
   design?: Design;
-  workload: {
-    requests_per_second: number;
-  };
+  workload: Workload;
   simulation_config: {
     mode: "analytical";
   };
@@ -196,4 +236,10 @@ export function createRun(input: {
 
 export function getRun(runId: string) {
   return request<Run>(`/runs/${runId}`);
+}
+
+export async function listRunsForDesign(designId: string) {
+  const response = await request<{ items: Run[] }>(`/designs/${designId}/runs`);
+
+  return response.items;
 }

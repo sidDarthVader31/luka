@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"sync"
 	"time"
 
@@ -24,6 +25,13 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 				Name:        "Sample Cache-Aside Read Path",
 				Description: "Seeded sample design used until database persistence is added.",
 				Graph: domain.Graph{
+					RequestClasses: []domain.RequestClass{
+						{
+							ID:           "flow-read",
+							Name:         "Read Path",
+							TrafficShare: 100,
+						},
+					},
 					Nodes: []domain.Node{
 						{
 							ID:        "client-1",
@@ -88,6 +96,7 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 							SourceNodeID:    "client-1",
 							TargetNodeID:    "service-1",
 							InteractionType: domain.EdgeInteractionSyncRequest,
+							RequestClassIDs: []string{"flow-read"},
 							RoutingRule: domain.RoutingRule{
 								RuleType: domain.RoutingRuleAlways,
 							},
@@ -97,6 +106,7 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 							SourceNodeID:    "service-1",
 							TargetNodeID:    "cache-1",
 							InteractionType: domain.EdgeInteractionSyncRequest,
+							RequestClassIDs: []string{"flow-read"},
 							RoutingRule: domain.RoutingRule{
 								RuleType: domain.RoutingRuleAlways,
 							},
@@ -106,6 +116,7 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 							SourceNodeID:    "cache-1",
 							TargetNodeID:    "db-1",
 							InteractionType: domain.EdgeInteractionConditionalPath,
+							RequestClassIDs: []string{"flow-read"},
 							RoutingRule: domain.RoutingRule{
 								RuleType: domain.RoutingRuleCacheMiss,
 							},
@@ -180,4 +191,37 @@ func (r *MemoryRunRepository) GetByID(id string) (domain.Run, error) {
 	}
 
 	return run, nil
+}
+
+func (r *MemoryRunRepository) ListByDesignID(designID string) ([]domain.Run, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	runs := make([]domain.Run, 0)
+	for _, run := range r.runs {
+		if run.DesignID == designID {
+			runs = append(runs, run)
+		}
+	}
+
+	slices.SortFunc(runs, func(a, b domain.Run) int {
+		if a.CreatedAt.Equal(b.CreatedAt) {
+			switch {
+			case a.ID < b.ID:
+				return 1
+			case a.ID > b.ID:
+				return -1
+			default:
+				return 0
+			}
+		}
+
+		if a.CreatedAt.After(b.CreatedAt) {
+			return -1
+		}
+
+		return 1
+	})
+
+	return runs, nil
 }

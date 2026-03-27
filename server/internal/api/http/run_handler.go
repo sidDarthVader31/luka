@@ -63,3 +63,21 @@ func (h *RunHandler) Get(c *gin.Context) {
 
 	c.JSON(http.StatusOK, run)
 }
+
+func (h *RunHandler) ListByDesign(c *gin.Context) {
+	runs, err := h.service.ListByDesign(c.Param("designId"))
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, store.ErrDesignNotFound) {
+			status = http.StatusNotFound
+		}
+
+		c.JSON(status, gin.H{
+			"error":   "run history lookup failed",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"items": runs})
+}
