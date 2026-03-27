@@ -253,6 +253,7 @@ export function AppShell() {
           edge,
           result,
           activeFlowResult?.edges ?? [],
+          resultNodesByID,
         );
 
         return {
@@ -282,7 +283,7 @@ export function AppShell() {
           },
         };
       }),
-    [activeFlowResult, canvasEdges, resultEdgesByID, selectedEdgeID],
+    [activeFlowResult, canvasEdges, resultEdgesByID, resultNodesByID, selectedEdgeID],
   );
 
   const hottestEdge = useMemo(
@@ -301,6 +302,31 @@ export function AppShell() {
   const criticalPath = activePaths.find((path) => path.kind === "critical_path") ?? null;
   const queueBacklogPath =
     activePaths.find((path) => path.kind === "queue_backlog") ?? null;
+  const affectedNodes = useMemo(
+    () =>
+      (activeFlowResult?.nodes ?? [])
+        .filter(
+          (node) =>
+            node.archetype !== "client" &&
+            node.node_id !== activeFlowResult?.bottleneck?.node_id &&
+            (node.utilization >= 0.8 ||
+              node.dropped_rps > 0 ||
+              (node.queue_lag_ms ?? 0) > 0),
+        )
+        .sort((left, right) => {
+          const leftScore =
+            left.utilization * 1000 +
+            left.dropped_rps +
+            (left.queue_lag_ms ?? 0);
+          const rightScore =
+            right.utilization * 1000 +
+            right.dropped_rps +
+            (right.queue_lag_ms ?? 0);
+
+          return rightScore - leftScore;
+        }),
+    [activeFlowResult],
+  );
 
   function captureSnapshot(): EditorSnapshot {
     return {
@@ -1412,12 +1438,14 @@ export function AppShell() {
                 <button
                   key={item.archetype}
                   className={`catalog-card catalog-card--${item.default_color}`}
+                  style={buildCatalogCardStyle(item.default_color)}
                   draggable
                   onDragStart={handleArchetypeDragStart(item)}
                   onDragEnd={() => setDraggedArchetype(null)}
                   onClick={() => addNode(item)}
                   type="button"
                 >
+                  <span className="catalog-card__dot" />
                   <strong>{item.display_name}</strong>
                   <small>{item.archetype}</small>
                 </button>
@@ -1757,6 +1785,35 @@ export function AppShell() {
                 <p>{formatWorkload(lastRun.workload)}</p>
                 {activeFlowResult?.bottleneck ? (
                   <p>{activeFlowResult.bottleneck.explanation}</p>
+                ) : null}
+                {affectedNodes.length > 0 ? (
+                  <div className="affected-components">
+                    <div className="affected-components__header">
+                      <span>Also affected</span>
+                      <strong>{affectedNodes.length} components need attention</strong>
+                    </div>
+                    <div className="affected-components__grid">
+                      {affectedNodes.map((node) => (
+                        <article className="affected-card" key={`${activeFlowResultID}-${node.node_id}`}>
+                          <div className="affected-card__header">
+                            <strong>{node.label}</strong>
+                            <span>{Math.round(node.utilization * 100)}% util</span>
+                          </div>
+                          <p>{node.explanation}</p>
+                          <div className="affected-card__metrics">
+                            <span>{formatCompactNumber(node.incoming_rps)} in</span>
+                            <span>{formatCompactNumber(node.processed_rps)} ok</span>
+                            {node.dropped_rps > 0 ? (
+                              <span>{formatCompactNumber(node.dropped_rps)} dropped</span>
+                            ) : null}
+                            {(node.queue_lag_ms ?? 0) > 0 ? (
+                              <span>{Math.round(node.queue_lag_ms ?? 0)} ms lag</span>
+                            ) : null}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
                 ) : null}
                 {activePaths.length > 0 ? (
                   <div className="path-explanations">
@@ -2496,11 +2553,22 @@ function getEdgeHighlight(
   result:
     | {
         routed_rps: number;
+        source_node_id?: string;
+        target_node_id?: string;
+        timed_out_rps?: number;
       }
     | undefined,
   allEdgeResults: Array<{
     routed_rps: number;
   }>,
+  nodeResultsByID?: Map<
+    string,
+    {
+      utilization: number;
+      dropped_rps: number;
+      queue_lag_ms?: number;
+    }
+  >,
 ) {
   const maxRouted = Math.max(
     1,
@@ -2508,6 +2576,15 @@ function getEdgeHighlight(
   );
   const loadRatio = result ? result.routed_rps / maxRouted : 0;
   const isFallback = edge.data?.interactionType === "fallback";
+  const sourceResult = nodeResultsByID?.get(edge.source);
+  const targetResult = nodeResultsByID?.get(edge.target);
+  const isUnderPressure =
+    (sourceResult?.utilization ?? 0) >= 0.8 ||
+    (targetResult?.utilization ?? 0) >= 0.8 ||
+    (sourceResult?.dropped_rps ?? 0) > 0 ||
+    (targetResult?.dropped_rps ?? 0) > 0 ||
+    (sourceResult?.queue_lag_ms ?? 0) > 0 ||
+    (targetResult?.queue_lag_ms ?? 0) > 0;
 
   if (isFallback && result && result.routed_rps > 0) {
     return {
@@ -2533,6 +2610,15 @@ function getEdgeHighlight(
       strokeWidth: 4.25,
       dashed: false,
       animated: true,
+    };
+  }
+
+  if (isUnderPressure && loadRatio >= 0.45) {
+    return {
+      stroke: "#d84d3a",
+      strokeWidth: loadRatio >= 0.85 ? 4.25 : 3.5,
+      dashed: false,
+      animated: loadRatio >= 0.85,
     };
   }
 
@@ -2568,6 +2654,15 @@ function getEdgeHighlight(
     strokeWidth: 2,
     dashed: false,
     animated: false,
+  };
+}
+
+function buildCatalogCardStyle(color: GraphNode["color"]) {
+  const palette = getNodePalette(color);
+  return {
+    background: palette.background,
+    border: `1px solid ${palette.border}`,
+    color: palette.text,
   };
 }
 

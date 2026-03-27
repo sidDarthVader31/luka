@@ -177,8 +177,11 @@ button {
   gap: 0.25rem;
   border-radius: 18px;
   padding: 0.95rem;
+  border: 1px solid transparent;
   color: #152034;
   text-align: left;
+  appearance: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 .catalog-card--blue {
@@ -195,6 +198,14 @@ button {
 
 .catalog-card--red {
   background: linear-gradient(180deg, #fff0eb 0%, #ffd8cf 100%);
+}
+
+.catalog-card__dot {
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.88;
 }
 
 .field,
@@ -498,6 +509,71 @@ button {
   padding: 0.28rem 0.6rem;
   background: rgba(79, 136, 218, 0.08);
   color: #27456d;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.affected-components {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.affected-components__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.affected-components__header span {
+  color: #61738f;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.affected-components__grid {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.affected-card {
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(216, 77, 58, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 245, 243, 0.9);
+}
+
+.affected-card p {
+  margin: 0.45rem 0 0.55rem;
+}
+
+.affected-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.affected-card__header span {
+  color: #b44334;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.affected-card__metrics {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.affected-card__metrics span {
+  border-radius: 999px;
+  padding: 0.28rem 0.6rem;
+  background: rgba(216, 77, 58, 0.09);
+  color: #923428;
   font-size: 0.76rem;
   font-weight: 700;
 }
