@@ -37,7 +37,7 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 							ID:        "client-1",
 							Label:     "Client",
 							Archetype: domain.NodeArchetypeClient,
-							Color:     "blue",
+							Color:     "cobalt",
 							Position: domain.NodePosition{
 								X: 80,
 								Y: 180,
@@ -47,7 +47,7 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 							ID:        "service-1",
 							Label:     "Chat Service",
 							Archetype: domain.NodeArchetypeStatelessService,
-							Color:     "green",
+							Color:     "emerald",
 							Position: domain.NodePosition{
 								X: 320,
 								Y: 160,
@@ -62,7 +62,7 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 							ID:        "cache-1",
 							Label:     "Redis Cache",
 							Archetype: domain.NodeArchetypeCache,
-							Color:     "yellow",
+							Color:     "amber",
 							Position: domain.NodePosition{
 								X: 600,
 								Y: 90,
@@ -78,7 +78,7 @@ func NewMemoryDesignRepository() *MemoryDesignRepository {
 							ID:        "db-1",
 							Label:     "Postgres",
 							Archetype: domain.NodeArchetypeDatabase,
-							Color:     "red",
+							Color:     "coral",
 							Position: domain.NodePosition{
 								X: 600,
 								Y: 280,

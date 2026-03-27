@@ -276,7 +276,12 @@ func isSupportedRoutingRule(value domain.RoutingRuleType) bool {
 }
 
 func isSupportedColor(value string) bool {
-	return value == "blue" || value == "green" || value == "yellow" || value == "red"
+	switch value {
+	case "blue", "green", "yellow", "red", "cobalt", "indigo", "emerald", "amber", "coral", "orange", "teal":
+		return true
+	default:
+		return false
+	}
 }
 
 func isFinite(value float64) bool {

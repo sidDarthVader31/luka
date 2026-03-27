@@ -7,6 +7,19 @@ export type NodeArchetype =
   | "queue"
   | "worker";
 
+export type NodeColor =
+  | "blue"
+  | "green"
+  | "yellow"
+  | "red"
+  | "cobalt"
+  | "indigo"
+  | "emerald"
+  | "amber"
+  | "coral"
+  | "orange"
+  | "teal";
+
 export type EdgeInteractionType =
   | "sync_request"
   | "async_enqueue"
@@ -19,7 +32,7 @@ export type GraphNode = {
   id: string;
   label: string;
   archetype: NodeArchetype;
-  color: "blue" | "green" | "yellow" | "red";
+  color: NodeColor;
   position: {
     x: number;
     y: number;

@@ -7,7 +7,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 		{
 			Archetype:    domain.NodeArchetypeClient,
 			DisplayName:  "Client",
-			DefaultColor: "blue",
+			DefaultColor: "cobalt",
 			DefaultProperties: domain.NodeProperties{
 				BaseLatencyMS: 0,
 			},
@@ -22,7 +22,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 		{
 			Archetype:    domain.NodeArchetypeGateway,
 			DisplayName:  "Gateway",
-			DefaultColor: "blue",
+			DefaultColor: "indigo",
 			DefaultProperties: domain.NodeProperties{
 				Replicas:      2,
 				CapacityRPS:   25000,
@@ -38,7 +38,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 		{
 			Archetype:    domain.NodeArchetypeStatelessService,
 			DisplayName:  "Stateless Service",
-			DefaultColor: "green",
+			DefaultColor: "emerald",
 			DefaultProperties: domain.NodeProperties{
 				Replicas:      2,
 				CapacityRPS:   10000,
@@ -56,7 +56,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 		{
 			Archetype:    domain.NodeArchetypeCache,
 			DisplayName:  "Cache",
-			DefaultColor: "yellow",
+			DefaultColor: "amber",
 			DefaultProperties: domain.NodeProperties{
 				Replicas:      1,
 				CapacityRPS:   50000,
@@ -77,7 +77,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 		{
 			Archetype:    domain.NodeArchetypeDatabase,
 			DisplayName:  "Database",
-			DefaultColor: "red",
+			DefaultColor: "coral",
 			DefaultProperties: domain.NodeProperties{
 				Replicas:      1,
 				CapacityRPS:   7000,
@@ -94,7 +94,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 		{
 			Archetype:    domain.NodeArchetypeQueue,
 			DisplayName:  "Queue",
-			DefaultColor: "yellow",
+			DefaultColor: "orange",
 			DefaultProperties: domain.NodeProperties{
 				Replicas:      1,
 				CapacityRPS:   40000,
@@ -110,7 +110,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 		{
 			Archetype:    domain.NodeArchetypeWorker,
 			DisplayName:  "Worker",
-			DefaultColor: "green",
+			DefaultColor: "teal",
 			DefaultProperties: domain.NodeProperties{
 				Replicas:      3,
 				CapacityRPS:   12000,

@@ -63,7 +63,6 @@ import {
 
 const sampleDesignID = "sample-cache-aside";
 
-const colorOptions: GraphNode["color"][] = ["blue", "green", "yellow", "red"];
 const nodePropertyLabels: Record<keyof GraphNode["properties"], string> = {
   replicas: "Replicas",
   capacity_rps: "Capacity / sec",
@@ -188,6 +187,20 @@ export function AppShell() {
     () =>
       new Map((activeFlowResult?.edges ?? []).map((edge) => [edge.edge_id, edge])),
     [activeFlowResult],
+  );
+  const colorOptions = useMemo(
+    () =>
+      Array.from(
+        new Set<GraphNode["color"]>([
+          ...catalog.map((item) => item.default_color),
+          ...canvasNodes.map((node) => node.data.color),
+          "blue",
+          "green",
+          "yellow",
+          "red",
+        ]),
+      ),
+    [canvasNodes, catalog],
   );
 
   const runComparison = useMemo(
@@ -2824,6 +2837,48 @@ function getVisibleDropPosition(
 
 function getNodePalette(color: GraphNode["color"]) {
   switch (color) {
+    case "cobalt":
+      return {
+        background: "linear-gradient(180deg, #eef4ff 0%, #d7e7ff 100%)",
+        border: "#3f76d3",
+        text: "#17345d",
+      };
+    case "indigo":
+      return {
+        background: "linear-gradient(180deg, #f0efff 0%, #ddd9ff 100%)",
+        border: "#6654d9",
+        text: "#2e246c",
+      };
+    case "emerald":
+      return {
+        background: "linear-gradient(180deg, #edfcf4 0%, #d2f4e1 100%)",
+        border: "#2f9f74",
+        text: "#143a2d",
+      };
+    case "amber":
+      return {
+        background: "linear-gradient(180deg, #fff8e5 0%, #ffe6a3 100%)",
+        border: "#c88a1c",
+        text: "#5f4107",
+      };
+    case "coral":
+      return {
+        background: "linear-gradient(180deg, #fff1ec 0%, #ffd6cb 100%)",
+        border: "#d46f5f",
+        text: "#5d241c",
+      };
+    case "orange":
+      return {
+        background: "linear-gradient(180deg, #fff4e9 0%, #ffd8b0 100%)",
+        border: "#cf7a2b",
+        text: "#5a3310",
+      };
+    case "teal":
+      return {
+        background: "linear-gradient(180deg, #ebfbfb 0%, #cef1ee 100%)",
+        border: "#2e9d97",
+        text: "#123c39",
+      };
     case "blue":
       return {
         background: "linear-gradient(180deg, #edf4ff 0%, #d9e9ff 100%)",
@@ -2859,6 +2914,20 @@ function getNodePalette(color: GraphNode["color"]) {
 
 function colorLabel(color: GraphNode["color"]) {
   switch (color) {
+    case "cobalt":
+      return "Cobalt";
+    case "indigo":
+      return "Indigo";
+    case "emerald":
+      return "Emerald";
+    case "amber":
+      return "Amber";
+    case "coral":
+      return "Coral";
+    case "orange":
+      return "Orange";
+    case "teal":
+      return "Teal";
     case "blue":
       return "Cobalt";
     case "green":
