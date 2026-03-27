@@ -200,12 +200,15 @@ button {
   background: linear-gradient(180deg, #fff0eb 0%, #ffd8cf 100%);
 }
 
-.catalog-card__dot {
-  width: 0.72rem;
-  height: 0.72rem;
-  border-radius: 999px;
-  background: currentColor;
-  opacity: 0.88;
+.catalog-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .field,

@@ -1445,7 +1445,9 @@ export function AppShell() {
                   onClick={() => addNode(item)}
                   type="button"
                 >
-                  <span className="catalog-card__dot" />
+                  <span className="catalog-card__icon" aria-hidden="true">
+                    {renderArchetypeIcon(item.archetype)}
+                  </span>
                   <strong>{item.display_name}</strong>
                   <small>{item.archetype}</small>
                 </button>
@@ -2664,6 +2666,86 @@ function buildCatalogCardStyle(color: GraphNode["color"]) {
     border: `1px solid ${palette.border}`,
     color: palette.text,
   };
+}
+
+function renderArchetypeIcon(archetype: GraphNode["archetype"]) {
+  const commonProps = {
+    width: 22,
+    height: 22,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+
+  switch (archetype) {
+    case "client":
+      return (
+        <svg {...commonProps}>
+          <rect x="4" y="5" width="16" height="11" rx="2" />
+          <path d="M9 19h6" />
+          <path d="M12 16v3" />
+        </svg>
+      );
+    case "gateway":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 12h16" />
+          <path d="M12 4v16" />
+          <circle cx="12" cy="12" r="7" />
+        </svg>
+      );
+    case "stateless_service":
+      return (
+        <svg {...commonProps}>
+          <rect x="4" y="6" width="16" height="12" rx="2" />
+          <path d="M8 10h8" />
+          <path d="M8 14h5" />
+        </svg>
+      );
+    case "cache":
+      return (
+        <svg {...commonProps}>
+          <ellipse cx="12" cy="7" rx="7" ry="3" />
+          <path d="M5 7v8c0 1.7 3.1 3 7 3s7-1.3 7-3V7" />
+          <path d="M5 11c0 1.7 3.1 3 7 3s7-1.3 7-3" />
+        </svg>
+      );
+    case "database":
+      return (
+        <svg {...commonProps}>
+          <ellipse cx="12" cy="6.5" rx="7" ry="2.8" />
+          <path d="M5 6.5v10.5c0 1.55 3.1 2.8 7 2.8s7-1.25 7-2.8V6.5" />
+          <path d="M5 11c0 1.55 3.1 2.8 7 2.8s7-1.25 7-2.8" />
+        </svg>
+      );
+    case "queue":
+      return (
+        <svg {...commonProps}>
+          <rect x="5" y="5" width="4" height="14" rx="1" />
+          <rect x="10" y="8" width="4" height="11" rx="1" />
+          <rect x="15" y="11" width="4" height="8" rx="1" />
+        </svg>
+      );
+    case "worker":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="12" r="3.5" />
+          <path d="M12 3.5v3" />
+          <path d="M12 17.5v3" />
+          <path d="M3.5 12h3" />
+          <path d="M17.5 12h3" />
+          <path d="M6.1 6.1l2.1 2.1" />
+          <path d="M15.8 15.8l2.1 2.1" />
+          <path d="M17.9 6.1l-2.1 2.1" />
+          <path d="M8.2 15.8l-2.1 2.1" />
+        </svg>
+      );
+    default:
+      return null;
+  }
 }
 
 function buildNodeLabel(
