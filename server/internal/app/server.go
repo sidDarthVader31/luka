@@ -25,12 +25,12 @@ func NewServer() (*Server, error) {
 		address = ":8080"
 	}
 
-	designRepo, runStore, err := bootstrapRepositories(context.Background())
+	designRepo, designVersionRepo, runStore, err := bootstrapRepositories(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
-	designService := designsvc.NewService(designRepo)
+	designService := designsvc.NewService(designRepo, designVersionRepo)
 	runService := runs.NewService(designRepo, runStore, simulator.NewService())
 
 	return &Server{
@@ -47,7 +47,7 @@ func (s *Server) Run() error {
 	return s.router.Engine().Run(s.address)
 }
 
-func bootstrapRepositories(ctx context.Context) (store.DesignRepository, store.RunRepository, error) {
+func bootstrapRepositories(ctx context.Context) (store.DesignRepository, store.DesignVersionRepository, store.RunRepository, error) {
 	databaseURL := os.Getenv("LUKA_DATABASE_URL")
 	if databaseURL == "" {
 		databaseURL = os.Getenv("DATABASE_URL")
@@ -55,19 +55,19 @@ func bootstrapRepositories(ctx context.Context) (store.DesignRepository, store.R
 
 	if databaseURL == "" {
 		log.Print("LUKA_DATABASE_URL not set; using in-memory persistence")
-		return store.NewMemoryDesignRepository(), store.NewMemoryRunRepository(), nil
+		return store.NewMemoryDesignRepository(), store.NewMemoryDesignVersionRepository(), store.NewMemoryRunRepository(), nil
 	}
 
 	pool, err := platform.OpenPostgresPool(ctx, databaseURL)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open postgres pool: %w", err)
+		return nil, nil, nil, fmt.Errorf("open postgres pool: %w", err)
 	}
 
 	if err := platform.RunPostgresMigrations(ctx, pool); err != nil {
 		pool.Close()
-		return nil, nil, fmt.Errorf("run postgres migrations: %w", err)
+		return nil, nil, nil, fmt.Errorf("run postgres migrations: %w", err)
 	}
 
 	log.Print("using PostgreSQL persistence")
-	return store.NewPostgresDesignRepository(pool), store.NewPostgresRunRepository(pool), nil
+	return store.NewPostgresDesignRepository(pool), store.NewPostgresDesignVersionRepository(pool), store.NewPostgresRunRepository(pool), nil
 }

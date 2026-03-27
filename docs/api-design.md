@@ -329,6 +329,7 @@ Response:
     {
       "archetype": "stateless_service",
       "display_name": "Stateless Service",
+      "default_color": "green",
       "default_properties": {
         "replicas": 2,
         "capacity_rps": 10000,
@@ -341,7 +342,39 @@ Response:
 }
 ```
 
-### 5. Duplicate Design
+### 5. List Design Versions
+
+`GET /api/v1/designs/:designId/versions`
+
+Status:
+
+- implemented in this branch
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "design_id": "des_123",
+      "version": 3,
+      "design_snapshot": {
+        "id": "des_123",
+        "name": "Chat Read Path",
+        "description": "Cache-aside read flow",
+        "graph": {
+          "nodes": [],
+          "edges": [],
+          "request_classes": []
+        }
+      },
+      "created_at": "2026-03-18T12:20:00Z"
+    }
+  ]
+}
+```
+
+### 6. Duplicate Design
 
 `POST /api/v1/designs/:designId/duplicate`
 
@@ -357,7 +390,7 @@ Request:
 }
 ```
 
-### 6. Create Run
+### 7. Create Run
 
 `POST /api/v1/runs`
 
@@ -513,7 +546,7 @@ Response:
 }
 ```
 
-### 7. Get Run
+### 8. Get Run
 
 `GET /api/v1/runs/:runId`
 
@@ -554,7 +587,7 @@ Response:
 }
 ```
 
-### 8. List Runs For A Design
+### 9. List Runs For A Design
 
 `GET /api/v1/designs/:designId/runs`
 

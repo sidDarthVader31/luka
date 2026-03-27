@@ -9,7 +9,7 @@ import (
 )
 
 func TestCreateAndUpdateDesign(t *testing.T) {
-	service := NewService(store.NewMemoryDesignRepository())
+	service := NewService(store.NewMemoryDesignRepository(), store.NewMemoryDesignVersionRepository())
 
 	created, err := service.Create(domain.CreateDesignRequest{
 		Name:        "My Design",
@@ -51,7 +51,7 @@ func TestCreateAndUpdateDesign(t *testing.T) {
 }
 
 func TestCreateRejectsInvalidGraph(t *testing.T) {
-	service := NewService(store.NewMemoryDesignRepository())
+	service := NewService(store.NewMemoryDesignRepository(), store.NewMemoryDesignVersionRepository())
 
 	_, err := service.Create(domain.CreateDesignRequest{
 		Name: "Broken Design",
@@ -88,7 +88,7 @@ func TestCreateRejectsInvalidGraph(t *testing.T) {
 }
 
 func TestDuplicateDesign(t *testing.T) {
-	service := NewService(store.NewMemoryDesignRepository())
+	service := NewService(store.NewMemoryDesignRepository(), store.NewMemoryDesignVersionRepository())
 
 	duplicate, err := service.Duplicate(store.SampleDesignID, domain.DuplicateDesignRequest{
 		Name: "Sample Variant",
@@ -107,5 +107,47 @@ func TestDuplicateDesign(t *testing.T) {
 
 	if len(duplicate.Graph.Nodes) == 0 {
 		t.Fatal("expected duplicated graph nodes")
+	}
+}
+
+func TestCreateAndUpdateDesignStoresVersions(t *testing.T) {
+	service := NewService(store.NewMemoryDesignRepository(), store.NewMemoryDesignVersionRepository())
+
+	created, err := service.Create(domain.CreateDesignRequest{
+		Name: "Versioned Design",
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{
+					ID:        "client-1",
+					Label:     "Client",
+					Archetype: domain.NodeArchetypeClient,
+					Color:     "blue",
+					Position:  domain.NodePosition{X: 10, Y: 10},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	description := "v2"
+	if _, err := service.Update(created.ID, domain.UpdateDesignRequest{
+		Description: &description,
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	versions, err := service.ListVersions(created.ID)
+	if err != nil {
+		t.Fatalf("ListVersions() error = %v", err)
+	}
+
+	if len(versions) != 2 {
+		t.Fatalf("versions len = %d, want 2", len(versions))
+	}
+
+	if versions[0].Version != 2 || versions[1].Version != 1 {
+		t.Fatalf("version order = [%d, %d], want [2, 1]", versions[0].Version, versions[1].Version)
 	}
 }

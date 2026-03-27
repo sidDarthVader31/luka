@@ -12,11 +12,12 @@ import (
 )
 
 type Service struct {
-	repo store.DesignRepository
+	repo        store.DesignRepository
+	versionRepo store.DesignVersionRepository
 }
 
-func NewService(repo store.DesignRepository) *Service {
-	return &Service{repo: repo}
+func NewService(repo store.DesignRepository, versionRepo store.DesignVersionRepository) *Service {
+	return &Service{repo: repo, versionRepo: versionRepo}
 }
 
 func (s *Service) Create(req domain.CreateDesignRequest) (*domain.Design, error) {
@@ -40,6 +41,10 @@ func (s *Service) Create(req domain.CreateDesignRequest) (*domain.Design, error)
 	}
 
 	if err := s.repo.Create(design); err != nil {
+		return nil, err
+	}
+
+	if err := s.saveVersion(design); err != nil {
 		return nil, err
 	}
 
@@ -87,6 +92,10 @@ func (s *Service) Update(id string, req domain.UpdateDesignRequest) (*domain.Des
 		return nil, err
 	}
 
+	if err := s.saveVersion(existing); err != nil {
+		return nil, err
+	}
+
 	return &existing, nil
 }
 
@@ -110,5 +119,34 @@ func (s *Service) Duplicate(id string, req domain.DuplicateDesignRequest) (*doma
 		Name:        name,
 		Description: description,
 		Graph:       source.Graph,
+	})
+}
+
+func (s *Service) ListVersions(id string) ([]domain.DesignVersion, error) {
+	if _, err := s.repo.GetByID(id); err != nil {
+		return nil, err
+	}
+
+	return s.versionRepo.ListByDesignID(id)
+}
+
+func (s *Service) saveVersion(design domain.Design) error {
+	nextVersion, err := s.versionRepo.NextVersionNumber(design.ID)
+	if err != nil {
+		return err
+	}
+
+	createdAt := time.Now().UTC()
+	if design.UpdatedAt != nil {
+		createdAt = *design.UpdatedAt
+	} else if design.CreatedAt != nil {
+		createdAt = *design.CreatedAt
+	}
+
+	return s.versionRepo.Save(domain.DesignVersion{
+		DesignID:       design.ID,
+		Version:        nextVersion,
+		DesignSnapshot: design,
+		CreatedAt:      createdAt,
 	})
 }

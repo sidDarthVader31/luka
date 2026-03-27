@@ -29,6 +29,7 @@ import {
 import type {
   ComponentArchetype,
   Design,
+  DesignVersion,
   EdgeInteractionType,
   GraphEdge,
   GraphNode,
@@ -45,6 +46,7 @@ import {
   duplicateDesign,
   getDesign,
   getStatus,
+  listDesignVersions,
   listRunsForDesign,
   listComponentArchetypes,
   updateDesign,
@@ -100,6 +102,7 @@ export function AppShell() {
   );
   const [catalog, setCatalog] = useState<ComponentArchetype[]>([]);
   const [savedDesign, setSavedDesign] = useState<Design | null>(null);
+  const [designVersions, setDesignVersions] = useState<DesignVersion[]>([]);
   const [designRuns, setDesignRuns] = useState<Run[]>([]);
   const [lastRun, setLastRun] = useState<Run | null>(null);
   const [baselineRun, setBaselineRun] = useState<Run | null>(null);
@@ -130,6 +133,9 @@ export function AppShell() {
   >(null);
   const [isDirty, setIsDirty] = useState(false);
   const [undoDepth, setUndoDepth] = useState(0);
+  const [autosaveState, setAutosaveState] = useState<
+    "idle" | "pending" | "saving" | "saved" | "error"
+  >("idle");
   const canvasShellRef = useRef<HTMLDivElement | null>(null);
   const undoStackRef = useRef<EditorSnapshot[]>([]);
 
@@ -382,11 +388,41 @@ export function AppShell() {
   useEffect(() => {
     if (!savedDesign?.id) {
       setDesignRuns([]);
+      setDesignVersions([]);
       return;
     }
 
     void loadRunHistory(savedDesign.id);
+    void loadVersionHistory(savedDesign.id);
   }, [savedDesign?.id]);
+
+  useEffect(() => {
+    if (!savedDesign?.id) {
+      setAutosaveState("idle");
+      return;
+    }
+
+    if (!isDirty || busyAction !== null) {
+      setAutosaveState(isDirty ? "pending" : "saved");
+      return;
+    }
+
+    setAutosaveState("pending");
+    const timeoutID = window.setTimeout(() => {
+      void runAutosave();
+    }, 1200);
+
+    return () => window.clearTimeout(timeoutID);
+  }, [
+    savedDesign?.id,
+    isDirty,
+    busyAction,
+    draftName,
+    draftDescription,
+    requestClasses,
+    canvasNodes,
+    canvasEdges,
+  ]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -449,6 +485,15 @@ export function AppShell() {
     }
   }
 
+  async function loadVersionHistory(designID: string) {
+    try {
+      const versions = await listDesignVersions(designID);
+      setDesignVersions(versions);
+    } catch (error) {
+      setFeedback(readError(error));
+    }
+  }
+
   async function withAction<T>(
     label: string,
     action: () => Promise<T>,
@@ -466,6 +511,43 @@ export function AppShell() {
     }
   }
 
+  function buildPersistedDesignPayload() {
+    return {
+      name: draftName.trim() || "Fresh Canvas",
+      description: draftDescription.trim(),
+      graph: {
+        nodes: canvasNodes.map(flowNodeToGraphNode),
+        edges: canvasEdges.map(flowEdgeToGraphEdge),
+        request_classes: requestClasses,
+      },
+    };
+  }
+
+  function syncPersistedDesign(design: Design) {
+    setSavedDesign(design);
+    setDraftID(design.id);
+    setIsDirty(false);
+    setAutosaveState("saved");
+  }
+
+  async function runAutosave() {
+    if (!savedDesign?.id || !isDirty) {
+      return;
+    }
+
+    setAutosaveState("saving");
+
+    try {
+      const design = await updateDesign(savedDesign.id, buildPersistedDesignPayload());
+      syncPersistedDesign(design);
+      void loadVersionHistory(design.id);
+      setFeedback(`Autosaved ${design.id}.`);
+    } catch (error) {
+      setAutosaveState("error");
+      setFeedback(readError(error));
+    }
+  }
+
   function resetToBlankCanvas() {
     const blank = createBlankDraft();
 
@@ -477,6 +559,7 @@ export function AppShell() {
     setCanvasNodes([]);
     setCanvasEdges([]);
     setDesignRuns([]);
+    setDesignVersions([]);
     setSelectedNodeID(null);
     setSelectedEdgeID(null);
     setNewEdgeSourceID("");
@@ -488,6 +571,7 @@ export function AppShell() {
     setLastRun(null);
     setBaselineRun(null);
     setIsDirty(false);
+    setAutosaveState("idle");
     undoStackRef.current = [];
     setUndoDepth(0);
   }
@@ -522,6 +606,7 @@ export function AppShell() {
       setBaselineRun(null);
     }
     setIsDirty(false);
+    setAutosaveState(design.id ? "saved" : "idle");
     undoStackRef.current = [];
     setUndoDepth(0);
   }
@@ -553,27 +638,22 @@ export function AppShell() {
       return;
     }
 
-    const payload = {
-      name: draftName.trim() || "Fresh Canvas",
-      description: draftDescription.trim(),
-      graph: {
-        nodes: canvasNodes.map(flowNodeToGraphNode),
-        edges: canvasEdges.map(flowEdgeToGraphEdge),
-        request_classes: requestClasses,
-      },
-    };
-
     const design = savedDesign
       ? await withAction("Saving design", () =>
-          updateDesign(savedDesign.id, payload),
+          updateDesign(savedDesign.id, buildPersistedDesignPayload()),
         )
-      : await withAction("Saving design", () => createDesign(payload));
+      : await withAction("Saving design", () => createDesign(buildPersistedDesignPayload()));
 
     if (!design) {
       return;
     }
 
-    applyDesignToEditor(design, { preserveBaseline: true });
+    if (savedDesign) {
+      syncPersistedDesign(design);
+      void loadVersionHistory(design.id);
+    } else {
+      applyDesignToEditor(design, { preserveBaseline: true });
+    }
     setFeedback(`Saved ${design.id}.`);
   }
 
@@ -585,13 +665,8 @@ export function AppShell() {
 
     const name = `${draftName.trim() || "Fresh Canvas"} Variant`;
     const payload = {
+      ...buildPersistedDesignPayload(),
       name,
-      description: draftDescription.trim(),
-      graph: {
-        nodes: canvasNodes.map(flowNodeToGraphNode),
-        edges: canvasEdges.map(flowEdgeToGraphEdge),
-        request_classes: requestClasses,
-      },
     };
 
     const design =
@@ -664,6 +739,9 @@ export function AppShell() {
 
   function markDirty() {
     setIsDirty(true);
+    if (savedDesign?.id) {
+      setAutosaveState("pending");
+    }
   }
 
   function addNode(archetype: ComponentArchetype) {
@@ -1180,6 +1258,10 @@ export function AppShell() {
           <strong>{isDirty ? "Unsaved changes" : "All changes synced"}</strong>
         </div>
         <div className="info-pill">
+          <span>Autosave</span>
+          <strong>{formatAutosaveState(savedDesign, autosaveState)}</strong>
+        </div>
+        <div className="info-pill">
           <span>Graph</span>
           <strong>
             {canvasNodes.length} nodes / {canvasEdges.length} edges
@@ -1188,6 +1270,10 @@ export function AppShell() {
         <div className="info-pill">
           <span>Flows</span>
           <strong>{requestClasses.length} active</strong>
+        </div>
+        <div className="info-pill">
+          <span>Versions</span>
+          <strong>{savedDesign ? designVersions.length : 0}</strong>
         </div>
       </section>
 
@@ -1200,7 +1286,7 @@ export function AppShell() {
               {catalog.map((item) => (
                 <button
                   key={item.archetype}
-                  className={`catalog-card catalog-card--${defaultColorForArchetype(item.archetype)}`}
+                  className={`catalog-card catalog-card--${item.default_color}`}
                   draggable
                   onDragStart={handleArchetypeDragStart(item)}
                   onDragEnd={() => setDraggedArchetype(null)}
@@ -1690,6 +1776,41 @@ export function AppShell() {
             ) : (
               <p className="empty-copy">
                 Save the current design to build a run history you can compare against later.
+              </p>
+            )}
+          </div>
+
+          <div className="panel">
+            <p className="panel-kicker">Versions</p>
+            <h2>{savedDesign ? "Saved revisions" : "Save to start versioning"}</h2>
+            {savedDesign ? (
+              designVersions.length > 0 ? (
+                <div className="history-list">
+                  {designVersions.map((version) => (
+                    <div className="history-card" key={`${version.design_id}-${version.version}`}>
+                      <div>
+                        <strong>Version {version.version}</strong>
+                        <small>
+                          {new Date(version.created_at).toLocaleString()}
+                        </small>
+                      </div>
+                      <div className="history-card__actions">
+                        <span>{version.design_snapshot.name}</span>
+                        <span className="history-chip">
+                          {version.design_snapshot.graph.nodes.length} nodes
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-copy">
+                  This design has not recorded any versions yet.
+                </p>
+              )
+            ) : (
+              <p className="empty-copy">
+                Save the current design once to enable autosave and build revision history.
               </p>
             )}
           </div>
@@ -2222,24 +2343,6 @@ function getVisibleDropPosition(
   };
 }
 
-function defaultColorForArchetype(archetype: ComponentArchetype["archetype"]) {
-  switch (archetype) {
-    case "client":
-    case "gateway":
-      return "blue";
-    case "stateless_service":
-    case "worker":
-      return "green";
-    case "cache":
-    case "queue":
-      return "yellow";
-    case "database":
-      return "red";
-    default:
-      return "blue";
-  }
-}
-
 function getNodePalette(color: GraphNode["color"]) {
   switch (color) {
     case "blue":
@@ -2399,6 +2502,28 @@ function formatWorkload(workload: Workload) {
   const concurrentUsers = workload.concurrent_users ?? 0;
 
   return `${formatCompactNumber(workload.requests_per_second)} rps, ${formatCompactNumber(concurrentUsers)} concurrent users, ${readWriteRatio}:1 read/write, ${payloadKB} KB payload, fanout x${fanoutCount}`;
+}
+
+function formatAutosaveState(
+  savedDesign: Design | null,
+  autosaveState: "idle" | "pending" | "saving" | "saved" | "error",
+) {
+  if (!savedDesign) {
+    return "Manual save only";
+  }
+
+  switch (autosaveState) {
+    case "pending":
+      return "Pending";
+    case "saving":
+      return "Saving";
+    case "saved":
+      return "Saved";
+    case "error":
+      return "Needs attention";
+    default:
+      return "Idle";
+  }
 }
 
 function utilizationBorderColor(utilization: number, fallbackColor: string) {

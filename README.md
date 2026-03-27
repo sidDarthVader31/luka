@@ -41,6 +41,7 @@ Luka currently supports:
 - typed nodes with editable capacity and latency assumptions
 - typed edges with fallback and edge-level fanout
 - named request flows with traffic shares
+- backend-owned component defaults and edge capability metadata
 - workload inputs:
   - requests per second
   - concurrent users
@@ -55,6 +56,8 @@ Luka currently supports:
   - bottleneck explanation
   - per-flow summaries
 - design persistence
+- autosave for saved designs
+- version history for persisted designs
 - run history
 - design duplication and comparison
 

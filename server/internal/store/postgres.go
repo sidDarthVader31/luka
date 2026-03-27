@@ -108,8 +108,16 @@ type PostgresRunRepository struct {
 	pool *pgxpool.Pool
 }
 
+type PostgresDesignVersionRepository struct {
+	pool *pgxpool.Pool
+}
+
 func NewPostgresRunRepository(pool *pgxpool.Pool) *PostgresRunRepository {
 	return &PostgresRunRepository{pool: pool}
+}
+
+func NewPostgresDesignVersionRepository(pool *pgxpool.Pool) *PostgresDesignVersionRepository {
+	return &PostgresDesignVersionRepository{pool: pool}
 }
 
 func (r *PostgresRunRepository) Save(run domain.Run) error {
@@ -278,4 +286,77 @@ func scanRun(row interface {
 	}
 
 	return run, nil
+}
+
+func (r *PostgresDesignVersionRepository) Save(version domain.DesignVersion) error {
+	snapshotJSON, err := json.Marshal(version.DesignSnapshot)
+	if err != nil {
+		return fmt.Errorf("marshal design version snapshot: %w", err)
+	}
+
+	_, err = r.pool.Exec(
+		context.Background(),
+		`insert into design_versions (design_id, version, design_snapshot, created_at)
+		 values ($1, $2, $3, $4)`,
+		version.DesignID,
+		version.Version,
+		snapshotJSON,
+		version.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert design version: %w", err)
+	}
+
+	return nil
+}
+
+func (r *PostgresDesignVersionRepository) ListByDesignID(designID string) ([]domain.DesignVersion, error) {
+	rows, err := r.pool.Query(
+		context.Background(),
+		`select design_id, version, design_snapshot, created_at
+		 from design_versions
+		 where design_id = $1
+		 order by version desc`,
+		designID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query design versions: %w", err)
+	}
+	defer rows.Close()
+
+	versions := make([]domain.DesignVersion, 0)
+	for rows.Next() {
+		var version domain.DesignVersion
+		var snapshotJSON []byte
+		if err := rows.Scan(&version.DesignID, &version.Version, &snapshotJSON, &version.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan design version: %w", err)
+		}
+		if err := json.Unmarshal(snapshotJSON, &version.DesignSnapshot); err != nil {
+			return nil, fmt.Errorf("unmarshal design version snapshot: %w", err)
+		}
+		versions = append(versions, version)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate design versions: %w", err)
+	}
+
+	return versions, nil
+}
+
+func (r *PostgresDesignVersionRepository) NextVersionNumber(designID string) (int, error) {
+	row := r.pool.QueryRow(
+		context.Background(),
+		`select coalesce(max(version), 0) + 1
+		 from design_versions
+		 where design_id = $1`,
+		designID,
+	)
+
+	var next int
+	if err := row.Scan(&next); err != nil {
+		return 0, fmt.Errorf("query next design version: %w", err)
+	}
+
+	return next, nil
 }

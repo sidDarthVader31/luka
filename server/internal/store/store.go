@@ -17,6 +17,12 @@ type DesignRepository interface {
 	Update(design domain.Design) error
 }
 
+type DesignVersionRepository interface {
+	Save(version domain.DesignVersion) error
+	ListByDesignID(designID string) ([]domain.DesignVersion, error)
+	NextVersionNumber(designID string) (int, error)
+}
+
 type RunRepository interface {
 	Save(run domain.Run) error
 	GetByID(id string) (domain.Run, error)
