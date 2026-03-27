@@ -109,6 +109,7 @@ type RoutingRule struct {
 type ComponentArchetype struct {
 	Archetype             NodeArchetype         `json:"archetype"`
 	DisplayName           string                `json:"display_name"`
+	DefaultColor          string                `json:"default_color"`
 	DefaultProperties     NodeProperties        `json:"default_properties"`
 	SupportedInteractions []EdgeInteractionType `json:"supported_interactions"`
 	SupportedRoutingRules []RoutingRuleType     `json:"supported_routing_rules"`

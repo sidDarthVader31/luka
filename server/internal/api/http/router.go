@@ -54,6 +54,7 @@ func (r *Router) registerRoutes() {
 		v1.GET("/component-archetypes", r.componentHandler.List)
 		v1.POST("/designs", r.designHandler.Create)
 		v1.GET("/designs/:designId", r.designHandler.Get)
+		v1.GET("/designs/:designId/versions", r.designHandler.ListVersions)
 		v1.PATCH("/designs/:designId", r.designHandler.Update)
 		v1.POST("/designs/:designId/duplicate", r.designHandler.Duplicate)
 		v1.GET("/designs/:designId/runs", r.runHandler.ListByDesign)

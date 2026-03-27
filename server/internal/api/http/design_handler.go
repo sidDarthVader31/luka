@@ -112,3 +112,23 @@ func (h *DesignHandler) Duplicate(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, design)
 }
+
+func (h *DesignHandler) ListVersions(c *gin.Context) {
+	versions, err := h.service.ListVersions(c.Param("designId"))
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, store.ErrDesignNotFound) {
+			status = http.StatusNotFound
+		}
+
+		c.JSON(status, gin.H{
+			"error":   "design version lookup failed",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items": versions,
+	})
+}

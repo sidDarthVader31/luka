@@ -79,9 +79,17 @@ export type UpdateDesignInput = {
 export type ComponentArchetype = {
   archetype: NodeArchetype;
   display_name: string;
+  default_color: GraphNode["color"];
   default_properties: Record<string, number>;
   supported_interactions: EdgeInteractionType[];
   supported_routing_rules: RoutingRuleType[];
+};
+
+export type DesignVersion = {
+  design_id: string;
+  version: number;
+  design_snapshot: Design;
+  created_at: string;
 };
 
 export type Workload = {
@@ -240,6 +248,12 @@ export function getRun(runId: string) {
 
 export async function listRunsForDesign(designId: string) {
   const response = await request<{ items: Run[] }>(`/designs/${designId}/runs`);
+
+  return response.items;
+}
+
+export async function listDesignVersions(designId: string) {
+  const response = await request<{ items: DesignVersion[] }>(`/designs/${designId}/versions`);
 
   return response.items;
 }
