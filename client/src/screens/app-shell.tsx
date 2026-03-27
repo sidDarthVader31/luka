@@ -62,6 +62,7 @@ import {
 } from "../lib/design-draft";
 
 const sampleDesignID = "sample-cache-aside";
+const sampleQueueDesignID = "sample-queue-workflow";
 
 const nodePropertyLabels: Record<keyof GraphNode["properties"], string> = {
   replicas: "Replicas",
@@ -681,14 +682,14 @@ export function AppShell() {
     });
   }
 
-  async function handleLoadSample() {
-    const design = await withAction("Loading sample", () => getDesign(sampleDesignID));
+  async function handleLoadSample(sampleID: string, label: string) {
+    const design = await withAction(`Loading ${label}`, () => getDesign(sampleID));
     if (!design) {
       return;
     }
 
     applyDesignToEditor(design, { treatAsDraft: true });
-    setFeedback("Loaded sample as a local draft. Save it to create your own copy.");
+    setFeedback(`Loaded ${label} as a local draft. Save it to create your own copy.`);
   }
 
   async function handleSaveDesign() {
@@ -1405,8 +1406,19 @@ export function AppShell() {
           <button className="ghost-button" onClick={resetToBlankCanvas} type="button">
             Start Fresh
           </button>
-          <button className="ghost-button" onClick={handleLoadSample} type="button">
-            Load Sample
+          <button
+            className="ghost-button"
+            onClick={() => handleLoadSample(sampleDesignID, "chat sample")}
+            type="button"
+          >
+            Load Chat Sample
+          </button>
+          <button
+            className="ghost-button"
+            onClick={() => handleLoadSample(sampleQueueDesignID, "queue sample")}
+            type="button"
+          >
+            Load Queue Sample
           </button>
           <button
             className="ghost-button"
