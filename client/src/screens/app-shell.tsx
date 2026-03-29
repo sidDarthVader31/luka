@@ -2983,11 +2983,18 @@ function buildNodeLabel(
 ): ReactNode {
   return (
     <div className="flow-node-copy">
-      <div className="flow-node-copy__eyebrow">
-        <span>{nodeData.archetype.replaceAll("_", " ")}</span>
-        <span>{result ? statusLabel(result.utilization) : "ready"}</span>
+      <div className="flow-node-copy__header">
+        <span className="flow-node-copy__icon" aria-hidden="true">
+          {renderArchetypeIcon(nodeData.archetype)}
+        </span>
+        <div className="flow-node-copy__header-copy">
+          <div className="flow-node-copy__eyebrow">
+            <span>{nodeData.archetype.replaceAll("_", " ")}</span>
+            <span>{result ? statusLabel(result.utilization) : "ready"}</span>
+          </div>
+          <strong>{nodeData.label}</strong>
+        </div>
       </div>
-      <strong>{nodeData.label}</strong>
       {result ? (
         <div className="flow-node-copy__meta">
           <span>{Math.max(1, nodeData.properties.replicas ?? 1)} replicas</span>
