@@ -51,6 +51,7 @@ type SimulationResult struct {
 	Bottleneck *NodeSimulationResult  `json:"bottleneck,omitempty"`
 	Nodes      []NodeSimulationResult `json:"nodes"`
 	Edges      []EdgeSimulationResult `json:"edges"`
+	Paths      []PathExplanation      `json:"paths,omitempty"`
 	Flows      []FlowSimulationResult `json:"flows,omitempty"`
 }
 
@@ -63,6 +64,7 @@ type FlowSimulationResult struct {
 	Bottleneck     *NodeSimulationResult  `json:"bottleneck,omitempty"`
 	Nodes          []NodeSimulationResult `json:"nodes"`
 	Edges          []EdgeSimulationResult `json:"edges"`
+	Paths          []PathExplanation      `json:"paths,omitempty"`
 }
 
 type NodeSimulationResult struct {
@@ -75,6 +77,8 @@ type NodeSimulationResult struct {
 	EffectiveCapacityRPS float64       `json:"effective_capacity_rps"`
 	Utilization          float64       `json:"utilization"`
 	EstimatedLatencyMS   float64       `json:"estimated_latency_ms"`
+	QueueDepthEstimate   float64       `json:"queue_depth_estimate,omitempty"`
+	QueueLagMS           float64       `json:"queue_lag_ms,omitempty"`
 	Saturated            bool          `json:"saturated"`
 	Explanation          string        `json:"explanation"`
 }
@@ -85,6 +89,23 @@ type EdgeSimulationResult struct {
 	TargetNodeID     string              `json:"target_node_id"`
 	InteractionType  EdgeInteractionType `json:"interaction_type"`
 	FanoutMultiplier float64             `json:"fanout_multiplier"`
+	TimeoutMS        float64             `json:"timeout_ms,omitempty"`
+	RetryAttempts    int                 `json:"retry_attempts,omitempty"`
 	RuleType         RoutingRuleType     `json:"rule_type"`
+	RoutingWeight    float64             `json:"routing_weight,omitempty"`
+	AttemptedRPS     float64             `json:"attempted_rps,omitempty"`
+	RetriedRPS       float64             `json:"retried_rps,omitempty"`
+	TimedOutRPS      float64             `json:"timed_out_rps,omitempty"`
 	RoutedRPS        float64             `json:"routed_rps"`
+}
+
+type PathExplanation struct {
+	Kind               string   `json:"kind"`
+	Summary            string   `json:"summary"`
+	NodeIDs            []string `json:"node_ids"`
+	EdgeIDs            []string `json:"edge_ids"`
+	EstimatedLatencyMS float64  `json:"estimated_latency_ms,omitempty"`
+	QueueLagMS         float64  `json:"queue_lag_ms,omitempty"`
+	RetriedRPS         float64  `json:"retried_rps,omitempty"`
+	TimedOutRPS        float64  `json:"timed_out_rps,omitempty"`
 }

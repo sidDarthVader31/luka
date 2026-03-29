@@ -69,7 +69,10 @@ export function buildEdge(input: {
   targetNodeID: string;
   interactionType: EdgeInteractionType;
   ruleType: RoutingRuleType;
+  routingWeight?: number;
   fanoutMultiplier?: number;
+  timeoutMS?: number;
+  retryAttempts?: number;
   requestClassIDs?: string[];
   existingEdges: GraphEdge[];
 }): GraphEdge {
@@ -83,6 +86,9 @@ export function buildEdge(input: {
     source_node_id: input.sourceNodeID,
     target_node_id: input.targetNodeID,
     interaction_type: input.interactionType,
+    timeout_ms: input.timeoutMS && input.timeoutMS > 0 ? input.timeoutMS : undefined,
+    retry_attempts:
+      input.retryAttempts && input.retryAttempts > 0 ? input.retryAttempts : undefined,
     fanout_multiplier:
       input.fanoutMultiplier && input.fanoutMultiplier > 1
         ? input.fanoutMultiplier
@@ -92,6 +98,10 @@ export function buildEdge(input: {
       : undefined,
     routing_rule: {
       rule_type: input.ruleType,
+      value:
+        input.routingWeight && input.routingWeight > 1
+          ? input.routingWeight
+          : undefined,
     },
   };
 }

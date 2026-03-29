@@ -62,13 +62,39 @@ import {
 } from "../lib/design-draft";
 
 const sampleDesignID = "sample-cache-aside";
+const sampleQueueDesignID = "sample-queue-workflow";
 
-const colorOptions: GraphNode["color"][] = ["blue", "green", "yellow", "red"];
 const nodePropertyLabels: Record<keyof GraphNode["properties"], string> = {
   replicas: "Replicas",
   capacity_rps: "Capacity / sec",
   base_latency_ms: "Latency (ms)",
   cache_hit_rate: "Cache hit rate",
+};
+
+const runFieldHelp: Record<
+  "requests_per_second" | "concurrent_users" | "read_write_ratio" | "payload_kb" | "fanout_count",
+  { placeholder: string; hint: string }
+> = {
+  requests_per_second: {
+    placeholder: "e.g. 10000",
+    hint: "Total incoming request rate. This is the main load entering the system.",
+  },
+  concurrent_users: {
+    placeholder: "e.g. 50000",
+    hint: "Approximate active users at the same time. Higher concurrency adds pressure to gateways and services.",
+  },
+  read_write_ratio: {
+    placeholder: "e.g. 4",
+    hint: "A value of 4 means 4 reads for every 1 write.",
+  },
+  payload_kb: {
+    placeholder: "e.g. 8",
+    hint: "Average request or message size in KB. Larger payloads reduce effective capacity and increase latency.",
+  },
+  fanout_count: {
+    placeholder: "e.g. 20",
+    hint: "Average downstream recipients or spawned tasks per async event.",
+  },
 };
 
 type FlowNodeData = {
@@ -81,7 +107,10 @@ type FlowNodeData = {
 type FlowEdgeData = {
   interactionType: EdgeInteractionType;
   ruleType: RoutingRuleType;
+  routingWeight: number;
   fanoutMultiplier: number;
+  timeoutMS: number;
+  retryAttempts: number;
   requestClassIDs: string[];
 };
 
@@ -113,6 +142,7 @@ export function AppShell() {
   const [requestClasses, setRequestClasses] = useState<RequestClass[]>([]);
   const [selectedNodeID, setSelectedNodeID] = useState<string | null>(null);
   const [selectedEdgeID, setSelectedEdgeID] = useState<string | null>(null);
+  const [expandedEdgeID, setExpandedEdgeID] = useState<string | null>(null);
   const [requestsPerSecond, setRequestsPerSecond] = useState("100000");
   const [concurrentUsers, setConcurrentUsers] = useState("250000");
   const [readWriteRatio, setReadWriteRatio] = useState("4");
@@ -124,7 +154,10 @@ export function AppShell() {
   const [newEdgeInteraction, setNewEdgeInteraction] =
     useState<EdgeInteractionType>("sync_request");
   const [newEdgeRule, setNewEdgeRule] = useState<RoutingRuleType>("always");
+  const [newEdgeRoutingWeight, setNewEdgeRoutingWeight] = useState("1");
   const [newEdgeFanoutMultiplier, setNewEdgeFanoutMultiplier] = useState("1");
+  const [newEdgeTimeoutMS, setNewEdgeTimeoutMS] = useState("0");
+  const [newEdgeRetryAttempts, setNewEdgeRetryAttempts] = useState("0");
   const [newEdgeRequestClassIDs, setNewEdgeRequestClassIDs] = useState<string[]>([]);
   const [activeFlowResultID, setActiveFlowResultID] = useState("overall");
   const [canvasHintDismissed, setCanvasHintDismissed] = useState(false);
@@ -182,6 +215,20 @@ export function AppShell() {
     () =>
       new Map((activeFlowResult?.edges ?? []).map((edge) => [edge.edge_id, edge])),
     [activeFlowResult],
+  );
+  const colorOptions = useMemo(
+    () =>
+      Array.from(
+        new Set<GraphNode["color"]>([
+          ...catalog.map((item) => item.default_color),
+          ...canvasNodes.map((node) => node.data.color),
+          "blue",
+          "green",
+          "yellow",
+          "red",
+        ]),
+      ),
+    [canvasNodes, catalog],
   );
 
   const runComparison = useMemo(
@@ -247,6 +294,7 @@ export function AppShell() {
           edge,
           result,
           activeFlowResult?.edges ?? [],
+          resultNodesByID,
         );
 
         return {
@@ -276,7 +324,7 @@ export function AppShell() {
           },
         };
       }),
-    [activeFlowResult, canvasEdges, resultEdgesByID, selectedEdgeID],
+    [activeFlowResult, canvasEdges, resultEdgesByID, resultNodesByID, selectedEdgeID],
   );
 
   const hottestEdge = useMemo(
@@ -288,6 +336,44 @@ export function AppShell() {
 
         return current;
       }, undefined),
+    [activeFlowResult],
+  );
+
+  const activePaths = activeFlowResult?.paths ?? [];
+  const criticalPath = activePaths.find((path) => path.kind === "critical_path") ?? null;
+  const queueBacklogPath =
+    activePaths.find((path) => path.kind === "queue_backlog") ?? null;
+  const graphPatterns = useMemo(
+    () =>
+      detectGraphPatterns(
+        canvasNodes.map(flowNodeToGraphNode),
+        canvasEdges.map(flowEdgeToGraphEdge),
+      ),
+    [canvasEdges, canvasNodes],
+  );
+  const affectedNodes = useMemo(
+    () =>
+      (activeFlowResult?.nodes ?? [])
+        .filter(
+          (node) =>
+            node.archetype !== "client" &&
+            node.node_id !== activeFlowResult?.bottleneck?.node_id &&
+            (node.utilization >= 0.8 ||
+              node.dropped_rps > 0 ||
+              (node.queue_lag_ms ?? 0) > 0),
+        )
+        .sort((left, right) => {
+          const leftScore =
+            left.utilization * 1000 +
+            left.dropped_rps +
+            (left.queue_lag_ms ?? 0);
+          const rightScore =
+            right.utilization * 1000 +
+            right.dropped_rps +
+            (right.queue_lag_ms ?? 0);
+
+          return rightScore - leftScore;
+        }),
     [activeFlowResult],
   );
 
@@ -317,6 +403,7 @@ export function AppShell() {
     setCanvasEdges(structuredClone(snapshot.canvasEdges));
     setSelectedNodeID(snapshot.selectedNodeID);
     setSelectedEdgeID(snapshot.selectedEdgeID);
+    setExpandedEdgeID(snapshot.selectedEdgeID);
     setLastRun(null);
     setIsDirty(true);
   }
@@ -562,6 +649,7 @@ export function AppShell() {
     setDesignVersions([]);
     setSelectedNodeID(null);
     setSelectedEdgeID(null);
+    setExpandedEdgeID(null);
     setNewEdgeSourceID("");
     setNewEdgeTargetID("");
     setNewEdgeFanoutMultiplier("1");
@@ -578,12 +666,13 @@ export function AppShell() {
 
   function applyDesignToEditor(
     design: Design,
-    options?: { preserveBaseline?: boolean },
+    options?: { preserveBaseline?: boolean; treatAsDraft?: boolean },
   ) {
     const draft = cloneDesignIntoDraft(design);
+    const treatAsDraft = options?.treatAsDraft ?? false;
 
-    setSavedDesign(design);
-    setDraftID(draft.id);
+    setSavedDesign(treatAsDraft ? null : design);
+    setDraftID(treatAsDraft ? null : draft.id);
     setDraftName(draft.name);
     setDraftDescription(draft.description);
     setRequestClasses(draft.requestClasses);
@@ -591,6 +680,7 @@ export function AppShell() {
     setCanvasEdges(draft.edges.map(graphEdgeToFlowEdge));
     setSelectedNodeID(draft.nodes[0]?.id ?? null);
     setSelectedEdgeID(null);
+    setExpandedEdgeID(null);
     setNewEdgeSourceID(draft.nodes[0]?.id ?? "");
     setNewEdgeTargetID(draft.nodes[1]?.id ?? "");
     setNewEdgeFanoutMultiplier("1");
@@ -606,7 +696,11 @@ export function AppShell() {
       setBaselineRun(null);
     }
     setIsDirty(false);
-    setAutosaveState(design.id ? "saved" : "idle");
+    if (treatAsDraft) {
+      setDesignRuns([]);
+      setDesignVersions([]);
+    }
+    setAutosaveState(!treatAsDraft && design.id ? "saved" : "idle");
     undoStackRef.current = [];
     setUndoDepth(0);
   }
@@ -622,14 +716,14 @@ export function AppShell() {
     });
   }
 
-  async function handleLoadSample() {
-    const design = await withAction("Loading sample", () => getDesign(sampleDesignID));
+  async function handleLoadSample(sampleID: string, label: string) {
+    const design = await withAction(`Loading ${label}`, () => getDesign(sampleID));
     if (!design) {
       return;
     }
 
-    applyDesignToEditor(design);
-    setFeedback("Loaded sample design.");
+    applyDesignToEditor(design, { treatAsDraft: true });
+    setFeedback(`Loaded ${label} as a local draft. Save it to create your own copy.`);
   }
 
   async function handleSaveDesign() {
@@ -864,7 +958,10 @@ export function AppShell() {
       targetNodeID: connection.target,
       interactionType: options.interactions[0] ?? "sync_request",
       ruleType: options.routingRules[0] ?? "always",
+      routingWeight: 1,
       fanoutMultiplier: 1,
+      timeoutMS: 0,
+      retryAttempts: 0,
       requestClassIDs:
         requestClasses.length > 0 ? [requestClasses[0].id] : undefined,
       existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
@@ -898,12 +995,42 @@ export function AppShell() {
       return;
     }
 
+    const routingWeight = parsePositiveDecimalInput(
+      newEdgeRoutingWeight,
+      "Routing weight must be zero or greater.",
+    );
+    if (!routingWeight.ok) {
+      setFeedback(routingWeight.error);
+      return;
+    }
+
+    const timeoutMS = parsePositiveDecimalInput(
+      newEdgeTimeoutMS,
+      "Timeout (ms) must be zero or greater.",
+    );
+    if (!timeoutMS.ok) {
+      setFeedback(timeoutMS.error);
+      return;
+    }
+
+    const retryAttempts = parseWholeNumberInput(
+      newEdgeRetryAttempts,
+      "Retry attempts must be zero or greater.",
+    );
+    if (!retryAttempts.ok) {
+      setFeedback(retryAttempts.error);
+      return;
+    }
+
     const graphEdge = buildEdge({
       sourceNodeID: newEdgeSourceID,
       targetNodeID: newEdgeTargetID,
       interactionType: newEdgeInteraction,
       ruleType: newEdgeInteraction === "fallback" ? "always" : newEdgeRule,
+      routingWeight: routingWeight.value,
       fanoutMultiplier: fanoutMultiplier.value,
+      timeoutMS: timeoutMS.value,
+      retryAttempts: retryAttempts.value,
       requestClassIDs: newEdgeRequestClassIDs,
       existingEdges: canvasEdges.map(flowEdgeToGraphEdge),
     });
@@ -976,6 +1103,87 @@ export function AppShell() {
                 ...edge.data,
                 fanoutMultiplier:
                   value === "" ? 1 : parsed.ok ? parsed.value : 1,
+              },
+            }
+          : edge,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
+  function handleEdgeRoutingWeightChange(edgeID: string, value: string) {
+    const parsed = parsePositiveDecimalInput(
+      value,
+      "Routing weight must be zero or greater.",
+    );
+    if (!parsed.ok && value !== "") {
+      return;
+    }
+
+    pushUndoSnapshot();
+    setCanvasEdges((current) =>
+      current.map((edge) =>
+        edge.id === edgeID
+          ? {
+              ...edge,
+              data: {
+                ...edge.data,
+                routingWeight: value === "" ? 1 : parsed.ok ? parsed.value : 1,
+              },
+            }
+          : edge,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
+  function handleEdgeTimeoutChange(edgeID: string, value: string) {
+    const parsed = parsePositiveDecimalInput(
+      value,
+      "Timeout (ms) must be zero or greater.",
+    );
+    if (!parsed.ok && value !== "") {
+      return;
+    }
+
+    pushUndoSnapshot();
+    setCanvasEdges((current) =>
+      current.map((edge) =>
+        edge.id === edgeID
+          ? {
+              ...edge,
+              data: {
+                ...edge.data,
+                timeoutMS: value === "" ? 0 : parsed.ok ? parsed.value : 0,
+              },
+            }
+          : edge,
+      ),
+    );
+    setLastRun(null);
+    markDirty();
+  }
+
+  function handleEdgeRetryChange(edgeID: string, value: string) {
+    const parsed = parseWholeNumberInput(
+      value,
+      "Retry attempts must be zero or greater.",
+    );
+    if (!parsed.ok && value !== "") {
+      return;
+    }
+
+    pushUndoSnapshot();
+    setCanvasEdges((current) =>
+      current.map((edge) =>
+        edge.id === edgeID
+          ? {
+              ...edge,
+              data: {
+                ...edge.data,
+                retryAttempts: value === "" ? 0 : parsed.ok ? parsed.value : 0,
               },
             }
           : edge,
@@ -1074,8 +1282,21 @@ export function AppShell() {
     if (selectedEdgeID === edgeID) {
       setSelectedEdgeID(null);
     }
+    if (expandedEdgeID === edgeID) {
+      setExpandedEdgeID(null);
+    }
     setLastRun(null);
     markDirty();
+  }
+
+  function focusEdge(edgeID: string) {
+    setSelectedEdgeID(edgeID);
+    setSelectedNodeID(null);
+    setExpandedEdgeID(edgeID);
+  }
+
+  function toggleExpandedEdge(edgeID: string) {
+    setExpandedEdgeID((current) => (current === edgeID ? null : edgeID));
   }
 
   function handleSetBaseline() {
@@ -1219,8 +1440,19 @@ export function AppShell() {
           <button className="ghost-button" onClick={resetToBlankCanvas} type="button">
             Start Fresh
           </button>
-          <button className="ghost-button" onClick={handleLoadSample} type="button">
-            Load Sample
+          <button
+            className="ghost-button"
+            onClick={() => handleLoadSample(sampleDesignID, "chat sample")}
+            type="button"
+          >
+            Load Chat Sample
+          </button>
+          <button
+            className="ghost-button"
+            onClick={() => handleLoadSample(sampleQueueDesignID, "queue sample")}
+            type="button"
+          >
+            Load Queue Sample
           </button>
           <button
             className="ghost-button"
@@ -1278,7 +1510,7 @@ export function AppShell() {
       </section>
 
       <section className="workspace">
-        <aside className="sidebar">
+        <aside className="sidebar sidebar--controls">
           <div className="panel">
             <p className="panel-kicker">Components</p>
             <h2>Drag onto canvas</h2>
@@ -1287,12 +1519,16 @@ export function AppShell() {
                 <button
                   key={item.archetype}
                   className={`catalog-card catalog-card--${item.default_color}`}
+                  style={buildCatalogCardStyle(item.default_color)}
                   draggable
                   onDragStart={handleArchetypeDragStart(item)}
                   onDragEnd={() => setDraggedArchetype(null)}
                   onClick={() => addNode(item)}
                   type="button"
                 >
+                  <span className="catalog-card__icon" aria-hidden="true">
+                    {renderArchetypeIcon(item.archetype)}
+                  </span>
                   <strong>{item.display_name}</strong>
                   <small>{item.archetype}</small>
                 </button>
@@ -1305,6 +1541,7 @@ export function AppShell() {
             <label className="field">
               <span>Name</span>
               <input
+                placeholder="e.g. Chat Read Path Stress Test"
                 value={draftName}
                 onChange={(event) => {
                   setDraftName(event.target.value);
@@ -1316,6 +1553,7 @@ export function AppShell() {
               <span>Description</span>
               <textarea
                 rows={5}
+                placeholder="Optional notes about the scenario, assumptions, or what you are testing."
                 value={draftDescription}
                 onChange={(event) => {
                   setDraftDescription(event.target.value);
@@ -1328,41 +1566,51 @@ export function AppShell() {
                 <span>Requests / sec</span>
                 <input
                   inputMode="numeric"
+                  placeholder={runFieldHelp.requests_per_second.placeholder}
                   value={requestsPerSecond}
                   onChange={(event) => setRequestsPerSecond(event.target.value)}
                 />
+                <small className="field-hint">{runFieldHelp.requests_per_second.hint}</small>
               </label>
               <label className="field">
                 <span>Concurrent users</span>
                 <input
                   inputMode="numeric"
+                  placeholder={runFieldHelp.concurrent_users.placeholder}
                   value={concurrentUsers}
                   onChange={(event) => setConcurrentUsers(event.target.value)}
                 />
+                <small className="field-hint">{runFieldHelp.concurrent_users.hint}</small>
               </label>
               <label className="field">
                 <span>Read:write ratio</span>
                 <input
                   inputMode="decimal"
+                  placeholder={runFieldHelp.read_write_ratio.placeholder}
                   value={readWriteRatio}
                   onChange={(event) => setReadWriteRatio(event.target.value)}
                 />
+                <small className="field-hint">{runFieldHelp.read_write_ratio.hint}</small>
               </label>
               <label className="field">
                 <span>Payload (KB)</span>
                 <input
                   inputMode="decimal"
+                  placeholder={runFieldHelp.payload_kb.placeholder}
                   value={payloadKB}
                   onChange={(event) => setPayloadKB(event.target.value)}
                 />
+                <small className="field-hint">{runFieldHelp.payload_kb.hint}</small>
               </label>
               <label className="field">
                 <span>Fanout count</span>
                 <input
                   inputMode="numeric"
+                  placeholder={runFieldHelp.fanout_count.placeholder}
                   value={fanoutCount}
                   onChange={(event) => setFanoutCount(event.target.value)}
                 />
+                <small className="field-hint">{runFieldHelp.fanout_count.hint}</small>
               </label>
             </div>
           </div>
@@ -1415,6 +1663,21 @@ export function AppShell() {
         </aside>
 
         <section className="board-panel">
+          {graphPatterns.length > 0 ? (
+            <div className="panel">
+              <p className="panel-kicker">Pattern Notes</p>
+              <h2>What Luka sees in this graph</h2>
+              <div className="pattern-list">
+                {graphPatterns.map((pattern) => (
+                  <article className="pattern-card" key={pattern.title}>
+                    <strong>{pattern.title}</strong>
+                    <p>{pattern.body}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div
             ref={canvasShellRef}
             className={`canvas-shell${draggedArchetype ? " canvas-shell--ready" : ""}`}
@@ -1475,11 +1738,11 @@ export function AppShell() {
               onPaneClick={() => {
                 setSelectedNodeID(null);
                 setSelectedEdgeID(null);
+                setExpandedEdgeID(null);
               }}
               onNodeClick={handleNodeClick}
               onEdgeClick={(_, edge) => {
-                setSelectedEdgeID(edge.id);
-                setSelectedNodeID(null);
+                focusEdge(edge.id);
               }}
             >
               <Background gap={24} size={1} color="#d8e0ef" />
@@ -1614,10 +1877,88 @@ export function AppShell() {
                         : "0 rps"}
                     </strong>
                   </div>
+                  <div className="comparison-card">
+                    <span>Critical path</span>
+                    <strong>
+                      {criticalPath ? summarizePathForCard(criticalPath, nodeLabelsByID) : "No path yet"}
+                    </strong>
+                  </div>
+                  <div className="comparison-card">
+                    <span>Queue lag</span>
+                    <strong>
+                      {queueBacklogPath?.queue_lag_ms
+                        ? `${Math.round(queueBacklogPath.queue_lag_ms)} ms`
+                        : "Healthy"}
+                    </strong>
+                  </div>
                 </div>
                 <p>{formatWorkload(lastRun.workload)}</p>
                 {activeFlowResult?.bottleneck ? (
                   <p>{activeFlowResult.bottleneck.explanation}</p>
+                ) : null}
+                {affectedNodes.length > 0 ? (
+                  <div className="affected-components">
+                    <div className="affected-components__header">
+                      <span>Also affected</span>
+                      <strong>{affectedNodes.length} components need attention</strong>
+                    </div>
+                    <div className="affected-components__grid">
+                      {affectedNodes.map((node) => (
+                        <article className="affected-card" key={`${activeFlowResultID}-${node.node_id}`}>
+                          <div className="affected-card__header">
+                            <strong>{node.label}</strong>
+                            <span>{Math.round(node.utilization * 100)}% util</span>
+                          </div>
+                          <p>{node.explanation}</p>
+                          <div className="affected-card__metrics">
+                            <span>{formatCompactNumber(node.incoming_rps)} in</span>
+                            <span>{formatCompactNumber(node.processed_rps)} ok</span>
+                            {node.dropped_rps > 0 ? (
+                              <span>{formatCompactNumber(node.dropped_rps)} dropped</span>
+                            ) : null}
+                            {(node.queue_lag_ms ?? 0) > 0 ? (
+                              <span>{Math.round(node.queue_lag_ms ?? 0)} ms lag</span>
+                            ) : null}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {activePaths.length > 0 ? (
+                  <div className="path-explanations">
+                    {activePaths.map((path) => (
+                      <article className="path-card" key={`${activeFlowResultID}-${path.kind}`}>
+                        <div className="path-card__header">
+                          <span>{path.kind.replaceAll("_", " ")}</span>
+                          <strong>
+                            {path.estimated_latency_ms
+                              ? `${Math.round(path.estimated_latency_ms)} ms`
+                              : "Path insight"}
+                          </strong>
+                        </div>
+                        <p>{path.summary}</p>
+                        <div className="path-card__metrics">
+                          {path.queue_lag_ms ? (
+                            <span>{Math.round(path.queue_lag_ms)} ms queue lag</span>
+                          ) : null}
+                          {path.retried_rps ? (
+                            <span>{formatCompactNumber(path.retried_rps)} retry rps</span>
+                          ) : null}
+                          {path.timed_out_rps ? (
+                            <span>{formatCompactNumber(path.timed_out_rps)} timed out rps</span>
+                          ) : null}
+                        </div>
+                        {path.node_ids.length > 0 ? (
+                          <small>
+                            {path.node_ids
+                              .map((nodeID) => nodeLabelsByID.get(nodeID) ?? nodeID)
+                              .join(" -> ")}
+                          </small>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
                 ) : null}
               </div>
 
@@ -1664,7 +2005,39 @@ export function AppShell() {
           ) : null}
         </section>
 
-        <aside className="sidebar">
+        <aside className="sidebar sidebar--details">
+          <div className="panel">
+            <p className="panel-kicker">Graph Overview</p>
+            <h2>Nodes and edges</h2>
+            <div className="comparison-grid comparison-grid--run">
+              <div className="comparison-card">
+                <span>Nodes</span>
+                <strong>{canvasNodes.length}</strong>
+              </div>
+              <div className="comparison-card">
+                <span>Edges</span>
+                <strong>{canvasEdges.length}</strong>
+              </div>
+              <div className="comparison-card">
+                <span>Flows</span>
+                <strong>{requestClasses.length}</strong>
+              </div>
+              <div className="comparison-card">
+                <span>Selected</span>
+                <strong>
+                  {selectedNode
+                    ? selectedNode.data.label
+                    : selectedEdge
+                      ? "Edge"
+                      : "Nothing"}
+                </strong>
+              </div>
+            </div>
+            <p className="empty-copy">
+              Start here to sanity-check the current graph before you inspect nodes, connections, or previous runs.
+            </p>
+          </div>
+
           <div className="panel">
             <p className="panel-kicker">Inspector</p>
             <h2>{selectedNode?.data.label ?? "Select a node"}</h2>
@@ -1673,11 +2046,15 @@ export function AppShell() {
                 <label className="field">
                   <span>Label</span>
                   <input
+                    placeholder="Human-readable component name"
                     value={selectedNode.data.label}
                     onChange={(event) =>
                       handleNodeLabelChange(selectedNode.id, event.target.value)
                     }
                   />
+                  <small className="field-hint">
+                    This is just the display label. Luka simulates behavior from the component type, not the label.
+                  </small>
                 </label>
 
                 <label className="field">
@@ -1697,31 +2074,36 @@ export function AppShell() {
                       </option>
                     ))}
                   </select>
+                  <small className="field-hint">
+                    Default colors come from the backend archetype catalog. You can override them for visual clarity.
+                  </small>
                 </label>
 
-                <p className="empty-copy">
-                  Use replicas for identical instances of the same logical component.
-                  Use separate nodes when they represent different systems with different responsibilities.
-                </p>
+                <div className="context-note">
+                  <strong>{selectedNode.data.archetype.replaceAll("_", " ")}</strong>
+                  <p>{getNodeArchetypeHelp(selectedNode.data.archetype)}</p>
+                </div>
 
-                {Object.entries(nodePropertyLabels).map(([key, label]) => (
+                {getVisibleNodePropertyKeys(selectedNode.data.archetype).map((key) => (
                   <label className="field" key={key}>
-                    <span>{label}</span>
+                    <span>{nodePropertyLabels[key]}</span>
                     <input
                       inputMode="decimal"
+                      placeholder={getNodePropertyPlaceholder(key)}
                       value={
-                        selectedNode.data.properties[
-                          key as keyof GraphNode["properties"]
-                        ] ?? ""
+                        selectedNode.data.properties[key] ?? ""
                       }
                       onChange={(event) =>
                         handleNodePropertyChange(
                           selectedNode.id,
-                          key as keyof GraphNode["properties"],
+                          key,
                           event.target.value,
                         )
                       }
                     />
+                    <small className="field-hint">
+                      {getNodePropertyHelp(key, selectedNode.data.archetype)}
+                    </small>
                   </label>
                 ))}
 
@@ -1735,47 +2117,7 @@ export function AppShell() {
               </div>
             ) : (
               <p className="empty-copy">
-                Click a node to edit its label, color, and capacity assumptions.
-              </p>
-            )}
-          </div>
-
-          <div className="panel">
-            <p className="panel-kicker">Run History</p>
-            <h2>{savedDesign ? "Persisted runs" : "Save to unlock history"}</h2>
-            {savedDesign ? (
-              designRuns.length > 0 ? (
-                <div className="history-list">
-                  {designRuns.map((run) => (
-                    <div className="history-card" key={run.id}>
-                      <div>
-                        <strong>{run.result?.bottleneck?.label ?? run.id}</strong>
-                        <small>{formatWorkload(run.workload)}</small>
-                      </div>
-                      <div className="history-card__actions">
-                        <span>{run.id}</span>
-                        <span className="history-chip">
-                          {run.result?.flows?.length ?? 0} flows
-                        </span>
-                        <button
-                          className="ghost-button"
-                          onClick={() => handleUseHistoryRun(run)}
-                          type="button"
-                        >
-                          Compare
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="empty-copy">
-                  This design does not have persisted runs yet. Save it and run a few scenarios to build comparison history.
-                </p>
-              )
-            ) : (
-              <p className="empty-copy">
-                Save the current design to build a run history you can compare against later.
+                Click a node to edit its label, color, and capacity assumptions. Luka will show only the settings that matter for that component type.
               </p>
             )}
           </div>
@@ -1835,7 +2177,10 @@ export function AppShell() {
                   </div>
                   <button
                     className="ghost-button"
-                    onClick={() => setSelectedEdgeID(null)}
+                    onClick={() => {
+                      setSelectedEdgeID(null);
+                      setExpandedEdgeID(null);
+                    }}
                     type="button"
                   >
                     Deselect
@@ -1862,6 +2207,9 @@ export function AppShell() {
                       </option>
                     ))}
                   </select>
+                  <small className="field-hint">
+                    {getEdgeFieldHelp("interactionType")}
+                  </small>
                   <select
                     value={selectedEdge.data?.ruleType ?? "always"}
                     disabled={selectedEdge.data?.interactionType === "fallback"}
@@ -1882,13 +2230,45 @@ export function AppShell() {
                       </option>
                     ))}
                   </select>
+                  <small className="field-hint">
+                    {getEdgeFieldHelp("ruleType", selectedEdge.data?.interactionType)}
+                  </small>
                   <input
                     inputMode="decimal"
+                    placeholder="e.g. 3"
+                    value={String(selectedEdge.data?.routingWeight ?? 1)}
+                    onChange={(event) =>
+                      handleEdgeRoutingWeightChange(selectedEdge.id, event.target.value)
+                    }
+                  />
+                  <small className="field-hint">{getEdgeFieldHelp("routingWeight")}</small>
+                  <input
+                    inputMode="decimal"
+                    placeholder="e.g. 5"
                     value={String(selectedEdge.data?.fanoutMultiplier ?? 1)}
                     onChange={(event) =>
                       handleEdgeFanoutChange(selectedEdge.id, event.target.value)
                     }
                   />
+                  <small className="field-hint">{getEdgeFieldHelp("fanoutMultiplier")}</small>
+                  <input
+                    inputMode="decimal"
+                    placeholder="e.g. 120"
+                    value={String(selectedEdge.data?.timeoutMS ?? 0)}
+                    onChange={(event) =>
+                      handleEdgeTimeoutChange(selectedEdge.id, event.target.value)
+                    }
+                  />
+                  <small className="field-hint">{getEdgeFieldHelp("timeoutMS")}</small>
+                  <input
+                    inputMode="numeric"
+                    placeholder="e.g. 2"
+                    value={String(selectedEdge.data?.retryAttempts ?? 0)}
+                    onChange={(event) =>
+                      handleEdgeRetryChange(selectedEdge.id, event.target.value)
+                    }
+                  />
+                  <small className="field-hint">{getEdgeFieldHelp("retryAttempts")}</small>
                   <div className="flow-checkboxes">
                     {requestClasses.map((requestClass) => (
                       <label className="flow-checkbox" key={`${selectedEdge.id}-${requestClass.id}`}>
@@ -1930,6 +2310,9 @@ export function AppShell() {
                     </option>
                   ))}
                 </select>
+                <small className="field-hint">
+                  Choose the component where this traffic starts.
+                </small>
               </label>
 
               <label className="field">
@@ -1945,6 +2328,9 @@ export function AppShell() {
                     </option>
                   ))}
                 </select>
+                <small className="field-hint">
+                  Choose the next hop that receives traffic from the source.
+                </small>
               </label>
 
               <label className="field">
@@ -1963,6 +2349,9 @@ export function AppShell() {
                     </option>
                   ))}
                 </select>
+                <small className="field-hint">
+                  {getEdgeFieldHelp("interactionType")}
+                </small>
               </label>
 
               <label className="field">
@@ -1980,17 +2369,59 @@ export function AppShell() {
                     </option>
                   ))}
                 </select>
+                <small className="field-hint">
+                  {getEdgeFieldHelp("ruleType", newEdgeInteraction)}
+                </small>
+              </label>
+
+              <label className="field">
+                <span>Routing weight</span>
+                <input
+                  inputMode="decimal"
+                  placeholder="e.g. 3"
+                  value={newEdgeRoutingWeight}
+                  onChange={(event) =>
+                    setNewEdgeRoutingWeight(event.target.value)
+                  }
+                />
+                <small className="field-hint">{getEdgeFieldHelp("routingWeight")}</small>
               </label>
 
               <label className="field">
                 <span>Edge fanout multiplier</span>
                 <input
                   inputMode="decimal"
+                  placeholder="e.g. 20"
                   value={newEdgeFanoutMultiplier}
                   onChange={(event) =>
                     setNewEdgeFanoutMultiplier(event.target.value)
                   }
                 />
+                <small className="field-hint">{getEdgeFieldHelp("fanoutMultiplier")}</small>
+              </label>
+
+              <label className="field">
+                <span>Timeout (ms)</span>
+                <input
+                  inputMode="decimal"
+                  placeholder="e.g. 150"
+                  value={newEdgeTimeoutMS}
+                  onChange={(event) => setNewEdgeTimeoutMS(event.target.value)}
+                />
+                <small className="field-hint">{getEdgeFieldHelp("timeoutMS")}</small>
+              </label>
+
+              <label className="field">
+                <span>Retry attempts</span>
+                <input
+                  inputMode="numeric"
+                  placeholder="e.g. 1"
+                  value={newEdgeRetryAttempts}
+                  onChange={(event) =>
+                    setNewEdgeRetryAttempts(event.target.value)
+                  }
+                />
+                <small className="field-hint">{getEdgeFieldHelp("retryAttempts")}</small>
               </label>
 
               <div className="field">
@@ -2034,101 +2465,208 @@ export function AppShell() {
                     nodes: canvasNodes.map(flowNodeToGraphNode),
                     archetypes: catalog,
                   });
+                  const isExpanded = expandedEdgeID === edge.id;
+                  const assignedFlows =
+                    edge.data?.requestClassIDs
+                      ?.map(
+                        (requestClassID) =>
+                          requestClasses.find((requestClass) => requestClass.id === requestClassID)
+                            ?.name ?? requestClassID,
+                      )
+                      .slice(0, 2) ?? [];
+                  const additionalFlowCount =
+                    (edge.data?.requestClassIDs?.length ?? 0) - assignedFlows.length;
 
                   return (
                     <li
                       key={edge.id}
                       className={edge.id === selectedEdgeID ? "edge-list__item--selected" : ""}
-                      onClick={() => {
-                        setSelectedEdgeID(edge.id);
-                        setSelectedNodeID(null);
-                      }}
                     >
-                      <div>
-                        <strong>
-                          {nodeLabelsByID.get(edge.source) ?? edge.source} →{" "}
-                          {nodeLabelsByID.get(edge.target) ?? edge.target}
-                        </strong>
-                        <small>
-                          {edge.data?.interactionType ?? "sync_request"} /{" "}
-                          {edge.data?.ruleType ?? "always"}
-                          {edge.data?.fanoutMultiplier &&
-                          edge.data.fanoutMultiplier > 1
-                            ? ` / x${edge.data.fanoutMultiplier}`
-                            : ""}
-                        </small>
-                      </div>
-                      <div className="edge-editor">
-                        <select
-                          value={edge.data?.interactionType ?? "sync_request"}
-                          onChange={(event) =>
-                            handleEdgeInteractionChange(
-                              edge.id,
-                              event.target.value as EdgeInteractionType,
-                            )
-                          }
-                        >
-                          {edgeSpecificOptions.interactions.map((interaction) => (
-                            <option
-                              key={`${edge.id}-${interaction}`}
-                              value={interaction}
-                            >
-                              {interaction}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={edge.data?.ruleType ?? "always"}
-                          disabled={edge.data?.interactionType === "fallback"}
-                          onChange={(event) =>
-                            handleEdgeRuleChange(
-                              edge.id,
-                              event.target.value as RoutingRuleType,
-                            )
-                          }
-                        >
-                          {edgeSpecificOptions.routingRules.map((rule) => (
-                            <option key={`${edge.id}-${rule}`} value={rule}>
-                              {rule}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          inputMode="decimal"
-                          value={String(edge.data?.fanoutMultiplier ?? 1)}
-                          onChange={(event) =>
-                            handleEdgeFanoutChange(edge.id, event.target.value)
-                          }
-                        />
-                        <div className="flow-checkboxes">
-                          {requestClasses.map((requestClass) => (
-                            <label className="flow-checkbox" key={`${edge.id}-${requestClass.id}`}>
-                              <input
-                                checked={
-                                  edge.data?.requestClassIDs?.includes(requestClass.id) ??
-                                  false
-                                }
-                                onChange={() =>
-                                  handleEdgeRequestClassToggle(edge.id, requestClass.id)
-                                }
-                                type="checkbox"
-                              />
-                              <span>{requestClass.name}</span>
-                            </label>
-                          ))}
+                      <button
+                        className="edge-list__summary"
+                        onClick={() => {
+                          focusEdge(edge.id);
+                          toggleExpandedEdge(edge.id);
+                        }}
+                        type="button"
+                      >
+                        <div>
+                          <strong>
+                            {nodeLabelsByID.get(edge.source) ?? edge.source} →{" "}
+                            {nodeLabelsByID.get(edge.target) ?? edge.target}
+                          </strong>
+                          <small>
+                            {edge.data?.interactionType ?? "sync_request"} /{" "}
+                            {edge.data?.ruleType ?? "always"}
+                          </small>
                         </div>
-                        <button
-                          className="ghost-button"
-                          onClick={() => handleRemoveEdge(edge.id)}
-                          type="button"
-                        >
-                          Remove
-                        </button>
-                      </div>
+                        <div className="edge-list__chips">
+                          {edge.data?.routingWeight && edge.data.routingWeight > 1 ? (
+                            <span className="edge-chip">w{edge.data.routingWeight}</span>
+                          ) : null}
+                          {edge.data?.fanoutMultiplier && edge.data.fanoutMultiplier > 1 ? (
+                            <span className="edge-chip">x{edge.data.fanoutMultiplier}</span>
+                          ) : null}
+                          {edge.data?.timeoutMS && edge.data.timeoutMS > 0 ? (
+                            <span className="edge-chip">{edge.data.timeoutMS}ms</span>
+                          ) : null}
+                          {edge.data?.retryAttempts && edge.data.retryAttempts > 0 ? (
+                            <span className="edge-chip">r{edge.data.retryAttempts}</span>
+                          ) : null}
+                          {assignedFlows.map((flowName) => (
+                            <span className="edge-chip edge-chip--flow" key={`${edge.id}-${flowName}`}>
+                              {flowName}
+                            </span>
+                          ))}
+                          {additionalFlowCount > 0 ? (
+                            <span className="edge-chip edge-chip--flow">+{additionalFlowCount} more</span>
+                          ) : null}
+                          <span className="edge-list__toggle">{isExpanded ? "Hide" : "Edit"}</span>
+                        </div>
+                      </button>
+                      {isExpanded ? (
+                        <div className="edge-editor edge-editor--collapsible">
+                          <select
+                            value={edge.data?.interactionType ?? "sync_request"}
+                            onChange={(event) =>
+                              handleEdgeInteractionChange(
+                                edge.id,
+                                event.target.value as EdgeInteractionType,
+                              )
+                            }
+                          >
+                            {edgeSpecificOptions.interactions.map((interaction) => (
+                              <option
+                                key={`${edge.id}-${interaction}`}
+                                value={interaction}
+                              >
+                                {interaction}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={edge.data?.ruleType ?? "always"}
+                            disabled={edge.data?.interactionType === "fallback"}
+                            onChange={(event) =>
+                              handleEdgeRuleChange(
+                                edge.id,
+                                event.target.value as RoutingRuleType,
+                              )
+                            }
+                          >
+                            {edgeSpecificOptions.routingRules.map((rule) => (
+                              <option key={`${edge.id}-${rule}`} value={rule}>
+                                {rule}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            inputMode="decimal"
+                            value={String(edge.data?.routingWeight ?? 1)}
+                            onChange={(event) =>
+                              handleEdgeRoutingWeightChange(edge.id, event.target.value)
+                            }
+                          />
+                          <input
+                            inputMode="decimal"
+                            value={String(edge.data?.fanoutMultiplier ?? 1)}
+                            onChange={(event) =>
+                              handleEdgeFanoutChange(edge.id, event.target.value)
+                            }
+                          />
+                          <input
+                            inputMode="decimal"
+                            value={String(edge.data?.timeoutMS ?? 0)}
+                            onChange={(event) =>
+                              handleEdgeTimeoutChange(edge.id, event.target.value)
+                            }
+                          />
+                          <input
+                            inputMode="numeric"
+                            value={String(edge.data?.retryAttempts ?? 0)}
+                            onChange={(event) =>
+                              handleEdgeRetryChange(edge.id, event.target.value)
+                            }
+                          />
+                          <div className="flow-checkboxes">
+                            {requestClasses.map((requestClass) => (
+                              <label className="flow-checkbox" key={`${edge.id}-${requestClass.id}`}>
+                                <input
+                                  checked={
+                                    edge.data?.requestClassIDs?.includes(requestClass.id) ??
+                                    false
+                                  }
+                                  onChange={() =>
+                                    handleEdgeRequestClassToggle(edge.id, requestClass.id)
+                                  }
+                                  type="checkbox"
+                                />
+                                <span>{requestClass.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                          <div className="edge-editor__actions">
+                            <button
+                              className="ghost-button"
+                              onClick={() => setExpandedEdgeID(null)}
+                              type="button"
+                            >
+                              Collapse
+                            </button>
+                            <button
+                              className="ghost-button"
+                              onClick={() => handleRemoveEdge(edge.id)}
+                              type="button"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </li>
                   );
                 })}
               </ul>
+            )}
+          </div>
+
+          <div className="panel">
+            <p className="panel-kicker">Run History</p>
+            <h2>{savedDesign ? "Persisted runs" : "Save to unlock history"}</h2>
+            {savedDesign ? (
+              designRuns.length > 0 ? (
+                <div className="history-list">
+                  {designRuns.map((run) => (
+                    <div className="history-card" key={run.id}>
+                      <div>
+                        <strong>{run.result?.bottleneck?.label ?? run.id}</strong>
+                        <small>{formatWorkload(run.workload)}</small>
+                      </div>
+                      <div className="history-card__actions">
+                        <span>{run.id}</span>
+                        <span className="history-chip">
+                          {run.result?.flows?.length ?? 0} flows
+                        </span>
+                        <button
+                          className="ghost-button"
+                          onClick={() => handleUseHistoryRun(run)}
+                          type="button"
+                        >
+                          Compare
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-copy">
+                  This design does not have persisted runs yet. Save it and run a few scenarios to build comparison history.
+                </p>
+              )
+            ) : (
+              <p className="empty-copy">
+                Save the current design to build a run history you can compare against later.
+              </p>
             )}
           </div>
         </aside>
@@ -2172,7 +2710,10 @@ function graphEdgeToFlowEdge(edge: GraphEdge): Edge<FlowEdgeData> {
     data: {
       interactionType: edge.interaction_type,
       ruleType: edge.routing_rule.rule_type,
+      routingWeight: edge.routing_rule.value ?? 1,
       fanoutMultiplier: edge.fanout_multiplier ?? 1,
+      timeoutMS: edge.timeout_ms ?? 0,
+      retryAttempts: edge.retry_attempts ?? 0,
       requestClassIDs: edge.request_class_ids ?? [],
     },
   };
@@ -2185,9 +2726,12 @@ function flowEdgeToGraphEdge(edge: Edge<FlowEdgeData>): GraphEdge {
     target_node_id: edge.target,
     interaction_type: edge.data?.interactionType ?? "sync_request",
     fanout_multiplier: edge.data?.fanoutMultiplier ?? 1,
+    timeout_ms: edge.data?.timeoutMS ?? 0,
+    retry_attempts: edge.data?.retryAttempts ?? 0,
     request_class_ids: edge.data?.requestClassIDs ?? [],
     routing_rule: {
       rule_type: edge.data?.ruleType ?? "always",
+      value: edge.data?.routingWeight ?? 1,
     },
   };
 }
@@ -2206,15 +2750,27 @@ function buildEdgeLabel(
       : edge.data?.ruleType && edge.data.ruleType !== "always"
         ? edge.data.ruleType
         : edge.data?.interactionType ?? "sync_request";
+  const weightLabel =
+    edge.data?.routingWeight && edge.data.routingWeight > 1
+      ? ` w${edge.data.routingWeight}`
+      : "";
   const fanoutLabel =
     edge.data?.fanoutMultiplier && edge.data.fanoutMultiplier > 1
       ? ` x${edge.data.fanoutMultiplier}`
+      : "";
+  const timeoutLabel =
+    edge.data?.timeoutMS && edge.data.timeoutMS > 0
+      ? ` ${edge.data.timeoutMS}ms`
+      : "";
+  const retryLabel =
+    edge.data?.retryAttempts && edge.data.retryAttempts > 0
+      ? ` r${edge.data.retryAttempts}`
       : "";
   const throughputLabel = result
     ? ` · ${formatCompactNumber(result.routed_rps)} rps`
     : "";
 
-  return `${semantic}${fanoutLabel}${throughputLabel}`;
+  return `${semantic}${weightLabel}${fanoutLabel}${timeoutLabel}${retryLabel}${throughputLabel}`;
 }
 
 function getEdgeHighlight(
@@ -2222,11 +2778,22 @@ function getEdgeHighlight(
   result:
     | {
         routed_rps: number;
+        source_node_id?: string;
+        target_node_id?: string;
+        timed_out_rps?: number;
       }
     | undefined,
   allEdgeResults: Array<{
     routed_rps: number;
   }>,
+  nodeResultsByID?: Map<
+    string,
+    {
+      utilization: number;
+      dropped_rps: number;
+      queue_lag_ms?: number;
+    }
+  >,
 ) {
   const maxRouted = Math.max(
     1,
@@ -2234,6 +2801,15 @@ function getEdgeHighlight(
   );
   const loadRatio = result ? result.routed_rps / maxRouted : 0;
   const isFallback = edge.data?.interactionType === "fallback";
+  const sourceResult = nodeResultsByID?.get(edge.source);
+  const targetResult = nodeResultsByID?.get(edge.target);
+  const isUnderPressure =
+    (sourceResult?.utilization ?? 0) >= 0.8 ||
+    (targetResult?.utilization ?? 0) >= 0.8 ||
+    (sourceResult?.dropped_rps ?? 0) > 0 ||
+    (targetResult?.dropped_rps ?? 0) > 0 ||
+    (sourceResult?.queue_lag_ms ?? 0) > 0 ||
+    (targetResult?.queue_lag_ms ?? 0) > 0;
 
   if (isFallback && result && result.routed_rps > 0) {
     return {
@@ -2250,6 +2826,24 @@ function getEdgeHighlight(
       strokeWidth: 2.5,
       dashed: true,
       animated: false,
+    };
+  }
+
+  if (result && (result.timed_out_rps ?? 0) > 0) {
+    return {
+      stroke: "#d84d3a",
+      strokeWidth: 4.25,
+      dashed: false,
+      animated: true,
+    };
+  }
+
+  if (isUnderPressure && loadRatio >= 0.45) {
+    return {
+      stroke: "#d84d3a",
+      strokeWidth: loadRatio >= 0.85 ? 4.25 : 3.5,
+      dashed: false,
+      animated: loadRatio >= 0.85,
     };
   }
 
@@ -2288,27 +2882,125 @@ function getEdgeHighlight(
   };
 }
 
+function buildCatalogCardStyle(color: GraphNode["color"]) {
+  const palette = getNodePalette(color);
+  return {
+    background: palette.background,
+    border: `1px solid ${palette.border}`,
+    color: palette.text,
+  };
+}
+
+function renderArchetypeIcon(archetype: GraphNode["archetype"]) {
+  const commonProps = {
+    width: 22,
+    height: 22,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+
+  switch (archetype) {
+    case "client":
+      return (
+        <svg {...commonProps}>
+          <rect x="4" y="5" width="16" height="11" rx="2" />
+          <path d="M9 19h6" />
+          <path d="M12 16v3" />
+        </svg>
+      );
+    case "gateway":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 12h16" />
+          <path d="M12 4v16" />
+          <circle cx="12" cy="12" r="7" />
+        </svg>
+      );
+    case "stateless_service":
+      return (
+        <svg {...commonProps}>
+          <rect x="4" y="6" width="16" height="12" rx="2" />
+          <path d="M8 10h8" />
+          <path d="M8 14h5" />
+        </svg>
+      );
+    case "cache":
+      return (
+        <svg {...commonProps}>
+          <ellipse cx="12" cy="7" rx="7" ry="3" />
+          <path d="M5 7v8c0 1.7 3.1 3 7 3s7-1.3 7-3V7" />
+          <path d="M5 11c0 1.7 3.1 3 7 3s7-1.3 7-3" />
+        </svg>
+      );
+    case "database":
+      return (
+        <svg {...commonProps}>
+          <ellipse cx="12" cy="6.5" rx="7" ry="2.8" />
+          <path d="M5 6.5v10.5c0 1.55 3.1 2.8 7 2.8s7-1.25 7-2.8V6.5" />
+          <path d="M5 11c0 1.55 3.1 2.8 7 2.8s7-1.25 7-2.8" />
+        </svg>
+      );
+    case "queue":
+      return (
+        <svg {...commonProps}>
+          <rect x="5" y="5" width="4" height="14" rx="1" />
+          <rect x="10" y="8" width="4" height="11" rx="1" />
+          <rect x="15" y="11" width="4" height="8" rx="1" />
+        </svg>
+      );
+    case "worker":
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="12" r="3.5" />
+          <path d="M12 3.5v3" />
+          <path d="M12 17.5v3" />
+          <path d="M3.5 12h3" />
+          <path d="M17.5 12h3" />
+          <path d="M6.1 6.1l2.1 2.1" />
+          <path d="M15.8 15.8l2.1 2.1" />
+          <path d="M17.9 6.1l-2.1 2.1" />
+          <path d="M8.2 15.8l-2.1 2.1" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
 function buildNodeLabel(
   nodeData: FlowNodeData,
   result:
     | {
         utilization: number;
         incoming_rps: number;
+        queue_lag_ms?: number;
       }
     | undefined,
 ): ReactNode {
   return (
     <div className="flow-node-copy">
-      <div className="flow-node-copy__eyebrow">
-        <span>{nodeData.archetype.replaceAll("_", " ")}</span>
-        <span>{result ? statusLabel(result.utilization) : "ready"}</span>
+      <div className="flow-node-copy__header">
+        <span className="flow-node-copy__icon" aria-hidden="true">
+          {renderArchetypeIcon(nodeData.archetype)}
+        </span>
+        <div className="flow-node-copy__header-copy">
+          <div className="flow-node-copy__eyebrow">
+            <span>{nodeData.archetype.replaceAll("_", " ")}</span>
+            <span>{result ? statusLabel(result.utilization) : "ready"}</span>
+          </div>
+          <strong>{nodeData.label}</strong>
+        </div>
       </div>
-      <strong>{nodeData.label}</strong>
       {result ? (
         <div className="flow-node-copy__meta">
           <span>{Math.max(1, nodeData.properties.replicas ?? 1)} replicas</span>
           <span>{Math.round(result.utilization * 100)}% util</span>
           <span>{formatCompactNumber(result.incoming_rps)} rps</span>
+          {result.queue_lag_ms ? <span>{Math.round(result.queue_lag_ms)} ms lag</span> : null}
         </div>
       ) : (
         <div className="flow-node-copy__meta">
@@ -2317,6 +3009,23 @@ function buildNodeLabel(
       )}
     </div>
   );
+}
+
+function summarizePathForCard(
+  path: {
+    node_ids: string[];
+  },
+  nodeLabelsByID: Map<string, string>,
+) {
+  const labels = path.node_ids
+    .slice(0, 3)
+    .map((nodeID) => nodeLabelsByID.get(nodeID) ?? nodeID);
+
+  if (path.node_ids.length > 3) {
+    labels.push("...");
+  }
+
+  return labels.join(" -> ");
 }
 
 function getVisibleDropPosition(
@@ -2345,6 +3054,48 @@ function getVisibleDropPosition(
 
 function getNodePalette(color: GraphNode["color"]) {
   switch (color) {
+    case "cobalt":
+      return {
+        background: "linear-gradient(180deg, #eef4ff 0%, #d7e7ff 100%)",
+        border: "#3f76d3",
+        text: "#17345d",
+      };
+    case "indigo":
+      return {
+        background: "linear-gradient(180deg, #f0efff 0%, #ddd9ff 100%)",
+        border: "#6654d9",
+        text: "#2e246c",
+      };
+    case "emerald":
+      return {
+        background: "linear-gradient(180deg, #edfcf4 0%, #d2f4e1 100%)",
+        border: "#2f9f74",
+        text: "#143a2d",
+      };
+    case "amber":
+      return {
+        background: "linear-gradient(180deg, #fff8e5 0%, #ffe6a3 100%)",
+        border: "#c88a1c",
+        text: "#5f4107",
+      };
+    case "coral":
+      return {
+        background: "linear-gradient(180deg, #fff1ec 0%, #ffd6cb 100%)",
+        border: "#d46f5f",
+        text: "#5d241c",
+      };
+    case "orange":
+      return {
+        background: "linear-gradient(180deg, #fff4e9 0%, #ffd8b0 100%)",
+        border: "#cf7a2b",
+        text: "#5a3310",
+      };
+    case "teal":
+      return {
+        background: "linear-gradient(180deg, #ebfbfb 0%, #cef1ee 100%)",
+        border: "#2e9d97",
+        text: "#123c39",
+      };
     case "blue":
       return {
         background: "linear-gradient(180deg, #edf4ff 0%, #d9e9ff 100%)",
@@ -2380,6 +3131,20 @@ function getNodePalette(color: GraphNode["color"]) {
 
 function colorLabel(color: GraphNode["color"]) {
   switch (color) {
+    case "cobalt":
+      return "Cobalt";
+    case "indigo":
+      return "Indigo";
+    case "emerald":
+      return "Emerald";
+    case "amber":
+      return "Amber";
+    case "coral":
+      return "Coral";
+    case "orange":
+      return "Orange";
+    case "teal":
+      return "Teal";
     case "blue":
       return "Cobalt";
     case "green":
@@ -2391,6 +3156,156 @@ function colorLabel(color: GraphNode["color"]) {
     default:
       return color;
   }
+}
+
+function getVisibleNodePropertyKeys(
+  archetype: GraphNode["archetype"],
+): Array<keyof GraphNode["properties"]> {
+  switch (archetype) {
+    case "client":
+      return [];
+    case "cache":
+      return ["replicas", "capacity_rps", "base_latency_ms", "cache_hit_rate"];
+    default:
+      return ["replicas", "capacity_rps", "base_latency_ms"];
+  }
+}
+
+function getNodeArchetypeHelp(archetype: GraphNode["archetype"]) {
+  switch (archetype) {
+    case "client":
+      return "Represents the users or devices generating traffic into the system.";
+    case "gateway":
+      return "Receives incoming traffic and forwards it to downstream services. It often handles routing, auth, or rate limiting.";
+    case "stateless_service":
+      return "Processes requests without owning durable state. Good for API and business-logic layers that can scale horizontally.";
+    case "cache":
+      return "Serves hot reads quickly and reduces downstream database pressure. Use cache hit/miss edges to model behavior.";
+    case "database":
+      return "Durable storage layer. It usually becomes the bottleneck when cache misses or write-heavy traffic rise.";
+    case "queue":
+      return "Buffers background work so bursty traffic does not hit workers or databases synchronously.";
+    case "worker":
+      return "Consumes queued work and executes background tasks like fanout, notifications, or async writes.";
+    default:
+      return "Simulator-aware infrastructure building block.";
+  }
+}
+
+function getNodePropertyPlaceholder(key: keyof GraphNode["properties"]) {
+  switch (key) {
+    case "replicas":
+      return "e.g. 3";
+    case "capacity_rps":
+      return "e.g. 10000";
+    case "base_latency_ms":
+      return "e.g. 20";
+    case "cache_hit_rate":
+      return "e.g. 0.9";
+    default:
+      return "";
+  }
+}
+
+function getNodePropertyHelp(
+  key: keyof GraphNode["properties"],
+  archetype: GraphNode["archetype"],
+) {
+  switch (key) {
+    case "replicas":
+      return "Number of identical instances sharing this load. Use separate nodes only when they represent different systems.";
+    case "capacity_rps":
+      return "How much work one component pool can handle per second before saturation. Combined capacity scales with replicas.";
+    case "base_latency_ms":
+      return "Healthy-case latency added by this component before saturation, queue lag, retries, or payload penalties kick in.";
+    case "cache_hit_rate":
+      return archetype === "cache"
+        ? "Fraction of reads served directly by cache. The remaining miss traffic continues downstream."
+        : "Only relevant for cache nodes.";
+    default:
+      return "";
+  }
+}
+
+function getEdgeFieldHelp(
+  field:
+    | "interactionType"
+    | "ruleType"
+    | "routingWeight"
+    | "fanoutMultiplier"
+    | "timeoutMS"
+    | "retryAttempts",
+  interactionType?: EdgeInteractionType,
+) {
+  switch (field) {
+    case "interactionType":
+      return "Choose whether this edge is a normal request, async enqueue, worker consume path, conditional branch, or fallback path.";
+    case "ruleType":
+      if (interactionType === "fallback") {
+        return "Fallback edges always carry dropped or failed traffic when the source cannot keep up.";
+      }
+      return "Controls which portion of traffic uses this edge. Use cache hit/miss on edges leaving a cache.";
+    case "routingWeight":
+      return "Used to split traffic across parallel edges. A weight of 3 gets roughly three times the traffic of a sibling edge with weight 1.";
+    case "fanoutMultiplier":
+      return "Amplifies work on this edge. A value of 20 means one upstream action becomes 20 downstream operations here.";
+    case "timeoutMS":
+      return "If the downstream component is slower than this, Luka treats part of the traffic as timed out.";
+    case "retryAttempts":
+      return "Extra attempts after a timeout. Retries can recover requests, but they also amplify load downstream.";
+    default:
+      return "";
+  }
+}
+
+function detectGraphPatterns(nodes: GraphNode[], edges: GraphEdge[]) {
+  const nodeByID = new Map(nodes.map((node) => [node.id, node]));
+  const patterns: Array<{ title: string; body: string }> = [];
+
+  const hasCacheAside = edges.some((edge) => {
+    const source = nodeByID.get(edge.source_node_id);
+    const target = nodeByID.get(edge.target_node_id);
+
+    return (
+      source?.archetype === "cache" &&
+      target?.archetype === "database" &&
+      edge.routing_rule.rule_type === "cache_miss"
+    );
+  });
+
+  if (hasCacheAside) {
+    patterns.push({
+      title: "Cache-aside path detected",
+      body: "Reads can return early from cache, while cache misses continue to the database. If miss traffic rises, DB pressure will grow quickly.",
+    });
+  }
+
+  const hasAsyncQueue = edges.some((edge) => edge.interaction_type === "async_enqueue");
+  const hasWorkerConsume = edges.some((edge) => edge.interaction_type === "consume");
+  if (hasAsyncQueue && hasWorkerConsume) {
+    patterns.push({
+      title: "Async queue workflow detected",
+      body: "Your service is pushing work into a queue and workers consume it later. This decouples user-facing latency from background processing, but backlog appears when enqueue rate exceeds worker throughput.",
+    });
+  }
+
+  const hasWeightedSplit = edges.some((edge) => (edge.routing_rule.value ?? 1) > 1);
+  if (hasWeightedSplit) {
+    patterns.push({
+      title: "Weighted routing detected",
+      body: "Parallel edges with routing weights will not share traffic evenly. Higher weights attract more traffic and can shift the bottleneck.",
+    });
+  }
+
+  const hasFallback = edges.some((edge) => edge.interaction_type === "fallback");
+  if (hasFallback) {
+    patterns.push({
+      title: "Fallback path detected",
+      body: "Dropped or failed traffic can spill into fallback edges. This is useful for graceful degradation, async buffering, or degraded responses.",
+    });
+  }
+
+  return patterns;
 }
 
 function statusLabel(utilization: number) {
@@ -2570,6 +3485,46 @@ function parseEdgeFanoutInput(
     return {
       ok: false,
       error: "Edge fanout multiplier must be a positive number.",
+    };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+function parsePositiveDecimalInput(
+  value: string,
+  errorMessage: string,
+): { ok: true; value: number } | { ok: false; error: string } {
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return { ok: true, value: 0 };
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return {
+      ok: false,
+      error: errorMessage,
+    };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+function parseWholeNumberInput(
+  value: string,
+  errorMessage: string,
+): { ok: true; value: number } | { ok: false; error: string } {
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return { ok: true, value: 0 };
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return {
+      ok: false,
+      error: errorMessage,
     };
   }
 

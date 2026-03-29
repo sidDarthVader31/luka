@@ -150,6 +150,26 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 			issues = append(issues, fmt.Sprintf("%s fanout_multiplier cannot be negative", prefix))
 		}
 
+		if !isFinite(edge.TimeoutMS) {
+			issues = append(issues, fmt.Sprintf("%s timeout_ms must be finite", prefix))
+		}
+
+		if edge.TimeoutMS < 0 {
+			issues = append(issues, fmt.Sprintf("%s timeout_ms cannot be negative", prefix))
+		}
+
+		if edge.RetryAttempts < 0 {
+			issues = append(issues, fmt.Sprintf("%s retry_attempts cannot be negative", prefix))
+		}
+
+		if !isFinite(edge.RoutingRule.Value) {
+			issues = append(issues, fmt.Sprintf("%s routing_rule.value must be finite", prefix))
+		}
+
+		if edge.RoutingRule.Value < 0 {
+			issues = append(issues, fmt.Sprintf("%s routing_rule.value cannot be negative", prefix))
+		}
+
 		if len(graph.RequestClasses) > 0 && len(edge.RequestClassIDs) == 0 {
 			issues = append(issues, fmt.Sprintf("%s must reference at least one request class", prefix))
 		}
@@ -182,6 +202,19 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 				if !slices.Contains(catalogEntry.SupportedRoutingRules, edge.RoutingRule.RuleType) {
 					issues = append(issues, fmt.Sprintf("%s routing rule %q is not valid for source archetype %q", prefix, edge.RoutingRule.RuleType, sourceNode.Archetype))
 				}
+			}
+
+			targetNode, targetExists := nodeByID[edge.TargetNodeID]
+			if targetExists && !isAllowedConnection(sourceNode.Archetype, targetNode.Archetype) {
+				issues = append(
+					issues,
+					fmt.Sprintf(
+						"%s cannot connect source archetype %q to target archetype %q",
+						prefix,
+						sourceNode.Archetype,
+						targetNode.Archetype,
+					),
+				)
 			}
 
 			if edge.RoutingRule.RuleType == domain.RoutingRuleCacheHit || edge.RoutingRule.RuleType == domain.RoutingRuleCacheMiss {
@@ -256,7 +289,52 @@ func isSupportedRoutingRule(value domain.RoutingRuleType) bool {
 }
 
 func isSupportedColor(value string) bool {
-	return value == "blue" || value == "green" || value == "yellow" || value == "red"
+	switch value {
+	case "blue", "green", "yellow", "red", "cobalt", "indigo", "emerald", "amber", "coral", "orange", "teal":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedConnection(source, target domain.NodeArchetype) bool {
+	allowedTargets, ok := allowedConnections()[source]
+	if !ok {
+		return false
+	}
+
+	return slices.Contains(allowedTargets, target)
+}
+
+func allowedConnections() map[domain.NodeArchetype][]domain.NodeArchetype {
+	return map[domain.NodeArchetype][]domain.NodeArchetype{
+		domain.NodeArchetypeClient: {
+			domain.NodeArchetypeGateway,
+			domain.NodeArchetypeStatelessService,
+		},
+		domain.NodeArchetypeGateway: {
+			domain.NodeArchetypeStatelessService,
+		},
+		domain.NodeArchetypeStatelessService: {
+			domain.NodeArchetypeStatelessService,
+			domain.NodeArchetypeCache,
+			domain.NodeArchetypeDatabase,
+			domain.NodeArchetypeQueue,
+		},
+		domain.NodeArchetypeCache: {
+			domain.NodeArchetypeDatabase,
+		},
+		domain.NodeArchetypeDatabase: {},
+		domain.NodeArchetypeQueue: {
+			domain.NodeArchetypeWorker,
+		},
+		domain.NodeArchetypeWorker: {
+			domain.NodeArchetypeStatelessService,
+			domain.NodeArchetypeCache,
+			domain.NodeArchetypeDatabase,
+			domain.NodeArchetypeQueue,
+		},
+	}
 }
 
 func isFinite(value float64) bool {

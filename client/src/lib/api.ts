@@ -7,6 +7,19 @@ export type NodeArchetype =
   | "queue"
   | "worker";
 
+export type NodeColor =
+  | "blue"
+  | "green"
+  | "yellow"
+  | "red"
+  | "cobalt"
+  | "indigo"
+  | "emerald"
+  | "amber"
+  | "coral"
+  | "orange"
+  | "teal";
+
 export type EdgeInteractionType =
   | "sync_request"
   | "async_enqueue"
@@ -19,7 +32,7 @@ export type GraphNode = {
   id: string;
   label: string;
   archetype: NodeArchetype;
-  color: "blue" | "green" | "yellow" | "red";
+  color: NodeColor;
   position: {
     x: number;
     y: number;
@@ -38,6 +51,8 @@ export type GraphEdge = {
   target_node_id: string;
   interaction_type: EdgeInteractionType;
   fanout_multiplier?: number;
+  timeout_ms?: number;
+  retry_attempts?: number;
   request_class_ids?: string[];
   routing_rule: {
     rule_type: RoutingRuleType;
@@ -110,6 +125,8 @@ export type RunNodeResult = {
   effective_capacity_rps: number;
   utilization: number;
   estimated_latency_ms: number;
+  queue_depth_estimate?: number;
+  queue_lag_ms?: number;
   saturated: boolean;
   explanation: string;
 };
@@ -120,8 +137,25 @@ export type RunEdgeResult = {
   target_node_id: string;
   interaction_type: EdgeInteractionType;
   fanout_multiplier: number;
+  timeout_ms?: number;
+  retry_attempts?: number;
   rule_type: RoutingRuleType;
+  routing_weight?: number;
+  attempted_rps?: number;
+  retried_rps?: number;
+  timed_out_rps?: number;
   routed_rps: number;
+};
+
+export type PathExplanation = {
+  kind: string;
+  summary: string;
+  node_ids: string[];
+  edge_ids: string[];
+  estimated_latency_ms?: number;
+  queue_lag_ms?: number;
+  retried_rps?: number;
+  timed_out_rps?: number;
 };
 
 export type RunResult = {
@@ -129,6 +163,7 @@ export type RunResult = {
   bottleneck?: RunNodeResult;
   nodes: RunNodeResult[];
   edges: RunEdgeResult[];
+  paths?: PathExplanation[];
   flows?: Array<{
     request_class_id: string;
     name: string;
@@ -138,6 +173,7 @@ export type RunResult = {
     bottleneck?: RunNodeResult;
     nodes: RunNodeResult[];
     edges: RunEdgeResult[];
+    paths?: PathExplanation[];
   }>;
 };
 
