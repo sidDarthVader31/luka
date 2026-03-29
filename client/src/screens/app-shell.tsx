@@ -1510,7 +1510,7 @@ export function AppShell() {
       </section>
 
       <section className="workspace">
-        <aside className="sidebar">
+        <aside className="sidebar sidebar--controls">
           <div className="panel">
             <p className="panel-kicker">Components</p>
             <h2>Drag onto canvas</h2>
@@ -2005,7 +2005,7 @@ export function AppShell() {
           ) : null}
         </section>
 
-        <aside className="sidebar">
+        <aside className="sidebar sidebar--details">
           <div className="panel">
             <p className="panel-kicker">Graph Overview</p>
             <h2>Nodes and edges</h2>
