@@ -71,6 +71,32 @@ const nodePropertyLabels: Record<keyof GraphNode["properties"], string> = {
   cache_hit_rate: "Cache hit rate",
 };
 
+const runFieldHelp: Record<
+  "requests_per_second" | "concurrent_users" | "read_write_ratio" | "payload_kb" | "fanout_count",
+  { placeholder: string; hint: string }
+> = {
+  requests_per_second: {
+    placeholder: "e.g. 10000",
+    hint: "Total incoming request rate. This is the main load entering the system.",
+  },
+  concurrent_users: {
+    placeholder: "e.g. 50000",
+    hint: "Approximate active users at the same time. Higher concurrency adds pressure to gateways and services.",
+  },
+  read_write_ratio: {
+    placeholder: "e.g. 4",
+    hint: "A value of 4 means 4 reads for every 1 write.",
+  },
+  payload_kb: {
+    placeholder: "e.g. 8",
+    hint: "Average request or message size in KB. Larger payloads reduce effective capacity and increase latency.",
+  },
+  fanout_count: {
+    placeholder: "e.g. 20",
+    hint: "Average downstream recipients or spawned tasks per async event.",
+  },
+};
+
 type FlowNodeData = {
   label: string;
   archetype: GraphNode["archetype"];
@@ -317,6 +343,14 @@ export function AppShell() {
   const criticalPath = activePaths.find((path) => path.kind === "critical_path") ?? null;
   const queueBacklogPath =
     activePaths.find((path) => path.kind === "queue_backlog") ?? null;
+  const graphPatterns = useMemo(
+    () =>
+      detectGraphPatterns(
+        canvasNodes.map(flowNodeToGraphNode),
+        canvasEdges.map(flowEdgeToGraphEdge),
+      ),
+    [canvasEdges, canvasNodes],
+  );
   const affectedNodes = useMemo(
     () =>
       (activeFlowResult?.nodes ?? [])
@@ -1507,6 +1541,7 @@ export function AppShell() {
             <label className="field">
               <span>Name</span>
               <input
+                placeholder="e.g. Chat Read Path Stress Test"
                 value={draftName}
                 onChange={(event) => {
                   setDraftName(event.target.value);
@@ -1518,6 +1553,7 @@ export function AppShell() {
               <span>Description</span>
               <textarea
                 rows={5}
+                placeholder="Optional notes about the scenario, assumptions, or what you are testing."
                 value={draftDescription}
                 onChange={(event) => {
                   setDraftDescription(event.target.value);
@@ -1530,41 +1566,51 @@ export function AppShell() {
                 <span>Requests / sec</span>
                 <input
                   inputMode="numeric"
+                  placeholder={runFieldHelp.requests_per_second.placeholder}
                   value={requestsPerSecond}
                   onChange={(event) => setRequestsPerSecond(event.target.value)}
                 />
+                <small className="field-hint">{runFieldHelp.requests_per_second.hint}</small>
               </label>
               <label className="field">
                 <span>Concurrent users</span>
                 <input
                   inputMode="numeric"
+                  placeholder={runFieldHelp.concurrent_users.placeholder}
                   value={concurrentUsers}
                   onChange={(event) => setConcurrentUsers(event.target.value)}
                 />
+                <small className="field-hint">{runFieldHelp.concurrent_users.hint}</small>
               </label>
               <label className="field">
                 <span>Read:write ratio</span>
                 <input
                   inputMode="decimal"
+                  placeholder={runFieldHelp.read_write_ratio.placeholder}
                   value={readWriteRatio}
                   onChange={(event) => setReadWriteRatio(event.target.value)}
                 />
+                <small className="field-hint">{runFieldHelp.read_write_ratio.hint}</small>
               </label>
               <label className="field">
                 <span>Payload (KB)</span>
                 <input
                   inputMode="decimal"
+                  placeholder={runFieldHelp.payload_kb.placeholder}
                   value={payloadKB}
                   onChange={(event) => setPayloadKB(event.target.value)}
                 />
+                <small className="field-hint">{runFieldHelp.payload_kb.hint}</small>
               </label>
               <label className="field">
                 <span>Fanout count</span>
                 <input
                   inputMode="numeric"
+                  placeholder={runFieldHelp.fanout_count.placeholder}
                   value={fanoutCount}
                   onChange={(event) => setFanoutCount(event.target.value)}
                 />
+                <small className="field-hint">{runFieldHelp.fanout_count.hint}</small>
               </label>
             </div>
           </div>
@@ -1617,6 +1663,21 @@ export function AppShell() {
         </aside>
 
         <section className="board-panel">
+          {graphPatterns.length > 0 ? (
+            <div className="panel">
+              <p className="panel-kicker">Pattern Notes</p>
+              <h2>What Luka sees in this graph</h2>
+              <div className="pattern-list">
+                {graphPatterns.map((pattern) => (
+                  <article className="pattern-card" key={pattern.title}>
+                    <strong>{pattern.title}</strong>
+                    <p>{pattern.body}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div
             ref={canvasShellRef}
             className={`canvas-shell${draggedArchetype ? " canvas-shell--ready" : ""}`}
@@ -1985,11 +2046,15 @@ export function AppShell() {
                 <label className="field">
                   <span>Label</span>
                   <input
+                    placeholder="Human-readable component name"
                     value={selectedNode.data.label}
                     onChange={(event) =>
                       handleNodeLabelChange(selectedNode.id, event.target.value)
                     }
                   />
+                  <small className="field-hint">
+                    This is just the display label. Luka simulates behavior from the component type, not the label.
+                  </small>
                 </label>
 
                 <label className="field">
@@ -2009,31 +2074,36 @@ export function AppShell() {
                       </option>
                     ))}
                   </select>
+                  <small className="field-hint">
+                    Default colors come from the backend archetype catalog. You can override them for visual clarity.
+                  </small>
                 </label>
 
-                <p className="empty-copy">
-                  Use replicas for identical instances of the same logical component.
-                  Use separate nodes when they represent different systems with different responsibilities.
-                </p>
+                <div className="context-note">
+                  <strong>{selectedNode.data.archetype.replaceAll("_", " ")}</strong>
+                  <p>{getNodeArchetypeHelp(selectedNode.data.archetype)}</p>
+                </div>
 
-                {Object.entries(nodePropertyLabels).map(([key, label]) => (
+                {getVisibleNodePropertyKeys(selectedNode.data.archetype).map((key) => (
                   <label className="field" key={key}>
-                    <span>{label}</span>
+                    <span>{nodePropertyLabels[key]}</span>
                     <input
                       inputMode="decimal"
+                      placeholder={getNodePropertyPlaceholder(key)}
                       value={
-                        selectedNode.data.properties[
-                          key as keyof GraphNode["properties"]
-                        ] ?? ""
+                        selectedNode.data.properties[key] ?? ""
                       }
                       onChange={(event) =>
                         handleNodePropertyChange(
                           selectedNode.id,
-                          key as keyof GraphNode["properties"],
+                          key,
                           event.target.value,
                         )
                       }
                     />
+                    <small className="field-hint">
+                      {getNodePropertyHelp(key, selectedNode.data.archetype)}
+                    </small>
                   </label>
                 ))}
 
@@ -2047,7 +2117,7 @@ export function AppShell() {
               </div>
             ) : (
               <p className="empty-copy">
-                Click a node to edit its label, color, and capacity assumptions.
+                Click a node to edit its label, color, and capacity assumptions. Luka will show only the settings that matter for that component type.
               </p>
             )}
           </div>
@@ -2137,6 +2207,9 @@ export function AppShell() {
                       </option>
                     ))}
                   </select>
+                  <small className="field-hint">
+                    {getEdgeFieldHelp("interactionType")}
+                  </small>
                   <select
                     value={selectedEdge.data?.ruleType ?? "always"}
                     disabled={selectedEdge.data?.interactionType === "fallback"}
@@ -2157,34 +2230,45 @@ export function AppShell() {
                       </option>
                     ))}
                   </select>
+                  <small className="field-hint">
+                    {getEdgeFieldHelp("ruleType", selectedEdge.data?.interactionType)}
+                  </small>
                   <input
                     inputMode="decimal"
+                    placeholder="e.g. 3"
                     value={String(selectedEdge.data?.routingWeight ?? 1)}
                     onChange={(event) =>
                       handleEdgeRoutingWeightChange(selectedEdge.id, event.target.value)
                     }
                   />
+                  <small className="field-hint">{getEdgeFieldHelp("routingWeight")}</small>
                   <input
                     inputMode="decimal"
+                    placeholder="e.g. 5"
                     value={String(selectedEdge.data?.fanoutMultiplier ?? 1)}
                     onChange={(event) =>
                       handleEdgeFanoutChange(selectedEdge.id, event.target.value)
                     }
                   />
+                  <small className="field-hint">{getEdgeFieldHelp("fanoutMultiplier")}</small>
                   <input
                     inputMode="decimal"
+                    placeholder="e.g. 120"
                     value={String(selectedEdge.data?.timeoutMS ?? 0)}
                     onChange={(event) =>
                       handleEdgeTimeoutChange(selectedEdge.id, event.target.value)
                     }
                   />
+                  <small className="field-hint">{getEdgeFieldHelp("timeoutMS")}</small>
                   <input
                     inputMode="numeric"
+                    placeholder="e.g. 2"
                     value={String(selectedEdge.data?.retryAttempts ?? 0)}
                     onChange={(event) =>
                       handleEdgeRetryChange(selectedEdge.id, event.target.value)
                     }
                   />
+                  <small className="field-hint">{getEdgeFieldHelp("retryAttempts")}</small>
                   <div className="flow-checkboxes">
                     {requestClasses.map((requestClass) => (
                       <label className="flow-checkbox" key={`${selectedEdge.id}-${requestClass.id}`}>
@@ -2226,6 +2310,9 @@ export function AppShell() {
                     </option>
                   ))}
                 </select>
+                <small className="field-hint">
+                  Choose the component where this traffic starts.
+                </small>
               </label>
 
               <label className="field">
@@ -2241,6 +2328,9 @@ export function AppShell() {
                     </option>
                   ))}
                 </select>
+                <small className="field-hint">
+                  Choose the next hop that receives traffic from the source.
+                </small>
               </label>
 
               <label className="field">
@@ -2259,6 +2349,9 @@ export function AppShell() {
                     </option>
                   ))}
                 </select>
+                <small className="field-hint">
+                  {getEdgeFieldHelp("interactionType")}
+                </small>
               </label>
 
               <label className="field">
@@ -2276,48 +2369,59 @@ export function AppShell() {
                     </option>
                   ))}
                 </select>
+                <small className="field-hint">
+                  {getEdgeFieldHelp("ruleType", newEdgeInteraction)}
+                </small>
               </label>
 
               <label className="field">
                 <span>Routing weight</span>
                 <input
                   inputMode="decimal"
+                  placeholder="e.g. 3"
                   value={newEdgeRoutingWeight}
                   onChange={(event) =>
                     setNewEdgeRoutingWeight(event.target.value)
                   }
                 />
+                <small className="field-hint">{getEdgeFieldHelp("routingWeight")}</small>
               </label>
 
               <label className="field">
                 <span>Edge fanout multiplier</span>
                 <input
                   inputMode="decimal"
+                  placeholder="e.g. 20"
                   value={newEdgeFanoutMultiplier}
                   onChange={(event) =>
                     setNewEdgeFanoutMultiplier(event.target.value)
                   }
                 />
+                <small className="field-hint">{getEdgeFieldHelp("fanoutMultiplier")}</small>
               </label>
 
               <label className="field">
                 <span>Timeout (ms)</span>
                 <input
                   inputMode="decimal"
+                  placeholder="e.g. 150"
                   value={newEdgeTimeoutMS}
                   onChange={(event) => setNewEdgeTimeoutMS(event.target.value)}
                 />
+                <small className="field-hint">{getEdgeFieldHelp("timeoutMS")}</small>
               </label>
 
               <label className="field">
                 <span>Retry attempts</span>
                 <input
                   inputMode="numeric"
+                  placeholder="e.g. 1"
                   value={newEdgeRetryAttempts}
                   onChange={(event) =>
                     setNewEdgeRetryAttempts(event.target.value)
                   }
                 />
+                <small className="field-hint">{getEdgeFieldHelp("retryAttempts")}</small>
               </label>
 
               <div className="field">
@@ -3045,6 +3149,156 @@ function colorLabel(color: GraphNode["color"]) {
     default:
       return color;
   }
+}
+
+function getVisibleNodePropertyKeys(
+  archetype: GraphNode["archetype"],
+): Array<keyof GraphNode["properties"]> {
+  switch (archetype) {
+    case "client":
+      return [];
+    case "cache":
+      return ["replicas", "capacity_rps", "base_latency_ms", "cache_hit_rate"];
+    default:
+      return ["replicas", "capacity_rps", "base_latency_ms"];
+  }
+}
+
+function getNodeArchetypeHelp(archetype: GraphNode["archetype"]) {
+  switch (archetype) {
+    case "client":
+      return "Represents the users or devices generating traffic into the system.";
+    case "gateway":
+      return "Receives incoming traffic and forwards it to downstream services. It often handles routing, auth, or rate limiting.";
+    case "stateless_service":
+      return "Processes requests without owning durable state. Good for API and business-logic layers that can scale horizontally.";
+    case "cache":
+      return "Serves hot reads quickly and reduces downstream database pressure. Use cache hit/miss edges to model behavior.";
+    case "database":
+      return "Durable storage layer. It usually becomes the bottleneck when cache misses or write-heavy traffic rise.";
+    case "queue":
+      return "Buffers background work so bursty traffic does not hit workers or databases synchronously.";
+    case "worker":
+      return "Consumes queued work and executes background tasks like fanout, notifications, or async writes.";
+    default:
+      return "Simulator-aware infrastructure building block.";
+  }
+}
+
+function getNodePropertyPlaceholder(key: keyof GraphNode["properties"]) {
+  switch (key) {
+    case "replicas":
+      return "e.g. 3";
+    case "capacity_rps":
+      return "e.g. 10000";
+    case "base_latency_ms":
+      return "e.g. 20";
+    case "cache_hit_rate":
+      return "e.g. 0.9";
+    default:
+      return "";
+  }
+}
+
+function getNodePropertyHelp(
+  key: keyof GraphNode["properties"],
+  archetype: GraphNode["archetype"],
+) {
+  switch (key) {
+    case "replicas":
+      return "Number of identical instances sharing this load. Use separate nodes only when they represent different systems.";
+    case "capacity_rps":
+      return "How much work one component pool can handle per second before saturation. Combined capacity scales with replicas.";
+    case "base_latency_ms":
+      return "Healthy-case latency added by this component before saturation, queue lag, retries, or payload penalties kick in.";
+    case "cache_hit_rate":
+      return archetype === "cache"
+        ? "Fraction of reads served directly by cache. The remaining miss traffic continues downstream."
+        : "Only relevant for cache nodes.";
+    default:
+      return "";
+  }
+}
+
+function getEdgeFieldHelp(
+  field:
+    | "interactionType"
+    | "ruleType"
+    | "routingWeight"
+    | "fanoutMultiplier"
+    | "timeoutMS"
+    | "retryAttempts",
+  interactionType?: EdgeInteractionType,
+) {
+  switch (field) {
+    case "interactionType":
+      return "Choose whether this edge is a normal request, async enqueue, worker consume path, conditional branch, or fallback path.";
+    case "ruleType":
+      if (interactionType === "fallback") {
+        return "Fallback edges always carry dropped or failed traffic when the source cannot keep up.";
+      }
+      return "Controls which portion of traffic uses this edge. Use cache hit/miss on edges leaving a cache.";
+    case "routingWeight":
+      return "Used to split traffic across parallel edges. A weight of 3 gets roughly three times the traffic of a sibling edge with weight 1.";
+    case "fanoutMultiplier":
+      return "Amplifies work on this edge. A value of 20 means one upstream action becomes 20 downstream operations here.";
+    case "timeoutMS":
+      return "If the downstream component is slower than this, Luka treats part of the traffic as timed out.";
+    case "retryAttempts":
+      return "Extra attempts after a timeout. Retries can recover requests, but they also amplify load downstream.";
+    default:
+      return "";
+  }
+}
+
+function detectGraphPatterns(nodes: GraphNode[], edges: GraphEdge[]) {
+  const nodeByID = new Map(nodes.map((node) => [node.id, node]));
+  const patterns: Array<{ title: string; body: string }> = [];
+
+  const hasCacheAside = edges.some((edge) => {
+    const source = nodeByID.get(edge.source_node_id);
+    const target = nodeByID.get(edge.target_node_id);
+
+    return (
+      source?.archetype === "cache" &&
+      target?.archetype === "database" &&
+      edge.routing_rule.rule_type === "cache_miss"
+    );
+  });
+
+  if (hasCacheAside) {
+    patterns.push({
+      title: "Cache-aside path detected",
+      body: "Reads can return early from cache, while cache misses continue to the database. If miss traffic rises, DB pressure will grow quickly.",
+    });
+  }
+
+  const hasAsyncQueue = edges.some((edge) => edge.interaction_type === "async_enqueue");
+  const hasWorkerConsume = edges.some((edge) => edge.interaction_type === "consume");
+  if (hasAsyncQueue && hasWorkerConsume) {
+    patterns.push({
+      title: "Async queue workflow detected",
+      body: "Your service is pushing work into a queue and workers consume it later. This decouples user-facing latency from background processing, but backlog appears when enqueue rate exceeds worker throughput.",
+    });
+  }
+
+  const hasWeightedSplit = edges.some((edge) => (edge.routing_rule.value ?? 1) > 1);
+  if (hasWeightedSplit) {
+    patterns.push({
+      title: "Weighted routing detected",
+      body: "Parallel edges with routing weights will not share traffic evenly. Higher weights attract more traffic and can shift the bottleneck.",
+    });
+  }
+
+  const hasFallback = edges.some((edge) => edge.interaction_type === "fallback");
+  if (hasFallback) {
+    patterns.push({
+      title: "Fallback path detected",
+      body: "Dropped or failed traffic can spill into fallback edges. This is useful for graceful degradation, async buffering, or degraded responses.",
+    });
+  }
+
+  return patterns;
 }
 
 function statusLabel(utilization: number) {

@@ -243,6 +243,12 @@ button {
   font-size: 0.9rem;
 }
 
+.field-hint {
+  color: #64748b;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .field input,
 .field textarea,
 .field select {
@@ -257,6 +263,34 @@ button {
 .board-panel {
   display: grid;
   gap: 1rem;
+}
+
+.pattern-list {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+.pattern-card {
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(79, 110, 247, 0.14);
+  border-radius: 18px;
+  background: rgba(241, 245, 255, 0.9);
+}
+
+.pattern-card p {
+  margin: 0.45rem 0 0;
+}
+
+.context-note {
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(128, 147, 176, 0.16);
+  border-radius: 18px;
+  background: rgba(246, 249, 255, 0.9);
+}
+
+.context-note p {
+  margin: 0.45rem 0 0;
 }
 
 .canvas-shell {
