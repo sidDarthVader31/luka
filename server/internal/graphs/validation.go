@@ -204,6 +204,19 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 				}
 			}
 
+			targetNode, targetExists := nodeByID[edge.TargetNodeID]
+			if targetExists && !isAllowedConnection(sourceNode.Archetype, targetNode.Archetype) {
+				issues = append(
+					issues,
+					fmt.Sprintf(
+						"%s cannot connect source archetype %q to target archetype %q",
+						prefix,
+						sourceNode.Archetype,
+						targetNode.Archetype,
+					),
+				)
+			}
+
 			if edge.RoutingRule.RuleType == domain.RoutingRuleCacheHit || edge.RoutingRule.RuleType == domain.RoutingRuleCacheMiss {
 				if sourceNode.Archetype != domain.NodeArchetypeCache {
 					issues = append(issues, fmt.Sprintf("%s uses %q but source node %q is not a cache", prefix, edge.RoutingRule.RuleType, edge.SourceNodeID))
@@ -281,6 +294,46 @@ func isSupportedColor(value string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func isAllowedConnection(source, target domain.NodeArchetype) bool {
+	allowedTargets, ok := allowedConnections()[source]
+	if !ok {
+		return false
+	}
+
+	return slices.Contains(allowedTargets, target)
+}
+
+func allowedConnections() map[domain.NodeArchetype][]domain.NodeArchetype {
+	return map[domain.NodeArchetype][]domain.NodeArchetype{
+		domain.NodeArchetypeClient: {
+			domain.NodeArchetypeGateway,
+			domain.NodeArchetypeStatelessService,
+		},
+		domain.NodeArchetypeGateway: {
+			domain.NodeArchetypeStatelessService,
+		},
+		domain.NodeArchetypeStatelessService: {
+			domain.NodeArchetypeStatelessService,
+			domain.NodeArchetypeCache,
+			domain.NodeArchetypeDatabase,
+			domain.NodeArchetypeQueue,
+		},
+		domain.NodeArchetypeCache: {
+			domain.NodeArchetypeDatabase,
+		},
+		domain.NodeArchetypeDatabase: {},
+		domain.NodeArchetypeQueue: {
+			domain.NodeArchetypeWorker,
+		},
+		domain.NodeArchetypeWorker: {
+			domain.NodeArchetypeStatelessService,
+			domain.NodeArchetypeCache,
+			domain.NodeArchetypeDatabase,
+			domain.NodeArchetypeQueue,
+		},
 	}
 }
 
