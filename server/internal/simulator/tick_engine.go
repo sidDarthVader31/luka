@@ -432,17 +432,25 @@ func simulateNodeTick(
 	droppedRPS := max(0, demandRPS-effectiveCapacityRPS)
 	queueDepth := 0.0
 	queueLagMS := 0.0
+	utilization := demandRPS / effectiveCapacityRPS
 
 	if node.Archetype == domain.NodeArchetypeQueue {
-		queueDepth = max(0, priorQueueDepth+((incomingRPS-processedRPS)*tickDurationSeconds))
+		availableWork := priorQueueDepth + (incomingRPS * tickDurationSeconds)
+		dispatchRPS := min(availableWork/tickDurationSeconds, effectiveCapacityRPS)
+		processedRPS = dispatchRPS
+		queueDepth = max(0, availableWork-(dispatchRPS*tickDurationSeconds))
 		droppedRPS = 0
+		utilization = dispatchRPS / effectiveCapacityRPS
 		if effectiveCapacityRPS > 0 {
 			queueLagMS = (queueDepth / effectiveCapacityRPS) * 1000
 		}
 	}
 
-	utilization := demandRPS / effectiveCapacityRPS
 	latency := estimateLatency(node.Properties.BaseLatencyMS, utilization, node, workload) + queueLagMS
+	saturated := utilization > 1
+	if node.Archetype == domain.NodeArchetypeQueue && queueDepth > 0 {
+		saturated = true
+	}
 
 	result := domain.NodeSimulationResult{
 		NodeID:               node.ID,
@@ -456,8 +464,8 @@ func simulateNodeTick(
 		EstimatedLatencyMS:   round(latency),
 		QueueDepthEstimate:   round(queueDepth),
 		QueueLagMS:           round(queueLagMS),
-		Saturated:            utilization > 1,
-		Explanation:          explainNode(node, demandRPS, effectiveCapacityRPS, utilization > 1, queueLagMS),
+		Saturated:            saturated,
+		Explanation:          explainNode(node, incomingRPS, effectiveCapacityRPS, saturated, queueLagMS),
 	}
 
 	return result, queueDepth

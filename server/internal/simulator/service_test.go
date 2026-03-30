@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
+	"github.com/sidDarthVader31/luka/server/internal/store"
 )
 
 func TestRunDesignWithTickModeBuildsTimeline(t *testing.T) {
@@ -74,8 +75,8 @@ func TestRunDesignWithTickModeBuildsTimeline(t *testing.T) {
 		t.Fatalf("ticks len = %d, want 6", len(result.Ticks))
 	}
 
-	if result.Bottleneck == nil || result.Bottleneck.NodeID != "queue-1" {
-		t.Fatalf("bottleneck = %#v, want queue-1", result.Bottleneck)
+	if result.Bottleneck == nil || result.Bottleneck.NodeID != "worker-1" {
+		t.Fatalf("bottleneck = %#v, want worker-1", result.Bottleneck)
 	}
 
 	lastTick := result.Ticks[len(result.Ticks)-1]
@@ -338,6 +339,181 @@ func TestRunDesignWithTickModeRoutesTimedOutQueueWorkToDeadLetterQueue(t *testin
 	}
 	if !foundDLQLoad {
 		t.Fatal("expected dead-letter queue to receive load")
+	}
+}
+
+func TestSampleQueueDesignStaysHealthyAtLowLoad(t *testing.T) {
+	repo := store.NewMemoryDesignRepository()
+	design, err := repo.GetByID(store.SampleQueueDesignID)
+	if err != nil {
+		t.Fatalf("get design: %v", err)
+	}
+
+	result, err := NewService().RunDesignWithConfig(
+		design,
+		domain.Workload{
+			RequestsPerSecond: 1000,
+			ConcurrentUsers:   1000,
+			ReadWriteRatio:    4,
+			PayloadKB:         8,
+			FanoutCount:       1,
+		},
+		domain.SimulationConfig{
+			Mode:           domain.SimulationModeTickBased,
+			TickCount:      18,
+			TickDurationMS: 1000,
+		},
+	)
+	if err != nil {
+		t.Fatalf("RunDesignWithConfig() error = %v", err)
+	}
+
+	nodeByID := make(map[string]domain.NodeSimulationResult, len(result.Nodes))
+	for _, node := range result.Nodes {
+		nodeByID[node.NodeID] = node
+	}
+
+	queue := nodeByID["queue-1"]
+	worker := nodeByID["worker-1"]
+	db := nodeByID["db-1"]
+
+	if queue.Utilization >= 1 {
+		t.Fatalf("queue utilization = %.2f, want below saturation", queue.Utilization)
+	}
+	if worker.Utilization >= 1 {
+		t.Fatalf("worker utilization = %.2f, want below saturation", worker.Utilization)
+	}
+	if db.Utilization >= 1 {
+		t.Fatalf("db utilization = %.2f, want below saturation", db.Utilization)
+	}
+}
+
+func TestIncreasingQueueReplicasReducesQueueUtilization(t *testing.T) {
+	repo := store.NewMemoryDesignRepository()
+	design, err := repo.GetByID(store.SampleQueueDesignID)
+	if err != nil {
+		t.Fatalf("get design: %v", err)
+	}
+
+	withOneReplica, err := NewService().RunDesignWithConfig(
+		design,
+		domain.Workload{
+			RequestsPerSecond: 1000,
+			ConcurrentUsers:   1000,
+			ReadWriteRatio:    4,
+			PayloadKB:         8,
+			FanoutCount:       1,
+		},
+		domain.SimulationConfig{
+			Mode:           domain.SimulationModeTickBased,
+			TickCount:      18,
+			TickDurationMS: 1000,
+		},
+	)
+	if err != nil {
+		t.Fatalf("RunDesignWithConfig() with one replica error = %v", err)
+	}
+
+	for index := range design.Graph.Nodes {
+		if design.Graph.Nodes[index].ID == "queue-1" {
+			design.Graph.Nodes[index].Properties.Replicas = 2
+		}
+	}
+
+	withTwoReplicas, err := NewService().RunDesignWithConfig(
+		design,
+		domain.Workload{
+			RequestsPerSecond: 1000,
+			ConcurrentUsers:   1000,
+			ReadWriteRatio:    4,
+			PayloadKB:         8,
+			FanoutCount:       1,
+		},
+		domain.SimulationConfig{
+			Mode:           domain.SimulationModeTickBased,
+			TickCount:      18,
+			TickDurationMS: 1000,
+		},
+	)
+	if err != nil {
+		t.Fatalf("RunDesignWithConfig() with two replicas error = %v", err)
+	}
+
+	var queueOne, queueTwo domain.NodeSimulationResult
+	for _, node := range withOneReplica.Nodes {
+		if node.NodeID == "queue-1" {
+			queueOne = node
+		}
+	}
+	for _, node := range withTwoReplicas.Nodes {
+		if node.NodeID == "queue-1" {
+			queueTwo = node
+		}
+	}
+
+	if queueTwo.Utilization >= queueOne.Utilization {
+		t.Fatalf("queue utilization with two replicas = %.2f, want lower than one replica %.2f", queueTwo.Utilization, queueOne.Utilization)
+	}
+}
+
+func TestSampleQueueDesignAtTenKRPS(t *testing.T) {
+	repo := store.NewMemoryDesignRepository()
+	design, err := repo.GetByID(store.SampleQueueDesignID)
+	if err != nil {
+		t.Fatalf("get design: %v", err)
+	}
+
+	workload := domain.Workload{
+		RequestsPerSecond: 10000,
+		ConcurrentUsers:   1000,
+		ReadWriteRatio:    4,
+		PayloadKB:         8,
+		FanoutCount:       1,
+	}
+	config := domain.SimulationConfig{
+		Mode:           domain.SimulationModeTickBased,
+		TickCount:      18,
+		TickDurationMS: 1000,
+	}
+
+	withOneReplica, err := NewService().RunDesignWithConfig(design, workload, config)
+	if err != nil {
+		t.Fatalf("RunDesignWithConfig() one replica error = %v", err)
+	}
+
+	for index := range design.Graph.Nodes {
+		if design.Graph.Nodes[index].ID == "queue-1" {
+			design.Graph.Nodes[index].Properties.Replicas = 2
+		}
+	}
+
+	withTwoReplicas, err := NewService().RunDesignWithConfig(design, workload, config)
+	if err != nil {
+		t.Fatalf("RunDesignWithConfig() two replicas error = %v", err)
+	}
+
+	nodeByID := func(nodes []domain.NodeSimulationResult) map[string]domain.NodeSimulationResult {
+		result := make(map[string]domain.NodeSimulationResult, len(nodes))
+		for _, node := range nodes {
+			result[node.NodeID] = node
+		}
+		return result
+	}
+
+	one := nodeByID(withOneReplica.Nodes)
+	two := nodeByID(withTwoReplicas.Nodes)
+
+	if one["queue-1"].Utilization < 0.99 {
+		t.Fatalf("one replica queue utilization = %.2f, want saturated queue", one["queue-1"].Utilization)
+	}
+	if two["queue-1"].Utilization < 0.99 {
+		t.Fatalf("two replica queue utilization = %.2f, want saturated queue", two["queue-1"].Utilization)
+	}
+	if two["worker-1"].Utilization <= one["worker-1"].Utilization {
+		t.Fatalf("worker utilization with two queue replicas = %.2f, want above one replica %.2f", two["worker-1"].Utilization, one["worker-1"].Utilization)
+	}
+	if two["db-1"].Utilization <= one["db-1"].Utilization {
+		t.Fatalf("db utilization with two queue replicas = %.2f, want above one replica %.2f", two["db-1"].Utilization, one["db-1"].Utilization)
 	}
 }
 
