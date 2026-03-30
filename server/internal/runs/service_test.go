@@ -166,3 +166,35 @@ func TestListRunsByDesign(t *testing.T) {
 		t.Fatalf("second returned run = %q, want first run %q", runs[1].ID, firstRun.ID)
 	}
 }
+
+func TestCreateRunWithTickBasedSimulation(t *testing.T) {
+	service := NewService(
+		store.NewMemoryDesignRepository(),
+		store.NewMemoryRunRepository(),
+		simulator.NewService(),
+	)
+
+	run, err := service.Create(domain.CreateRunRequest{
+		DesignID: store.SampleQueueDesignID,
+		Workload: domain.Workload{
+			RequestsPerSecond: 7000,
+			FanoutCount:       2,
+		},
+		SimulationConfig: domain.SimulationConfig{
+			Mode:           domain.SimulationModeTickBased,
+			TickCount:      5,
+			TickDurationMS: 1000,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if run.Result == nil {
+		t.Fatal("expected result")
+	}
+
+	if len(run.Result.Ticks) != 5 {
+		t.Fatalf("ticks len = %d, want 5", len(run.Result.Ticks))
+	}
+}

@@ -32,6 +32,7 @@ type graphMetrics struct {
 	Edges      []domain.EdgeSimulationResult
 	Paths      []domain.PathExplanation
 	Bottleneck *domain.NodeSimulationResult
+	Ticks      []domain.SimulationTick
 }
 
 const queueBacklogWindowSeconds = 5.0
@@ -40,11 +41,25 @@ func NewService() *Service {
 	return &Service{}
 }
 
-func (s *Service) RunDesign(design domain.Design, workload domain.Workload) (*domain.SimulationResult, error) {
+func (s *Service) RunDesign(
+	design domain.Design,
+	workload domain.Workload,
+) (*domain.SimulationResult, error) {
+	return s.RunDesignWithConfig(design, workload, domain.SimulationConfig{
+		Mode: domain.SimulationModeAnalytical,
+	})
+}
+
+func (s *Service) RunDesignWithConfig(
+	design domain.Design,
+	workload domain.Workload,
+	config domain.SimulationConfig,
+) (*domain.SimulationResult, error) {
 	if workload.RequestsPerSecond <= 0 {
 		return nil, errors.New("workload.requests_per_second must be greater than zero")
 	}
 
+	config = normalizeSimulationConfig(config)
 	globalWorkload := normalizeWorkload(workload)
 	requestClasses := normalizeRequestClasses(design.Graph.RequestClasses)
 	defaultRequestClassID := requestClasses[0].ID
@@ -52,6 +67,7 @@ func (s *Service) RunDesign(design domain.Design, workload domain.Workload) (*do
 	flowResults := make([]domain.FlowSimulationResult, 0, len(requestClasses))
 	aggregateIncomingByNode := make(map[string]float64, len(design.Graph.Nodes))
 	aggregateRoutedByEdge := make(map[string]float64, len(design.Graph.Edges))
+	aggregateTicks := make([]domain.SimulationTick, 0)
 
 	for _, requestClass := range requestClasses {
 		flowWorkload := scaleWorkload(workload, requestClass.TrafficShare)
@@ -62,7 +78,16 @@ func (s *Service) RunDesign(design domain.Design, workload domain.Workload) (*do
 			defaultRequestClassID,
 		)
 
-		metrics, err := s.runGraph(design.Graph.Nodes, flowEdges, normalizedFlowWorkload)
+		var (
+			metrics *graphMetrics
+			err     error
+		)
+		switch config.Mode {
+		case domain.SimulationModeTickBased:
+			metrics, err = s.runGraphTickBased(design.Graph.Nodes, flowEdges, normalizedFlowWorkload, config)
+		default:
+			metrics, err = s.runGraph(design.Graph.Nodes, flowEdges, normalizedFlowWorkload)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -85,15 +110,18 @@ func (s *Service) RunDesign(design domain.Design, workload domain.Workload) (*do
 			Nodes:          metrics.Nodes,
 			Edges:          metrics.Edges,
 			Paths:          metrics.Paths,
+			Ticks:          metrics.Ticks,
 		})
+
+		if len(metrics.Ticks) > 0 {
+			aggregateTicks = mergeSimulationTicks(aggregateTicks, metrics.Ticks)
+		}
 	}
 
-	overallMetrics := aggregateMetrics(
-		design,
-		globalWorkload,
-		aggregateIncomingByNode,
-		aggregateRoutedByEdge,
-	)
+	overallMetrics := aggregateMetrics(design, globalWorkload, aggregateIncomingByNode, aggregateRoutedByEdge)
+	if len(aggregateTicks) > 0 {
+		overallMetrics = aggregateTickMetrics(design.Graph.Nodes, design.Graph.Edges, aggregateTicks)
+	}
 
 	return &domain.SimulationResult{
 		Nodes:      overallMetrics.Nodes,
@@ -102,6 +130,7 @@ func (s *Service) RunDesign(design domain.Design, workload domain.Workload) (*do
 		Bottleneck: overallMetrics.Bottleneck,
 		Summary:    summarize(design, globalWorkload, *overallMetrics.Bottleneck),
 		Flows:      flowResults,
+		Ticks:      aggregateTicks,
 	}, nil
 }
 
@@ -233,6 +262,7 @@ func (s *Service) runGraph(
 		Edges:      edgeResults,
 		Paths:      paths,
 		Bottleneck: bottleneck,
+		Ticks:      nil,
 	}, nil
 }
 
@@ -646,6 +676,7 @@ func aggregateMetrics(
 		Edges:      edgeList,
 		Paths:      paths,
 		Bottleneck: bottleneck,
+		Ticks:      nil,
 	}
 }
 

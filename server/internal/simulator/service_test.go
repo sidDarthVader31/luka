@@ -6,6 +6,162 @@ import (
 	"github.com/sidDarthVader31/luka/server/internal/domain"
 )
 
+func TestRunDesignWithTickModeBuildsTimeline(t *testing.T) {
+	service := NewService()
+
+	result, err := service.RunDesignWithConfig(domain.Design{
+		ID:   "design-ticks",
+		Name: "Queue Lag Over Time",
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{ID: "client-1", Label: "Client", Archetype: domain.NodeArchetypeClient, Color: "cobalt", Position: domain.NodePosition{X: 0, Y: 0}},
+				{
+					ID:        "service-1",
+					Label:     "API",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "emerald",
+					Position:  domain.NodePosition{X: 120, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   12000,
+						BaseLatencyMS: 15,
+					},
+				},
+				{
+					ID:        "queue-1",
+					Label:     "Jobs Queue",
+					Archetype: domain.NodeArchetypeQueue,
+					Color:     "orange",
+					Position:  domain.NodePosition{X: 280, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   3500,
+						BaseLatencyMS: 4,
+					},
+				},
+				{
+					ID:        "worker-1",
+					Label:     "Worker",
+					Archetype: domain.NodeArchetypeWorker,
+					Color:     "teal",
+					Position:  domain.NodePosition{X: 440, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   3200,
+						BaseLatencyMS: 25,
+					},
+				},
+			},
+			Edges: []domain.Edge{
+				{ID: "edge-client-service", SourceNodeID: "client-1", TargetNodeID: "service-1", InteractionType: domain.EdgeInteractionSyncRequest, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+				{ID: "edge-service-queue", SourceNodeID: "service-1", TargetNodeID: "queue-1", InteractionType: domain.EdgeInteractionAsyncEnqueue, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+				{ID: "edge-queue-worker", SourceNodeID: "queue-1", TargetNodeID: "worker-1", InteractionType: domain.EdgeInteractionConsume, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+			},
+		},
+	}, domain.Workload{
+		RequestsPerSecond: 8000,
+		FanoutCount:       2,
+	}, domain.SimulationConfig{
+		Mode:           domain.SimulationModeTickBased,
+		TickCount:      6,
+		TickDurationMS: 1000,
+	})
+	if err != nil {
+		t.Fatalf("RunDesignWithConfig() error = %v", err)
+	}
+
+	if len(result.Ticks) != 6 {
+		t.Fatalf("ticks len = %d, want 6", len(result.Ticks))
+	}
+
+	if result.Bottleneck == nil || result.Bottleneck.NodeID != "queue-1" {
+		t.Fatalf("bottleneck = %#v, want queue-1", result.Bottleneck)
+	}
+
+	lastTick := result.Ticks[len(result.Ticks)-1]
+	queueSeen := false
+	for _, node := range lastTick.Nodes {
+		if node.NodeID != "queue-1" {
+			continue
+		}
+		queueSeen = true
+		if node.QueueDepthEstimate <= 0 {
+			t.Fatalf("queue depth = %.0f, want backlog > 0", node.QueueDepthEstimate)
+		}
+	}
+
+	if !queueSeen {
+		t.Fatal("expected queue node in final tick")
+	}
+}
+
+func TestRunDesignWithTickModeSchedulesRetriesAcrossTicks(t *testing.T) {
+	service := NewService()
+
+	result, err := service.RunDesignWithConfig(domain.Design{
+		ID:   "design-retries",
+		Name: "Retry Pressure",
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{ID: "client-1", Label: "Client", Archetype: domain.NodeArchetypeClient, Color: "cobalt", Position: domain.NodePosition{X: 0, Y: 0}},
+				{
+					ID:        "service-1",
+					Label:     "API",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "emerald",
+					Position:  domain.NodePosition{X: 120, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   7000,
+						BaseLatencyMS: 15,
+					},
+				},
+				{
+					ID:        "worker-1",
+					Label:     "Slow Worker",
+					Archetype: domain.NodeArchetypeWorker,
+					Color:     "teal",
+					Position:  domain.NodePosition{X: 280, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   2500,
+						BaseLatencyMS: 180,
+					},
+				},
+			},
+			Edges: []domain.Edge{
+				{ID: "edge-client-service", SourceNodeID: "client-1", TargetNodeID: "service-1", InteractionType: domain.EdgeInteractionSyncRequest, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+				{ID: "edge-service-worker", SourceNodeID: "service-1", TargetNodeID: "worker-1", InteractionType: domain.EdgeInteractionSyncRequest, TimeoutMS: 80, RetryAttempts: 2, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+			},
+		},
+	}, domain.Workload{
+		RequestsPerSecond: 3000,
+	}, domain.SimulationConfig{
+		Mode:           domain.SimulationModeTickBased,
+		TickCount:      4,
+		TickDurationMS: 1000,
+	})
+	if err != nil {
+		t.Fatalf("RunDesignWithConfig() error = %v", err)
+	}
+
+	if len(result.Ticks) != 4 {
+		t.Fatalf("ticks len = %d, want 4", len(result.Ticks))
+	}
+
+	retrySeen := false
+	for _, tick := range result.Ticks[1:] {
+		for _, edge := range tick.Edges {
+			if edge.EdgeID == "edge-service-worker" && edge.RetriedRPS > 0 {
+				retrySeen = true
+			}
+		}
+	}
+	if !retrySeen {
+		t.Fatal("expected retried load on later ticks")
+	}
+}
+
 func TestRunDesignWithQueueAndWorkerPath(t *testing.T) {
 	service := NewService()
 

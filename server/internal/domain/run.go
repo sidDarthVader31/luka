@@ -6,6 +6,7 @@ type SimulationMode string
 
 const (
 	SimulationModeAnalytical SimulationMode = "analytical"
+	SimulationModeTickBased  SimulationMode = "tick_based"
 )
 
 type RunStatus string
@@ -23,7 +24,9 @@ type Workload struct {
 }
 
 type SimulationConfig struct {
-	Mode SimulationMode `json:"mode"`
+	Mode           SimulationMode `json:"mode"`
+	TickCount      int            `json:"tick_count,omitempty"`
+	TickDurationMS int            `json:"tick_duration_ms,omitempty"`
 }
 
 type CreateRunRequest struct {
@@ -53,6 +56,7 @@ type SimulationResult struct {
 	Edges      []EdgeSimulationResult `json:"edges"`
 	Paths      []PathExplanation      `json:"paths,omitempty"`
 	Flows      []FlowSimulationResult `json:"flows,omitempty"`
+	Ticks      []SimulationTick       `json:"ticks,omitempty"`
 }
 
 type FlowSimulationResult struct {
@@ -65,6 +69,7 @@ type FlowSimulationResult struct {
 	Nodes          []NodeSimulationResult `json:"nodes"`
 	Edges          []EdgeSimulationResult `json:"edges"`
 	Paths          []PathExplanation      `json:"paths,omitempty"`
+	Ticks          []SimulationTick       `json:"ticks,omitempty"`
 }
 
 type NodeSimulationResult struct {
@@ -108,4 +113,33 @@ type PathExplanation struct {
 	QueueLagMS         float64  `json:"queue_lag_ms,omitempty"`
 	RetriedRPS         float64  `json:"retried_rps,omitempty"`
 	TimedOutRPS        float64  `json:"timed_out_rps,omitempty"`
+}
+
+type SimulationTick struct {
+	Index   int             `json:"index"`
+	TimeMS  int             `json:"time_ms"`
+	Summary string          `json:"summary,omitempty"`
+	Nodes   []NodeTickState `json:"nodes"`
+	Edges   []EdgeTickState `json:"edges"`
+}
+
+type NodeTickState struct {
+	NodeID             string  `json:"node_id"`
+	IncomingRPS        float64 `json:"incoming_rps"`
+	ProcessedRPS       float64 `json:"processed_rps"`
+	DroppedRPS         float64 `json:"dropped_rps"`
+	Utilization        float64 `json:"utilization"`
+	EstimatedLatencyMS float64 `json:"estimated_latency_ms"`
+	QueueDepthEstimate float64 `json:"queue_depth_estimate,omitempty"`
+	QueueLagMS         float64 `json:"queue_lag_ms,omitempty"`
+	Saturated          bool    `json:"saturated"`
+}
+
+type EdgeTickState struct {
+	EdgeID        string  `json:"edge_id"`
+	AttemptedRPS  float64 `json:"attempted_rps,omitempty"`
+	RoutedRPS     float64 `json:"routed_rps"`
+	RetriedRPS    float64 `json:"retried_rps,omitempty"`
+	TimedOutRPS   float64 `json:"timed_out_rps,omitempty"`
+	RoutingWeight float64 `json:"routing_weight,omitempty"`
 }

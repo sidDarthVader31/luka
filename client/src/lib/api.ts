@@ -164,6 +164,30 @@ export type RunResult = {
   nodes: RunNodeResult[];
   edges: RunEdgeResult[];
   paths?: PathExplanation[];
+  ticks?: Array<{
+    index: number;
+    time_ms: number;
+    summary?: string;
+    nodes: Array<{
+      node_id: string;
+      incoming_rps: number;
+      processed_rps: number;
+      dropped_rps: number;
+      utilization: number;
+      estimated_latency_ms: number;
+      queue_depth_estimate?: number;
+      queue_lag_ms?: number;
+      saturated: boolean;
+    }>;
+    edges: Array<{
+      edge_id: string;
+      attempted_rps?: number;
+      routed_rps: number;
+      retried_rps?: number;
+      timed_out_rps?: number;
+      routing_weight?: number;
+    }>;
+  }>;
   flows?: Array<{
     request_class_id: string;
     name: string;
@@ -174,6 +198,7 @@ export type RunResult = {
     nodes: RunNodeResult[];
     edges: RunEdgeResult[];
     paths?: PathExplanation[];
+    ticks?: RunResult["ticks"];
   }>;
 };
 
@@ -183,7 +208,9 @@ export type Run = {
   design_snapshot: Design;
   workload: Workload;
   simulation_config: {
-    mode: "analytical";
+    mode: "analytical" | "tick_based";
+    tick_count?: number;
+    tick_duration_ms?: number;
   };
   status: "completed";
   result?: RunResult;
@@ -269,7 +296,9 @@ export function createRun(input: {
   design?: Design;
   workload: Workload;
   simulation_config: {
-    mode: "analytical";
+    mode: "analytical" | "tick_based";
+    tick_count?: number;
+    tick_duration_ms?: number;
   };
 }) {
   return request<Run>("/runs", {

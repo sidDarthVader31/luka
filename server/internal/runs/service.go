@@ -11,7 +11,7 @@ import (
 )
 
 type Simulator interface {
-	RunDesign(design domain.Design, workload domain.Workload) (*domain.SimulationResult, error)
+	RunDesignWithConfig(design domain.Design, workload domain.Workload, config domain.SimulationConfig) (*domain.SimulationResult, error)
 }
 
 type Service struct {
@@ -47,7 +47,7 @@ func (s *Service) Create(req domain.CreateRunRequest) (*domain.Run, error) {
 		config.Mode = domain.SimulationModeAnalytical
 	}
 
-	result, err := s.simulator.RunDesign(design, req.Workload)
+	result, err := s.simulator.RunDesignWithConfig(design, req.Workload, config)
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +133,14 @@ func validateCreateRunRequest(req domain.CreateRunRequest) error {
 		return errors.New("workload.payload_kb cannot be negative")
 	case req.Workload.FanoutCount < 0:
 		return errors.New("workload.fanout_count cannot be negative")
+	case req.SimulationConfig.Mode != "" &&
+		req.SimulationConfig.Mode != domain.SimulationModeAnalytical &&
+		req.SimulationConfig.Mode != domain.SimulationModeTickBased:
+		return errors.New("simulation_config.mode must be analytical or tick_based")
+	case req.SimulationConfig.TickCount < 0:
+		return errors.New("simulation_config.tick_count cannot be negative")
+	case req.SimulationConfig.TickDurationMS < 0:
+		return errors.New("simulation_config.tick_duration_ms cannot be negative")
 	default:
 		return nil
 	}

@@ -806,12 +806,12 @@ export function AppShell() {
           ? {
               design,
               workload: workload.value,
-              simulation_config: { mode: "analytical" },
+              simulation_config: { mode: "tick_based", tick_count: 18, tick_duration_ms: 1000 },
             }
           : {
               design_id: savedDesign.id,
               workload: workload.value,
-              simulation_config: { mode: "analytical" },
+              simulation_config: { mode: "tick_based", tick_count: 18, tick_duration_ms: 1000 },
             },
       ),
     );
