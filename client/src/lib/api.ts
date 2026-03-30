@@ -42,6 +42,12 @@ export type GraphNode = {
     capacity_rps?: number;
     base_latency_ms?: number;
     cache_hit_rate?: number;
+    balancing_strategy?: "weighted_round_robin" | "least_pressure";
+    cache_warmup_ticks?: number;
+    cache_invalidation_rate?: number;
+    read_capacity_rps?: number;
+    write_capacity_rps?: number;
+    connection_limit?: number;
   };
 };
 
@@ -53,6 +59,8 @@ export type GraphEdge = {
   fanout_multiplier?: number;
   timeout_ms?: number;
   retry_attempts?: number;
+  retry_budget_ratio?: number;
+  circuit_breaker_threshold?: number;
   request_class_ids?: string[];
   routing_rule: {
     rule_type: RoutingRuleType;
@@ -139,11 +147,15 @@ export type RunEdgeResult = {
   fanout_multiplier: number;
   timeout_ms?: number;
   retry_attempts?: number;
+  retry_budget_ratio?: number;
   rule_type: RoutingRuleType;
   routing_weight?: number;
   attempted_rps?: number;
   retried_rps?: number;
   timed_out_rps?: number;
+  fallback_rps?: number;
+  dead_lettered_rps?: number;
+  circuit_open?: boolean;
   routed_rps: number;
 };
 
@@ -156,6 +168,8 @@ export type PathExplanation = {
   queue_lag_ms?: number;
   retried_rps?: number;
   timed_out_rps?: number;
+  fallback_rps?: number;
+  dead_lettered_rps?: number;
 };
 
 export type RunResult = {
@@ -185,6 +199,9 @@ export type RunResult = {
       routed_rps: number;
       retried_rps?: number;
       timed_out_rps?: number;
+      fallback_rps?: number;
+      dead_lettered_rps?: number;
+      circuit_open?: boolean;
       routing_weight?: number;
     }>;
   }>;
@@ -216,6 +233,16 @@ export type Run = {
   result?: RunResult;
   created_at: string;
   completed_at?: string;
+};
+
+export type StreamedTick = NonNullable<RunResult["ticks"]>[number];
+
+export type SimulationStreamEvent = {
+  type: "start" | "tick" | "complete" | "error";
+  run_id?: string;
+  tick?: StreamedTick;
+  result?: RunResult;
+  error?: string;
 };
 
 export type ApiStatus = {
@@ -305,6 +332,104 @@ export function createRun(input: {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export async function streamRun(
+  input: Parameters<typeof createRun>[0],
+  handlers: {
+    onStart?: () => void;
+    onTick?: (tick: StreamedTick) => void;
+    onComplete?: (event: SimulationStreamEvent) => void;
+  } = {},
+) {
+  const response = await fetch(`${API_BASE}/runs/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    const errorBody = (await response.json().catch(() => null)) as
+      | { error?: string; details?: string }
+      | null;
+
+    throw new Error(
+      errorBody?.details ?? errorBody?.error ?? "Luka stream request failed",
+    );
+  }
+
+  if (!response.body) {
+    throw new Error("Streaming response body is unavailable.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let completionEvent: SimulationStreamEvent | null = null;
+
+  function handleChunk(chunk: string) {
+    let eventType = "message";
+    const dataLines: string[] = [];
+
+    for (const line of chunk.split(/\r?\n/)) {
+      if (line.startsWith("event:")) {
+        eventType = line.slice("event:".length).trim();
+        continue;
+      }
+
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice("data:".length).trim());
+      }
+    }
+
+    if (dataLines.length === 0) {
+      return;
+    }
+
+    const payload = JSON.parse(dataLines.join("\n")) as SimulationStreamEvent;
+    const effectiveType = payload.type || (eventType as SimulationStreamEvent["type"]);
+
+    switch (effectiveType) {
+      case "start":
+        handlers.onStart?.();
+        break;
+      case "tick":
+        if (payload.tick) {
+          handlers.onTick?.(payload.tick);
+        }
+        break;
+      case "complete":
+        completionEvent = payload;
+        handlers.onComplete?.(payload);
+        break;
+      case "error":
+        throw new Error(payload.error || "Luka simulation stream failed");
+      default:
+        break;
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+
+    let separatorIndex = buffer.indexOf("\n\n");
+    while (separatorIndex >= 0) {
+      const chunk = buffer.slice(0, separatorIndex);
+      buffer = buffer.slice(separatorIndex + 2);
+      handleChunk(chunk);
+      separatorIndex = buffer.indexOf("\n\n");
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
+  return completionEvent;
 }
 
 export function getRun(runId: string) {

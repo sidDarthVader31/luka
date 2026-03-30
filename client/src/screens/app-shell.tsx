@@ -38,17 +38,18 @@ import type {
   Run,
   RunEdgeResult,
   RunNodeResult,
+  StreamedTick,
   Workload,
 } from "../lib/api";
 import {
   createDesign,
-  createRun,
   duplicateDesign,
   getDesign,
   getStatus,
   listDesignVersions,
   listRunsForDesign,
   listComponentArchetypes,
+  streamRun,
   updateDesign,
 } from "../lib/api";
 import {
@@ -69,6 +70,12 @@ const nodePropertyLabels: Record<keyof GraphNode["properties"], string> = {
   capacity_rps: "Capacity / sec",
   base_latency_ms: "Latency (ms)",
   cache_hit_rate: "Cache hit rate",
+  balancing_strategy: "Balancing strategy",
+  cache_warmup_ticks: "Cache warmup ticks",
+  cache_invalidation_rate: "Cache invalidation rate",
+  read_capacity_rps: "Read capacity / sec",
+  write_capacity_rps: "Write capacity / sec",
+  connection_limit: "Connection limit",
 };
 
 const runFieldHelp: Record<
@@ -169,6 +176,9 @@ export function AppShell() {
   const [autosaveState, setAutosaveState] = useState<
     "idle" | "pending" | "saving" | "saved" | "error"
   >("idle");
+  const [liveTick, setLiveTick] = useState<StreamedTick | null>(null);
+  const [liveTickCount, setLiveTickCount] = useState(0);
+  const [liveTargetTickCount, setLiveTargetTickCount] = useState(0);
   const canvasShellRef = useRef<HTMLDivElement | null>(null);
   const undoStackRef = useRef<EditorSnapshot[]>([]);
 
@@ -192,6 +202,7 @@ export function AppShell() {
     [canvasNodes],
   );
   const isRunningSimulation = busyAction === "Running simulation";
+  const activeTick = isRunningSimulation ? liveTick : null;
 
   const activeFlowResult = useMemo(() => {
     if (activeFlowResultID === "overall") {
@@ -205,16 +216,40 @@ export function AppShell() {
     );
   }, [activeFlowResultID, lastRun]);
 
-  const resultNodesByID = useMemo(
+  const liveNodeResults = useMemo(
+    () => buildLiveNodeResults(activeTick, canvasNodes),
+    [activeTick, canvasNodes],
+  );
+
+  const liveEdgeResults = useMemo(
+    () => buildLiveEdgeResults(activeTick, canvasEdges),
+    [activeTick, canvasEdges],
+  );
+
+  const displayedBottleneck = useMemo(
     () =>
-      new Map((activeFlowResult?.nodes ?? []).map((node) => [node.node_id, node])),
-    [activeFlowResult],
+      activeTick
+        ? buildLiveBottleneck(liveNodeResults)
+        : (activeFlowResult?.bottleneck ?? null),
+    [activeFlowResult, activeTick, liveNodeResults],
+  );
+
+  const displayedNodeResults = activeTick
+    ? liveNodeResults
+    : (activeFlowResult?.nodes ?? []);
+
+  const displayedEdgeResults = activeTick
+    ? liveEdgeResults
+    : (activeFlowResult?.edges ?? []);
+
+  const resultNodesByID = useMemo(
+    () => new Map(displayedNodeResults.map((node) => [node.node_id, node])),
+    [displayedNodeResults],
   );
 
   const resultEdgesByID = useMemo(
-    () =>
-      new Map((activeFlowResult?.edges ?? []).map((edge) => [edge.edge_id, edge])),
-    [activeFlowResult],
+    () => new Map(displayedEdgeResults.map((edge) => [edge.edge_id, edge])),
+    [displayedEdgeResults],
   );
   const colorOptions = useMemo(
     () =>
@@ -272,7 +307,7 @@ export function AppShell() {
               : palette.background,
             color: palette.text,
             boxShadow:
-              activeFlowResult?.bottleneck?.node_id === node.id
+              displayedBottleneck?.node_id === node.id
                 ? "0 0 0 4px rgba(216, 77, 58, 0.22), 0 14px 28px rgba(71, 93, 124, 0.2)"
                 : result && result.utilization >= 0.8
                   ? "0 0 0 2px rgba(232, 153, 29, 0.18), 0 10px 24px rgba(71, 93, 124, 0.14)"
@@ -283,7 +318,7 @@ export function AppShell() {
           selected: node.id === selectedNodeID,
         };
       }),
-    [activeFlowResult, canvasNodes, resultNodesByID, selectedNodeID],
+    [canvasNodes, displayedBottleneck, resultNodesByID, selectedNodeID],
   );
 
   const displayEdges = useMemo(
@@ -293,7 +328,7 @@ export function AppShell() {
         const highlight = getEdgeHighlight(
           edge,
           result,
-          activeFlowResult?.edges ?? [],
+          displayedEdgeResults,
           resultNodesByID,
         );
 
@@ -324,22 +359,22 @@ export function AppShell() {
           },
         };
       }),
-    [activeFlowResult, canvasEdges, resultEdgesByID, resultNodesByID, selectedEdgeID],
+    [canvasEdges, displayedEdgeResults, resultEdgesByID, resultNodesByID, selectedEdgeID],
   );
 
   const hottestEdge = useMemo(
     () =>
-      (activeFlowResult?.edges ?? []).reduce<RunEdgeResult | undefined>((current, edge) => {
+      displayedEdgeResults.reduce<RunEdgeResult | undefined>((current, edge) => {
         if (!current || edge.routed_rps > current.routed_rps) {
           return edge;
         }
 
         return current;
       }, undefined),
-    [activeFlowResult],
+    [displayedEdgeResults],
   );
 
-  const activePaths = activeFlowResult?.paths ?? [];
+  const activePaths = activeTick ? [] : (activeFlowResult?.paths ?? []);
   const criticalPath = activePaths.find((path) => path.kind === "critical_path") ?? null;
   const queueBacklogPath =
     activePaths.find((path) => path.kind === "queue_backlog") ?? null;
@@ -353,11 +388,11 @@ export function AppShell() {
   );
   const affectedNodes = useMemo(
     () =>
-      (activeFlowResult?.nodes ?? [])
+      displayedNodeResults
         .filter(
           (node) =>
             node.archetype !== "client" &&
-            node.node_id !== activeFlowResult?.bottleneck?.node_id &&
+            node.node_id !== displayedBottleneck?.node_id &&
             (node.utilization >= 0.8 ||
               node.dropped_rps > 0 ||
               (node.queue_lag_ms ?? 0) > 0),
@@ -374,7 +409,7 @@ export function AppShell() {
 
           return rightScore - leftScore;
         }),
-    [activeFlowResult],
+    [displayedBottleneck, displayedNodeResults],
   );
 
   function captureSnapshot(): EditorSnapshot {
@@ -598,6 +633,12 @@ export function AppShell() {
     }
   }
 
+  function clearLiveSimulation() {
+    setLiveTick(null);
+    setLiveTickCount(0);
+    setLiveTargetTickCount(0);
+  }
+
   function buildPersistedDesignPayload() {
     return {
       name: draftName.trim() || "Fresh Canvas",
@@ -637,6 +678,7 @@ export function AppShell() {
 
   function resetToBlankCanvas() {
     const blank = createBlankDraft();
+    clearLiveSimulation();
 
     setSavedDesign(null);
     setDraftID(null);
@@ -670,6 +712,7 @@ export function AppShell() {
   ) {
     const draft = cloneDesignIntoDraft(design);
     const treatAsDraft = options?.treatAsDraft ?? false;
+    clearLiveSimulation();
 
     setSavedDesign(treatAsDraft ? null : design);
     setDraftID(treatAsDraft ? null : draft.id);
@@ -800,34 +843,70 @@ export function AppShell() {
     }
 
     const design = currentDraftDesign();
-    const run = await withAction("Running simulation", () =>
-      createRun(
-        isDirty || !savedDesign
-          ? {
-              design,
-              workload: workload.value,
-              simulation_config: { mode: "tick_based", tick_count: 18, tick_duration_ms: 1000 },
-            }
-          : {
-              design_id: savedDesign.id,
-              workload: workload.value,
-              simulation_config: { mode: "tick_based", tick_count: 18, tick_duration_ms: 1000 },
-            },
-      ),
-    );
+    const simulationConfig = { mode: "tick_based" as const, tick_count: 18, tick_duration_ms: 1000 };
+    const runInput =
+      isDirty || !savedDesign
+        ? {
+            design,
+            workload: workload.value,
+            simulation_config: simulationConfig,
+          }
+        : {
+            design_id: savedDesign.id,
+            workload: workload.value,
+            simulation_config: simulationConfig,
+          };
 
-    if (!run) {
-      return;
-    }
-
-    setLastRun(run);
+    setBusyAction("Running simulation");
+    setFeedback("Starting live simulation...");
     setActiveFlowResultID("overall");
-    if (savedDesign?.id && run.design_id === savedDesign.id) {
-      void loadRunHistory(run.design_id);
-    }
-    setFeedback(run.result?.summary ?? `Completed run ${run.id}.`);
-    if (run.result?.bottleneck?.node_id) {
-      setSelectedNodeID(run.result.bottleneck.node_id);
+    setLastRun(null);
+    clearLiveSimulation();
+    setLiveTargetTickCount(simulationConfig.tick_count);
+
+    try {
+      const completion = await streamRun(runInput, {
+        onStart: () => {
+          setFeedback("Streaming simulation ticks from the backend...");
+        },
+        onTick: (tick) => {
+          setLiveTick(tick);
+          setLiveTickCount(tick.index + 1);
+          setFeedback(tick.summary || `Processing tick ${tick.index + 1}...`);
+        },
+      });
+
+      if (!completion?.result) {
+        throw new Error("Simulation completed without a final result.");
+      }
+
+      const completedAt = new Date().toISOString();
+      const run: Run = {
+        id: completion.run_id ?? `run_${Date.now()}`,
+        design_id: savedDesign?.id,
+        design_snapshot: design,
+        workload: workload.value,
+        simulation_config: simulationConfig,
+        status: "completed",
+        result: completion.result,
+        created_at: completedAt,
+        completed_at: completedAt,
+      };
+
+      setLastRun(run);
+      clearLiveSimulation();
+      if (savedDesign?.id && run.design_id === savedDesign.id) {
+        void loadRunHistory(run.design_id);
+      }
+      setFeedback(run.result.summary ?? `Completed run ${run.id}.`);
+      if (run.result.bottleneck?.node_id) {
+        setSelectedNodeID(run.result.bottleneck.node_id);
+      }
+    } catch (error) {
+      clearLiveSimulation();
+      setFeedback(readError(error));
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -1770,7 +1849,11 @@ export function AppShell() {
                   <div className="run-visualizer__pulse" />
                   <div className="run-visualizer__pulse run-visualizer__pulse--delay" />
                   <strong>Running simulation</strong>
-                  <span>Propagating load through the current graph.</span>
+                  <span>
+                    {liveTickCount > 0 && liveTargetTickCount > 0
+                      ? `Streaming tick ${liveTickCount} of ${liveTargetTickCount}.`
+                      : "Propagating load through the current graph."}
+                  </span>
                 </div>
               </div>
             ) : null}
@@ -1800,13 +1883,18 @@ export function AppShell() {
             ) : null}
           </div>
 
-          {lastRun?.result ? (
+          {lastRun?.result || activeTick ? (
             <>
               <div className="run-summary">
                 <div className="run-summary__header">
                   <div>
                     <p className="panel-kicker">Latest run</p>
-                    <strong>{activeFlowResult?.summary ?? lastRun.result.summary}</strong>
+                    <strong>
+                      {activeTick?.summary ??
+                        activeFlowResult?.summary ??
+                        lastRun?.result?.summary ??
+                        "Streaming simulation"}
+                    </strong>
                   </div>
                   <div className="run-summary__actions">
                     <button
@@ -1850,7 +1938,7 @@ export function AppShell() {
                   <div className="comparison-card">
                     <span>Bottleneck</span>
                     <strong>
-                      {activeFlowResult?.bottleneck?.label ?? "No bottleneck"}
+                      {displayedBottleneck?.label ?? "No bottleneck"}
                     </strong>
                   </div>
                   <div className="comparison-card">
@@ -1864,8 +1952,10 @@ export function AppShell() {
                   <div className="comparison-card">
                     <span>Flow coverage</span>
                     <strong>
-                      {activeFlowResultID === "overall"
-                        ? `${lastRun.result.flows?.length ?? 0} flows`
+                      {activeTick
+                        ? `${liveTickCount}${liveTargetTickCount ? ` / ${liveTargetTickCount}` : ""} ticks`
+                        : activeFlowResultID === "overall"
+                        ? `${lastRun?.result?.flows?.length ?? 0} flows`
                         : activeFlowResult?.name ?? "Single flow"}
                     </strong>
                   </div>
@@ -1880,7 +1970,11 @@ export function AppShell() {
                   <div className="comparison-card">
                     <span>Critical path</span>
                     <strong>
-                      {criticalPath ? summarizePathForCard(criticalPath, nodeLabelsByID) : "No path yet"}
+                      {criticalPath
+                        ? summarizePathForCard(criticalPath, nodeLabelsByID)
+                        : activeTick
+                          ? "Streaming current tick"
+                          : "No path yet"}
                     </strong>
                   </div>
                   <div className="comparison-card">
@@ -1892,9 +1986,13 @@ export function AppShell() {
                     </strong>
                   </div>
                 </div>
-                <p>{formatWorkload(lastRun.workload)}</p>
-                {activeFlowResult?.bottleneck ? (
-                  <p>{activeFlowResult.bottleneck.explanation}</p>
+                <p>
+                  {lastRun
+                    ? formatWorkload(lastRun.workload)
+                    : `Streaming ${requestsPerSecond || 0} rps through the current graph.`}
+                </p>
+                {displayedBottleneck ? (
+                  <p>{displayedBottleneck.explanation}</p>
                 ) : null}
                 {affectedNodes.length > 0 ? (
                   <div className="affected-components">
@@ -3009,6 +3107,116 @@ function buildNodeLabel(
       )}
     </div>
   );
+}
+
+function buildLiveNodeResults(
+  tick: StreamedTick | null,
+  canvasNodes: Node<FlowNodeData>[],
+): RunNodeResult[] {
+  if (!tick) {
+    return [];
+  }
+
+  const nodeMeta = new Map(
+    canvasNodes.map((node) => [node.id, node.data] as const),
+  );
+
+  return tick.nodes.map((node) => {
+    const meta = nodeMeta.get(node.node_id);
+    const label = meta?.label ?? node.node_id;
+    const archetype = meta?.archetype ?? "stateless_service";
+    const effectiveCapacityRPS =
+      node.utilization > 0 ? Math.round((node.incoming_rps / node.utilization) * 100) / 100 : 0;
+
+    return {
+      node_id: node.node_id,
+      label,
+      archetype,
+      incoming_rps: node.incoming_rps,
+      processed_rps: node.processed_rps,
+      dropped_rps: node.dropped_rps,
+      effective_capacity_rps: effectiveCapacityRPS,
+      utilization: node.utilization,
+      estimated_latency_ms: node.estimated_latency_ms,
+      queue_depth_estimate: node.queue_depth_estimate,
+      queue_lag_ms: node.queue_lag_ms,
+      saturated: node.saturated,
+      explanation: buildLiveNodeExplanation(label, node),
+    };
+  });
+}
+
+function buildLiveEdgeResults(
+  tick: StreamedTick | null,
+  canvasEdges: Edge<FlowEdgeData>[],
+): RunEdgeResult[] {
+  if (!tick) {
+    return [];
+  }
+
+  const edgeMeta = new Map(
+    canvasEdges.map((edge) => [edge.id, edge] as const),
+  );
+
+  return tick.edges.map((edge) => {
+    const meta = edgeMeta.get(edge.edge_id);
+
+    return {
+      edge_id: edge.edge_id,
+      source_node_id: meta?.source ?? "",
+      target_node_id: meta?.target ?? "",
+      interaction_type: meta?.data?.interactionType ?? "sync_request",
+      fanout_multiplier: meta?.data?.fanoutMultiplier ?? 1,
+      timeout_ms: meta?.data?.timeoutMS ?? 0,
+      retry_attempts: meta?.data?.retryAttempts ?? 0,
+      retry_budget_ratio: 0,
+      rule_type: meta?.data?.ruleType ?? "always",
+      routing_weight: edge.routing_weight ?? meta?.data?.routingWeight ?? 1,
+      attempted_rps: edge.attempted_rps,
+      retried_rps: edge.retried_rps,
+      timed_out_rps: edge.timed_out_rps,
+      fallback_rps: edge.fallback_rps,
+      dead_lettered_rps: edge.dead_lettered_rps,
+      circuit_open: edge.circuit_open,
+      routed_rps: edge.routed_rps,
+    };
+  });
+}
+
+function buildLiveBottleneck(
+  nodes: RunNodeResult[],
+): RunNodeResult | null {
+  return (
+    nodes
+      .filter((node) => node.archetype !== "client")
+      .reduce<RunNodeResult | null>((current, node) => {
+        if (!current) {
+          return node;
+        }
+
+        const currentScore =
+          current.utilization * 1000 + current.dropped_rps + (current.queue_lag_ms ?? 0);
+        const nextScore =
+          node.utilization * 1000 + node.dropped_rps + (node.queue_lag_ms ?? 0);
+
+        return nextScore > currentScore ? node : current;
+      }, null)
+  );
+}
+
+function buildLiveNodeExplanation(
+  label: string,
+  node: StreamedTick["nodes"][number],
+) {
+  if ((node.queue_lag_ms ?? 0) > 0) {
+    return `${label} is building queue lag of about ${Math.round(node.queue_lag_ms ?? 0)} ms while ${formatCompactNumber(node.incoming_rps)} requests/sec arrive.`;
+  }
+
+  if ((node.dropped_rps ?? 0) > 0 || node.saturated) {
+    return `${label} is under pressure at ${Math.round(node.utilization * 100)}% utilization with ${formatCompactNumber(node.incoming_rps)} requests/sec arriving.`;
+  }
+
+  return `${label} is healthy at this tick with ${formatCompactNumber(node.incoming_rps)} requests/sec arriving.`;
 }
 
 function summarizePathForCard(
