@@ -59,6 +59,7 @@ func (r *Router) registerRoutes() {
 		v1.POST("/designs/:designId/duplicate", r.designHandler.Duplicate)
 		v1.GET("/designs/:designId/runs", r.runHandler.ListByDesign)
 		v1.POST("/runs", r.runHandler.Create)
+		v1.POST("/runs/stream", r.runHandler.Stream)
 		v1.GET("/runs/:runId", r.runHandler.Get)
 	}
 }

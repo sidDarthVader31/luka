@@ -99,6 +99,34 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 			issues = append(issues, fmt.Sprintf("%s position must contain finite x and y values", prefix))
 		}
 
+		if node.Properties.BalancingStrategy != "" && !isSupportedBalancingStrategy(node.Properties.BalancingStrategy) {
+			issues = append(issues, fmt.Sprintf("%s balancing_strategy %q is not supported", prefix, node.Properties.BalancingStrategy))
+		}
+
+		if node.Properties.CacheWarmupTicks < 0 {
+			issues = append(issues, fmt.Sprintf("%s cache_warmup_ticks cannot be negative", prefix))
+		}
+
+		if !isFinite(node.Properties.CacheInvalidationRate) {
+			issues = append(issues, fmt.Sprintf("%s cache_invalidation_rate must be finite", prefix))
+		}
+
+		if node.Properties.CacheInvalidationRate < 0 || node.Properties.CacheInvalidationRate > 1 {
+			issues = append(issues, fmt.Sprintf("%s cache_invalidation_rate must be between 0 and 1", prefix))
+		}
+
+		if !isFinite(node.Properties.ReadCapacityRPS) || !isFinite(node.Properties.WriteCapacityRPS) {
+			issues = append(issues, fmt.Sprintf("%s read/write capacity values must be finite", prefix))
+		}
+
+		if node.Properties.ReadCapacityRPS < 0 || node.Properties.WriteCapacityRPS < 0 {
+			issues = append(issues, fmt.Sprintf("%s read/write capacity values cannot be negative", prefix))
+		}
+
+		if node.Properties.ConnectionLimit < 0 {
+			issues = append(issues, fmt.Sprintf("%s connection_limit cannot be negative", prefix))
+		}
+
 		if node.Archetype == domain.NodeArchetypeClient {
 			clientCount += 1
 		}
@@ -160,6 +188,22 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 
 		if edge.RetryAttempts < 0 {
 			issues = append(issues, fmt.Sprintf("%s retry_attempts cannot be negative", prefix))
+		}
+
+		if !isFinite(edge.RetryBudgetRatio) {
+			issues = append(issues, fmt.Sprintf("%s retry_budget_ratio must be finite", prefix))
+		}
+
+		if edge.RetryBudgetRatio < 0 {
+			issues = append(issues, fmt.Sprintf("%s retry_budget_ratio cannot be negative", prefix))
+		}
+
+		if !isFinite(edge.CircuitBreakerThreshold) {
+			issues = append(issues, fmt.Sprintf("%s circuit_breaker_threshold must be finite", prefix))
+		}
+
+		if edge.CircuitBreakerThreshold < 0 || edge.CircuitBreakerThreshold > 1 {
+			issues = append(issues, fmt.Sprintf("%s circuit_breaker_threshold must be between 0 and 1", prefix))
 		}
 
 		if !isFinite(edge.RoutingRule.Value) {
@@ -225,6 +269,10 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 
 			if edge.InteractionType == domain.EdgeInteractionFallback && edge.RoutingRule.RuleType != domain.RoutingRuleAlways {
 				issues = append(issues, fmt.Sprintf("%s fallback edges must use routing rule %q", prefix, domain.RoutingRuleAlways))
+			}
+
+			if edge.CircuitBreakerThreshold > 0 && edge.InteractionType == domain.EdgeInteractionFallback {
+				issues = append(issues, fmt.Sprintf("%s fallback edges cannot define circuit_breaker_threshold", prefix))
 			}
 		}
 
@@ -306,6 +354,15 @@ func isAllowedConnection(source, target domain.NodeArchetype) bool {
 	return slices.Contains(allowedTargets, target)
 }
 
+func isSupportedBalancingStrategy(value string) bool {
+	switch value {
+	case "", "weighted_round_robin", "least_pressure":
+		return true
+	default:
+		return false
+	}
+}
+
 func allowedConnections() map[domain.NodeArchetype][]domain.NodeArchetype {
 	return map[domain.NodeArchetype][]domain.NodeArchetype{
 		domain.NodeArchetypeClient: {
@@ -327,6 +384,7 @@ func allowedConnections() map[domain.NodeArchetype][]domain.NodeArchetype {
 		domain.NodeArchetypeDatabase: {},
 		domain.NodeArchetypeQueue: {
 			domain.NodeArchetypeWorker,
+			domain.NodeArchetypeQueue,
 		},
 		domain.NodeArchetypeWorker: {
 			domain.NodeArchetypeStatelessService,

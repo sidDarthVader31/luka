@@ -134,6 +134,80 @@ func (s *Service) RunDesignWithConfig(
 	}, nil
 }
 
+func (s *Service) StreamDesignWithConfig(
+	design domain.Design,
+	workload domain.Workload,
+	config domain.SimulationConfig,
+	observeTick func(domain.SimulationTick),
+) (*domain.SimulationResult, error) {
+	if workload.RequestsPerSecond <= 0 {
+		return nil, errors.New("workload.requests_per_second must be greater than zero")
+	}
+
+	config = normalizeSimulationConfig(config)
+	config.Mode = domain.SimulationModeTickBased
+
+	globalWorkload := normalizeWorkload(workload)
+	requestClasses := normalizeRequestClasses(design.Graph.RequestClasses)
+	defaultRequestClassID := requestClasses[0].ID
+
+	flowResults := make([]domain.FlowSimulationResult, 0, len(requestClasses))
+	aggregateTicks := make([]domain.SimulationTick, 0)
+
+	for _, requestClass := range requestClasses {
+		flowWorkload := scaleWorkload(workload, requestClass.TrafficShare)
+		normalizedFlowWorkload := normalizeWorkload(flowWorkload)
+		flowEdges := filterEdgesForRequestClass(design.Graph.Edges, requestClass.ID, defaultRequestClassID)
+
+		metrics, err := s.runGraphTickBasedWithObserver(
+			design.Graph.Nodes,
+			flowEdges,
+			normalizedFlowWorkload,
+			config,
+			nil,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		flowResults = append(flowResults, domain.FlowSimulationResult{
+			RequestClassID: requestClass.ID,
+			Name:           requestClass.Name,
+			TrafficShare:   round(requestClass.TrafficShare * 100),
+			Workload:       flowWorkload,
+			Summary:        summarizeFlow(design.Name, requestClass.Name, normalizedFlowWorkload, *metrics.Bottleneck),
+			Bottleneck:     metrics.Bottleneck,
+			Nodes:          metrics.Nodes,
+			Edges:          metrics.Edges,
+			Paths:          metrics.Paths,
+			Ticks:          metrics.Ticks,
+		})
+
+		if len(metrics.Ticks) > 0 {
+			aggregateTicks = mergeSimulationTicks(aggregateTicks, metrics.Ticks)
+		}
+	}
+
+	overallMetrics := aggregateTickMetrics(design.Graph.Nodes, design.Graph.Edges, aggregateTicks)
+	result := &domain.SimulationResult{
+		Nodes:      overallMetrics.Nodes,
+		Edges:      overallMetrics.Edges,
+		Paths:      overallMetrics.Paths,
+		Bottleneck: overallMetrics.Bottleneck,
+		Summary:    summarize(design, globalWorkload, *overallMetrics.Bottleneck),
+		Flows:      flowResults,
+		Ticks:      aggregateTicks,
+	}
+
+	if observeTick != nil {
+		for _, tick := range aggregateTicks {
+			observeTick(tick)
+		}
+	}
+
+	return result, nil
+}
+
 func (s *Service) runGraph(
 	nodes []domain.Node,
 	edges []domain.Edge,
@@ -216,6 +290,7 @@ func (s *Service) runGraph(
 				FanoutMultiplier: round(normalizedEdgeFanout(edge)),
 				TimeoutMS:        round(edge.TimeoutMS),
 				RetryAttempts:    edge.RetryAttempts,
+				RetryBudgetRatio: round(edge.RetryBudgetRatio),
 				RuleType:         edge.RoutingRule.RuleType,
 				RoutingWeight:    round(routingWeight(edge)),
 				AttemptedRPS:     round(routed),
@@ -283,12 +358,7 @@ func simulateNode(node domain.Node, incomingRPS float64, workload normalizedWork
 		}
 	}
 
-	effectiveCapacity := node.Properties.CapacityRPS
-	if node.Properties.Replicas > 1 {
-		effectiveCapacity *= float64(node.Properties.Replicas)
-	}
-
-	effectiveCapacity = effectiveCapacity / capacityPenalty(node, workload)
+	effectiveCapacity := effectiveNodeCapacityRPS(node, workload, incomingRPS)
 	if effectiveCapacity <= 0 {
 		effectiveCapacity = 1
 	}
@@ -363,6 +433,45 @@ func applyRoutingRule(
 	return routed, nil
 }
 
+func effectiveNodeCapacityRPS(node domain.Node, workload normalizedWorkload, incomingRPS float64) float64 {
+	replicas := max(float64(node.Properties.Replicas), 1)
+	baseCapacity := node.Properties.CapacityRPS
+	if baseCapacity <= 0 {
+		baseCapacity = 1
+	}
+
+	switch node.Archetype {
+	case domain.NodeArchetypeDatabase:
+		readCapacity := node.Properties.ReadCapacityRPS
+		writeCapacity := node.Properties.WriteCapacityRPS
+		if readCapacity <= 0 {
+			readCapacity = baseCapacity
+		}
+		if writeCapacity <= 0 {
+			writeCapacity = max(baseCapacity*0.55, 1)
+		}
+
+		readPoolSize := max(replicas-1, 1)
+		writePoolSize := 1.0
+		if replicas == 1 {
+			readPoolSize = 1
+		}
+
+		totalReadCapacity := readCapacity * readPoolSize
+		totalWriteCapacity := writeCapacity * writePoolSize
+		baseCapacity = weightedOperationCapacity(totalReadCapacity, totalWriteCapacity, workload.ReadShare, workload.WriteShare)
+	default:
+		baseCapacity *= replicas
+	}
+
+	effectiveCapacity := baseCapacity / capacityPenalty(node, workload)
+	if node.Archetype == domain.NodeArchetypeDatabase && node.Properties.ConnectionLimit > 0 {
+		effectiveCapacity /= connectionPressurePenalty(node.Properties.ConnectionLimit, incomingRPS)
+	}
+
+	return max(effectiveCapacity, 1)
+}
+
 func routeShare(edge domain.Edge, siblingEdges []domain.Edge) float64 {
 	if !shouldSplitOutgoingLoad(edge) {
 		return 1
@@ -417,7 +526,11 @@ func normalizedEdgeFanout(edge domain.Edge) float64 {
 }
 
 func normalizedHitRate(node domain.Node) float64 {
-	return min(max(node.Properties.CacheHitRate, 0), 1)
+	hitRate := min(max(node.Properties.CacheHitRate, 0), 1)
+	if node.Properties.CacheInvalidationRate > 0 {
+		hitRate *= 1 - min(max(node.Properties.CacheInvalidationRate, 0), 0.95)
+	}
+	return min(max(hitRate, 0), 1)
 }
 
 func estimateLatency(
@@ -661,6 +774,7 @@ func aggregateMetrics(
 			FanoutMultiplier: round(normalizedEdgeFanout(edge)),
 			TimeoutMS:        round(edge.TimeoutMS),
 			RetryAttempts:    edge.RetryAttempts,
+			RetryBudgetRatio: round(edge.RetryBudgetRatio),
 			RuleType:         edge.RoutingRule.RuleType,
 			RoutingWeight:    round(routingWeight(edge)),
 			AttemptedRPS:     round(routedByEdge[edge.ID]),
@@ -820,6 +934,38 @@ func buildPathExplanations(
 		})
 	}
 
+	var fallbackEdge *domain.EdgeSimulationResult
+	for _, edge := range edges {
+		if edge.FallbackRPS <= 0 && edge.DeadLetteredRPS <= 0 {
+			continue
+		}
+		if fallbackEdge == nil || (edge.FallbackRPS+edge.DeadLetteredRPS) > (fallbackEdge.FallbackRPS+fallbackEdge.DeadLetteredRPS) {
+			current := edge
+			fallbackEdge = &current
+		}
+	}
+
+	if fallbackEdge != nil {
+		fallbackNodeIDs, fallbackEdgeIDs := traceCriticalPath(fallbackEdge.SourceNodeID, incomingByTarget)
+		fallbackNodeIDs = append(fallbackNodeIDs, fallbackEdge.TargetNodeID)
+		fallbackEdgeIDs = append(fallbackEdgeIDs, fallbackEdge.EdgeID)
+		summary := fmt.Sprintf("Fallback path activated with %.0f requests/sec.", fallbackEdge.FallbackRPS)
+		kind := "fallback_activation"
+		if fallbackEdge.DeadLetteredRPS > 0 {
+			summary = fmt.Sprintf("Dead-letter handling activated with %.0f requests/sec moved into a queue fallback.", fallbackEdge.DeadLetteredRPS)
+			kind = "dead_letter_path"
+		}
+		paths = append(paths, domain.PathExplanation{
+			Kind:            kind,
+			Summary:         summary,
+			NodeIDs:         fallbackNodeIDs,
+			EdgeIDs:         fallbackEdgeIDs,
+			FallbackRPS:     round(fallbackEdge.FallbackRPS),
+			DeadLetteredRPS: round(fallbackEdge.DeadLetteredRPS),
+			TimedOutRPS:     round(fallbackEdge.TimedOutRPS),
+		})
+	}
+
 	return paths
 }
 
@@ -936,6 +1082,26 @@ func capacityPenalty(node domain.Node, workload normalizedWorkload) float64 {
 	}
 
 	return penalty
+}
+
+func weightedOperationCapacity(readCapacity, writeCapacity, readShare, writeShare float64) float64 {
+	readCapacity = max(readCapacity, 1)
+	writeCapacity = max(writeCapacity, 1)
+	totalShare := max(readShare+writeShare, 1)
+	readShare /= totalShare
+	writeShare /= totalShare
+	return 1 / ((readShare / readCapacity) + (writeShare / writeCapacity))
+}
+
+func connectionPressurePenalty(connectionLimit int, incomingRPS float64) float64 {
+	if connectionLimit <= 0 {
+		return 1
+	}
+	connectionLoad := incomingRPS / float64(connectionLimit)
+	if connectionLoad <= 1 {
+		return 1
+	}
+	return 1 + min((connectionLoad-1)*0.75, 2.5)
 }
 
 func payloadPenalty(payloadKB float64) float64 {

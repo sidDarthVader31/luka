@@ -12,6 +12,12 @@ import (
 
 type Simulator interface {
 	RunDesignWithConfig(design domain.Design, workload domain.Workload, config domain.SimulationConfig) (*domain.SimulationResult, error)
+	StreamDesignWithConfig(
+		design domain.Design,
+		workload domain.Workload,
+		config domain.SimulationConfig,
+		observeTick func(domain.SimulationTick),
+	) (*domain.SimulationResult, error)
 }
 
 type Service struct {
@@ -48,6 +54,57 @@ func (s *Service) Create(req domain.CreateRunRequest) (*domain.Run, error) {
 	}
 
 	result, err := s.simulator.RunDesignWithConfig(design, req.Workload, config)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	run := domain.Run{
+		ID:               fmt.Sprintf("run_%d", now.UnixNano()),
+		DesignID:         req.DesignID,
+		DesignSnapshot:   design,
+		Workload:         req.Workload,
+		SimulationConfig: config,
+		Status:           domain.RunStatusCompleted,
+		Result:           result,
+		CreatedAt:        now,
+		CompletedAt:      &now,
+	}
+
+	if run.DesignID == "" {
+		run.DesignID = design.ID
+	}
+
+	if err := s.runs.Save(run); err != nil {
+		return nil, err
+	}
+
+	return &run, nil
+}
+
+func (s *Service) Stream(
+	req domain.CreateRunRequest,
+	observeTick func(domain.SimulationTick),
+) (*domain.Run, error) {
+	if err := validateCreateRunRequest(req); err != nil {
+		return nil, err
+	}
+
+	design, err := s.resolveDesign(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := graphs.ValidateGraph(design.Graph, graphs.ModeRun); err != nil {
+		return nil, err
+	}
+
+	config := req.SimulationConfig
+	if config.Mode == "" {
+		config.Mode = domain.SimulationModeTickBased
+	}
+
+	result, err := s.simulator.StreamDesignWithConfig(design, req.Workload, config, observeTick)
 	if err != nil {
 		return nil, err
 	}

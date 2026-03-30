@@ -24,9 +24,10 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			DisplayName:  "Gateway",
 			DefaultColor: "indigo",
 			DefaultProperties: domain.NodeProperties{
-				Replicas:      2,
-				CapacityRPS:   25000,
-				BaseLatencyMS: 8,
+				Replicas:          2,
+				CapacityRPS:       25000,
+				BaseLatencyMS:     8,
+				BalancingStrategy: "least_pressure",
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionSyncRequest,
@@ -58,10 +59,12 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			DisplayName:  "Cache",
 			DefaultColor: "amber",
 			DefaultProperties: domain.NodeProperties{
-				Replicas:      1,
-				CapacityRPS:   50000,
-				BaseLatencyMS: 3,
-				CacheHitRate:  0.8,
+				Replicas:              1,
+				CapacityRPS:           50000,
+				BaseLatencyMS:         3,
+				CacheHitRate:          0.8,
+				CacheWarmupTicks:      4,
+				CacheInvalidationRate: 0.05,
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionSyncRequest,
@@ -79,9 +82,12 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			DisplayName:  "Database",
 			DefaultColor: "coral",
 			DefaultProperties: domain.NodeProperties{
-				Replicas:      1,
-				CapacityRPS:   7000,
-				BaseLatencyMS: 25,
+				Replicas:         2,
+				CapacityRPS:      7000,
+				BaseLatencyMS:    25,
+				ReadCapacityRPS:  7000,
+				WriteCapacityRPS: 3200,
+				ConnectionLimit:  120,
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionSyncRequest,
@@ -102,6 +108,7 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionConsume,
+				domain.EdgeInteractionFallback,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
 				domain.RoutingRuleAlways,

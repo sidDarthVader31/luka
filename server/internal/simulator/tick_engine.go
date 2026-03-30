@@ -18,6 +18,8 @@ type tickEdgeAttempt struct {
 	retryLoadsRPS []float64
 }
 
+type tickObserver func(domain.SimulationTick)
+
 func normalizeSimulationConfig(config domain.SimulationConfig) domain.SimulationConfig {
 	if config.Mode == "" {
 		config.Mode = domain.SimulationModeTickBased
@@ -37,12 +39,23 @@ func (s *Service) runGraphTickBased(
 	workload normalizedWorkload,
 	config domain.SimulationConfig,
 ) (*graphMetrics, error) {
+	return s.runGraphTickBasedWithObserver(nodes, edges, workload, config, nil)
+}
+
+func (s *Service) runGraphTickBasedWithObserver(
+	nodes []domain.Node,
+	edges []domain.Edge,
+	workload normalizedWorkload,
+	config domain.SimulationConfig,
+	observeTick tickObserver,
+) (*graphMetrics, error) {
 	nodeByID, outgoing, topoOrder, err := buildGraphExecutionPlan(nodes, edges)
 	if err != nil {
 		return nil, err
 	}
 
 	queueDepthByNode := make(map[string]float64, len(nodes))
+	fallbackCarryoverByNode := make(map[string]float64, len(nodes))
 	retryStateByEdge := make(map[string][]float64, len(edges))
 	for _, edge := range edges {
 		retryStateByEdge[edge.ID] = make([]float64, edge.RetryAttempts+1)
@@ -51,6 +64,7 @@ func (s *Service) runGraphTickBased(
 	ticks := make([]domain.SimulationTick, 0, config.TickCount)
 	nodePeakResults := make(map[string]domain.NodeSimulationResult, len(nodes))
 	edgePeakResults := make(map[string]domain.EdgeSimulationResult, len(edges))
+	priorNodeResults := make(map[string]domain.NodeSimulationResult, len(nodes))
 
 	tickDurationSeconds := float64(config.TickDurationMS) / 1000
 	if tickDurationSeconds <= 0 {
@@ -59,6 +73,9 @@ func (s *Service) runGraphTickBased(
 
 	for tickIndex := 0; tickIndex < config.TickCount; tickIndex++ {
 		incomingByNode := make(map[string]float64, len(nodes))
+		for nodeID, fallbackRPS := range fallbackCarryoverByNode {
+			incomingByNode[nodeID] += fallbackRPS
+		}
 		for _, edge := range edges {
 			retryLoads := retryStateByEdge[edge.ID]
 			if len(retryLoads) == 0 {
@@ -92,12 +109,12 @@ func (s *Service) runGraphTickBased(
 			}
 
 			for _, edge := range outgoing[nodeID] {
-				routedRPS, routeErr := applyRoutingRule(edge, node, result, workload)
+				routedRPS, routeErr := applyTickRoutingRule(edge, node, result, workload, tickIndex)
 				if routeErr != nil {
 					return nil, routeErr
 				}
 
-				routedRPS *= routeShare(edge, outgoing[nodeID])
+				routedRPS *= routeShareForTick(edge, outgoing[nodeID], node, priorNodeResults)
 				incomingByNode[edge.TargetNodeID] += routedRPS
 
 				retryLoads := cloneFloatSlice(retryStateByEdge[edge.ID])
@@ -110,6 +127,7 @@ func (s *Service) runGraphTickBased(
 		}
 
 		nextRetryState := make(map[string][]float64, len(edges))
+		nextFallbackCarryover := make(map[string]float64, len(nodes))
 		edgeResults := make([]domain.EdgeSimulationResult, 0, len(edges))
 
 		for _, edge := range edges {
@@ -122,12 +140,26 @@ func (s *Service) runGraphTickBased(
 				}
 			}
 
-			edgeResult, scheduledRetries := finalizeTickEdgeResult(attempt, nodeResults[edge.TargetNodeID])
+			edgeResult, scheduledRetries, fallbackRPS, circuitOpen := finalizeTickEdgeResult(attempt, nodeResults[edge.TargetNodeID])
 			nextRetryState[edge.ID] = scheduledRetries
+
+			if fallbackRPS > 0 {
+				fallbackTargets := routeFailureToFallbackTargets(edge, outgoing[edge.SourceNodeID], fallbackRPS)
+				for targetNodeID, routedFallback := range fallbackTargets {
+					nextFallbackCarryover[targetNodeID] += routedFallback
+					edgeResult.FallbackRPS += round(routedFallback)
+					if nodeByID[edge.SourceNodeID].Archetype == domain.NodeArchetypeQueue &&
+						nodeByID[targetNodeID].Archetype == domain.NodeArchetypeQueue {
+						edgeResult.DeadLetteredRPS += round(routedFallback)
+					}
+				}
+			}
+			edgeResult.CircuitOpen = circuitOpen
 			edgeResults = append(edgeResults, edgeResult)
 		}
 
 		retryStateByEdge = nextRetryState
+		fallbackCarryoverByNode = nextFallbackCarryover
 
 		tickNodes := make([]domain.NodeTickState, 0, len(nodes))
 		tickEdges := make([]domain.EdgeTickState, 0, len(edges))
@@ -163,12 +195,15 @@ func (s *Service) runGraphTickBased(
 
 		for _, edgeResult := range edgeResults {
 			tickEdges = append(tickEdges, domain.EdgeTickState{
-				EdgeID:        edgeResult.EdgeID,
-				AttemptedRPS:  edgeResult.AttemptedRPS,
-				RoutedRPS:     edgeResult.RoutedRPS,
-				RetriedRPS:    edgeResult.RetriedRPS,
-				TimedOutRPS:   edgeResult.TimedOutRPS,
-				RoutingWeight: edgeResult.RoutingWeight,
+				EdgeID:          edgeResult.EdgeID,
+				AttemptedRPS:    edgeResult.AttemptedRPS,
+				RoutedRPS:       edgeResult.RoutedRPS,
+				RetriedRPS:      edgeResult.RetriedRPS,
+				TimedOutRPS:     edgeResult.TimedOutRPS,
+				FallbackRPS:     edgeResult.FallbackRPS,
+				DeadLetteredRPS: edgeResult.DeadLetteredRPS,
+				CircuitOpen:     edgeResult.CircuitOpen,
+				RoutingWeight:   edgeResult.RoutingWeight,
 			})
 
 			existing, exists := edgePeakResults[edgeResult.EdgeID]
@@ -194,6 +229,10 @@ func (s *Service) runGraphTickBased(
 			Nodes:   tickNodes,
 			Edges:   tickEdges,
 		})
+		if observeTick != nil {
+			observeTick(ticks[len(ticks)-1])
+		}
+		priorNodeResults = nodeResults
 	}
 
 	nodeList := make([]domain.NodeSimulationResult, 0, len(nodes))
@@ -231,6 +270,31 @@ func (s *Service) runGraphTickBased(
 		Bottleneck: bottleneck,
 		Ticks:      ticks,
 	}, nil
+}
+
+func applyTickRoutingRule(
+	edge domain.Edge,
+	sourceNode domain.Node,
+	sourceResult domain.NodeSimulationResult,
+	workload normalizedWorkload,
+	tickIndex int,
+) (float64, error) {
+	if edge.RoutingRule.RuleType != domain.RoutingRuleCacheHit && edge.RoutingRule.RuleType != domain.RoutingRuleCacheMiss {
+		return applyRoutingRule(edge, sourceNode, sourceResult, workload)
+	}
+
+	if sourceNode.Archetype != domain.NodeArchetypeCache {
+		return 0, fmt.Errorf("edge %q uses cache rule but source node %q is not a cache", edge.ID, sourceNode.ID)
+	}
+
+	hitRate := effectiveCacheHitRateAtTick(sourceNode, tickIndex)
+	routed := sourceResult.ProcessedRPS
+	if edge.RoutingRule.RuleType == domain.RoutingRuleCacheHit {
+		routed *= hitRate
+	} else {
+		routed *= (1 - hitRate)
+	}
+	return routed, nil
 }
 
 func buildGraphExecutionPlan(
@@ -296,6 +360,44 @@ func buildGraphExecutionPlan(
 	return nodeByID, outgoing, order, nil
 }
 
+func routeShareForTick(
+	edge domain.Edge,
+	siblingEdges []domain.Edge,
+	sourceNode domain.Node,
+	priorNodeResults map[string]domain.NodeSimulationResult,
+) float64 {
+	if sourceNode.Properties.BalancingStrategy != "least_pressure" || !shouldSplitOutgoingLoad(edge) {
+		return routeShare(edge, siblingEdges)
+	}
+
+	peers := make([]domain.Edge, 0, len(siblingEdges))
+	totalWeight := 0.0
+	for _, sibling := range siblingEdges {
+		if sibling.InteractionType != edge.InteractionType || sibling.RoutingRule.RuleType != edge.RoutingRule.RuleType {
+			continue
+		}
+
+		targetPressure := 1.0
+		if prior, ok := priorNodeResults[sibling.TargetNodeID]; ok {
+			targetPressure = max(prior.Utilization, 0.1)
+		}
+
+		peerWeight := routingWeight(sibling) * (1 / targetPressure)
+		peers = append(peers, sibling)
+		totalWeight += peerWeight
+	}
+
+	if len(peers) <= 1 || totalWeight <= 0 {
+		return routeShare(edge, siblingEdges)
+	}
+
+	currentPressure := 1.0
+	if prior, ok := priorNodeResults[edge.TargetNodeID]; ok {
+		currentPressure = max(prior.Utilization, 0.1)
+	}
+	return (routingWeight(edge) * (1 / currentPressure)) / totalWeight
+}
+
 func simulateNodeTick(
 	node domain.Node,
 	incomingRPS float64,
@@ -319,14 +421,7 @@ func simulateNodeTick(
 		}, 0
 	}
 
-	effectiveCapacityRPS := node.Properties.CapacityRPS
-	if node.Properties.Replicas > 1 {
-		effectiveCapacityRPS *= float64(node.Properties.Replicas)
-	}
-	effectiveCapacityRPS = effectiveCapacityRPS / capacityPenalty(node, workload)
-	if effectiveCapacityRPS <= 0 {
-		effectiveCapacityRPS = 1
-	}
+	effectiveCapacityRPS := effectiveNodeCapacityRPS(node, workload, incomingRPS)
 
 	demandRPS := incomingRPS
 	if node.Archetype == domain.NodeArchetypeQueue && priorQueueDepth > 0 && tickDurationSeconds > 0 {
@@ -371,7 +466,7 @@ func simulateNodeTick(
 func finalizeTickEdgeResult(
 	attempt tickEdgeAttempt,
 	targetResult domain.NodeSimulationResult,
-) (domain.EdgeSimulationResult, []float64) {
+) (domain.EdgeSimulationResult, []float64, float64, bool) {
 	stageLoads := make([]float64, len(attempt.retryLoadsRPS))
 	if len(stageLoads) == 0 {
 		stageLoads = make([]float64, attempt.edge.RetryAttempts+1)
@@ -387,6 +482,11 @@ func finalizeTickEdgeResult(
 	retriedRPS := 0.0
 	timedOutRPS := 0.0
 	nextRetries := make([]float64, len(stageLoads))
+	retryBudgetRemaining := -1.0
+	if attempt.edge.RetryBudgetRatio > 0 {
+		retryBudgetRemaining = attempt.baseRoutedRPS * attempt.edge.RetryBudgetRatio
+	}
+	circuitOpen := false
 
 	for stage, loadRPS := range stageLoads {
 		if loadRPS <= 0 {
@@ -405,15 +505,26 @@ func finalizeTickEdgeResult(
 			continue
 		}
 
-		if stage < attempt.edge.RetryAttempts {
-			nextRetries[stage+1] += failuresRPS
+		if stage < attempt.edge.RetryAttempts && !circuitOpen {
+			scheduledRetry := failuresRPS
+			if retryBudgetRemaining >= 0 {
+				scheduledRetry = min(scheduledRetry, retryBudgetRemaining)
+				retryBudgetRemaining -= scheduledRetry
+			}
+			nextRetries[stage+1] += scheduledRetry
+			timedOutRPS += max(0, failuresRPS-scheduledRetry)
+			if attempt.edge.CircuitBreakerThreshold > 0 && timeoutRatio >= attempt.edge.CircuitBreakerThreshold {
+				circuitOpen = true
+				timedOutRPS += scheduledRetry
+				nextRetries[stage+1] -= scheduledRetry
+			}
 			continue
 		}
 
 		timedOutRPS += failuresRPS
 	}
 
-	return domain.EdgeSimulationResult{
+	edgeResult := domain.EdgeSimulationResult{
 		EdgeID:           attempt.edge.ID,
 		SourceNodeID:     attempt.edge.SourceNodeID,
 		TargetNodeID:     attempt.edge.TargetNodeID,
@@ -421,13 +532,15 @@ func finalizeTickEdgeResult(
 		FanoutMultiplier: round(normalizedEdgeFanout(attempt.edge)),
 		TimeoutMS:        round(attempt.edge.TimeoutMS),
 		RetryAttempts:    attempt.edge.RetryAttempts,
+		RetryBudgetRatio: round(attempt.edge.RetryBudgetRatio),
 		RuleType:         attempt.edge.RoutingRule.RuleType,
 		RoutingWeight:    round(routingWeight(attempt.edge)),
 		AttemptedRPS:     round(attemptedRPS),
 		RetriedRPS:       round(retriedRPS),
 		TimedOutRPS:      round(timedOutRPS),
 		RoutedRPS:        round(max(0, deliveredRPS)),
-	}, nextRetries
+	}
+	return edgeResult, nextRetries, timedOutRPS, circuitOpen
 }
 
 func aggregateTickMetrics(
@@ -495,6 +608,9 @@ func aggregateTickMetrics(
 			candidate.RoutedRPS = round(max(existing.RoutedRPS, tickEdge.RoutedRPS))
 			candidate.RetriedRPS = round(max(existing.RetriedRPS, tickEdge.RetriedRPS))
 			candidate.TimedOutRPS = round(max(existing.TimedOutRPS, tickEdge.TimedOutRPS))
+			candidate.FallbackRPS = round(max(existing.FallbackRPS, tickEdge.FallbackRPS))
+			candidate.DeadLetteredRPS = round(max(existing.DeadLetteredRPS, tickEdge.DeadLetteredRPS))
+			candidate.CircuitOpen = existing.CircuitOpen || tickEdge.CircuitOpen
 			if edgeSeverityScore(candidate) > edgeSeverityScore(existing) {
 				edgePeakResults[tickEdge.EdgeID] = candidate
 			}
@@ -588,6 +704,9 @@ func mergeSimulationTicks(existing []domain.SimulationTick, incoming []domain.Si
 			current.RoutedRPS += edge.RoutedRPS
 			current.RetriedRPS += edge.RetriedRPS
 			current.TimedOutRPS += edge.TimedOutRPS
+			current.FallbackRPS += edge.FallbackRPS
+			current.DeadLetteredRPS += edge.DeadLetteredRPS
+			current.CircuitOpen = current.CircuitOpen || edge.CircuitOpen
 			current.RoutingWeight = max(current.RoutingWeight, edge.RoutingWeight)
 			edgeByID[edge.EdgeID] = current
 		}
@@ -642,7 +761,7 @@ func nodeSeverityScore(result domain.NodeSimulationResult) float64 {
 }
 
 func edgeSeverityScore(result domain.EdgeSimulationResult) float64 {
-	return result.TimedOutRPS + result.RetriedRPS + result.RoutedRPS + result.AttemptedRPS
+	return result.TimedOutRPS + result.DeadLetteredRPS + result.FallbackRPS + result.RetriedRPS + result.RoutedRPS + result.AttemptedRPS
 }
 
 func buildTickNodeExplanation(label string, tickNode domain.NodeTickState) string {
@@ -678,6 +797,44 @@ func normalizeTickEdge(edge domain.EdgeTickState) domain.EdgeTickState {
 	edge.RoutedRPS = round(edge.RoutedRPS)
 	edge.RetriedRPS = round(edge.RetriedRPS)
 	edge.TimedOutRPS = round(edge.TimedOutRPS)
+	edge.FallbackRPS = round(edge.FallbackRPS)
+	edge.DeadLetteredRPS = round(edge.DeadLetteredRPS)
 	edge.RoutingWeight = round(edge.RoutingWeight)
 	return edge
+}
+
+func effectiveCacheHitRateAtTick(node domain.Node, tickIndex int) float64 {
+	targetHitRate := normalizedHitRate(node)
+	if node.Properties.CacheWarmupTicks <= 0 {
+		return targetHitRate
+	}
+	warmupFactor := min(float64(tickIndex+1)/float64(node.Properties.CacheWarmupTicks), 1)
+	return min(max(targetHitRate*warmupFactor, 0), 1)
+}
+
+func routeFailureToFallbackTargets(
+	sourceEdge domain.Edge,
+	sourceOutgoing []domain.Edge,
+	failureRPS float64,
+) map[string]float64 {
+	routed := make(map[string]float64)
+	if failureRPS <= 0 {
+		return routed
+	}
+
+	fallbackEdges := make([]domain.Edge, 0, len(sourceOutgoing))
+	for _, edge := range sourceOutgoing {
+		if edge.InteractionType == domain.EdgeInteractionFallback {
+			fallbackEdges = append(fallbackEdges, edge)
+		}
+	}
+	if len(fallbackEdges) == 0 {
+		return routed
+	}
+
+	for _, fallbackEdge := range fallbackEdges {
+		routed[fallbackEdge.TargetNodeID] += failureRPS * routeShare(fallbackEdge, fallbackEdges)
+	}
+
+	return routed
 }

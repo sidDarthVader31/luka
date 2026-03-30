@@ -162,6 +162,185 @@ func TestRunDesignWithTickModeSchedulesRetriesAcrossTicks(t *testing.T) {
 	}
 }
 
+func TestRunDesignWithTickModeUsesLeastPressureBalancing(t *testing.T) {
+	service := NewService()
+
+	result, err := service.RunDesignWithConfig(domain.Design{
+		ID:   "design-least-pressure",
+		Name: "Least Pressure Gateway",
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{ID: "client-1", Label: "Client", Archetype: domain.NodeArchetypeClient, Color: "cobalt", Position: domain.NodePosition{X: 0, Y: 0}},
+				{
+					ID:        "gateway-1",
+					Label:     "Gateway",
+					Archetype: domain.NodeArchetypeGateway,
+					Color:     "indigo",
+					Position:  domain.NodePosition{X: 120, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:          1,
+						CapacityRPS:       20000,
+						BaseLatencyMS:     6,
+						BalancingStrategy: "least_pressure",
+					},
+				},
+				{
+					ID:        "service-a",
+					Label:     "Service A",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "emerald",
+					Position:  domain.NodePosition{X: 280, Y: -80},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   2500,
+						BaseLatencyMS: 18,
+					},
+				},
+				{
+					ID:        "service-b",
+					Label:     "Service B",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "emerald",
+					Position:  domain.NodePosition{X: 280, Y: 80},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   8000,
+						BaseLatencyMS: 20,
+					},
+				},
+			},
+			Edges: []domain.Edge{
+				{ID: "edge-client-gateway", SourceNodeID: "client-1", TargetNodeID: "gateway-1", InteractionType: domain.EdgeInteractionSyncRequest, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+				{ID: "edge-gateway-a", SourceNodeID: "gateway-1", TargetNodeID: "service-a", InteractionType: domain.EdgeInteractionSyncRequest, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+				{ID: "edge-gateway-b", SourceNodeID: "gateway-1", TargetNodeID: "service-b", InteractionType: domain.EdgeInteractionSyncRequest, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+			},
+		},
+	}, domain.Workload{
+		RequestsPerSecond: 9000,
+	}, domain.SimulationConfig{
+		Mode:           domain.SimulationModeTickBased,
+		TickCount:      6,
+		TickDurationMS: 1000,
+	})
+	if err != nil {
+		t.Fatalf("RunDesignWithConfig() error = %v", err)
+	}
+
+	var edgeATickRPS float64
+	var edgeBTickRPS float64
+	lastTick := result.Ticks[len(result.Ticks)-1]
+	for _, edge := range lastTick.Edges {
+		switch edge.EdgeID {
+		case "edge-gateway-a":
+			edgeATickRPS = edge.RoutedRPS
+		case "edge-gateway-b":
+			edgeBTickRPS = edge.RoutedRPS
+		}
+	}
+
+	if edgeBTickRPS <= edgeATickRPS {
+		t.Fatalf("least-pressure routing = %.0f/%.0f, want service-b to receive more load than service-a", edgeATickRPS, edgeBTickRPS)
+	}
+}
+
+func TestRunDesignWithTickModeRoutesTimedOutQueueWorkToDeadLetterQueue(t *testing.T) {
+	service := NewService()
+
+	result, err := service.RunDesignWithConfig(domain.Design{
+		ID:   "design-dead-letter",
+		Name: "Dead Letter Queue",
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{ID: "client-1", Label: "Client", Archetype: domain.NodeArchetypeClient, Color: "cobalt", Position: domain.NodePosition{X: 0, Y: 0}},
+				{
+					ID:        "service-1",
+					Label:     "Write Service",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "emerald",
+					Position:  domain.NodePosition{X: 120, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   7000,
+						BaseLatencyMS: 16,
+					},
+				},
+				{
+					ID:        "queue-1",
+					Label:     "Primary Queue",
+					Archetype: domain.NodeArchetypeQueue,
+					Color:     "orange",
+					Position:  domain.NodePosition{X: 280, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   5000,
+						BaseLatencyMS: 4,
+					},
+				},
+				{
+					ID:        "worker-1",
+					Label:     "Slow Worker",
+					Archetype: domain.NodeArchetypeWorker,
+					Color:     "teal",
+					Position:  domain.NodePosition{X: 460, Y: 0},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   1200,
+						BaseLatencyMS: 220,
+					},
+				},
+				{
+					ID:        "queue-dlq",
+					Label:     "DLQ",
+					Archetype: domain.NodeArchetypeQueue,
+					Color:     "orange",
+					Position:  domain.NodePosition{X: 460, Y: 160},
+					Properties: domain.NodeProperties{
+						Replicas:      1,
+						CapacityRPS:   10000,
+						BaseLatencyMS: 4,
+					},
+				},
+			},
+			Edges: []domain.Edge{
+				{ID: "edge-client-service", SourceNodeID: "client-1", TargetNodeID: "service-1", InteractionType: domain.EdgeInteractionSyncRequest, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+				{ID: "edge-service-queue", SourceNodeID: "service-1", TargetNodeID: "queue-1", InteractionType: domain.EdgeInteractionAsyncEnqueue, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+				{ID: "edge-queue-worker", SourceNodeID: "queue-1", TargetNodeID: "worker-1", InteractionType: domain.EdgeInteractionConsume, TimeoutMS: 80, RetryAttempts: 2, RetryBudgetRatio: 0.5, CircuitBreakerThreshold: 0.25, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+				{ID: "edge-queue-dlq", SourceNodeID: "queue-1", TargetNodeID: "queue-dlq", InteractionType: domain.EdgeInteractionFallback, RoutingRule: domain.RoutingRule{RuleType: domain.RoutingRuleAlways}},
+			},
+		},
+	}, domain.Workload{
+		RequestsPerSecond: 5000,
+		FanoutCount:       2,
+	}, domain.SimulationConfig{
+		Mode:           domain.SimulationModeTickBased,
+		TickCount:      5,
+		TickDurationMS: 1000,
+	})
+	if err != nil {
+		t.Fatalf("RunDesignWithConfig() error = %v", err)
+	}
+
+	foundDeadLetterPath := false
+	for _, path := range result.Paths {
+		if path.Kind == "dead_letter_path" && path.DeadLetteredRPS > 0 {
+			foundDeadLetterPath = true
+		}
+	}
+	if !foundDeadLetterPath {
+		t.Fatal("expected dead-letter path explanation")
+	}
+
+	foundDLQLoad := false
+	for _, node := range result.Nodes {
+		if node.NodeID == "queue-dlq" && node.IncomingRPS > 0 {
+			foundDLQLoad = true
+		}
+	}
+	if !foundDLQLoad {
+		t.Fatal("expected dead-letter queue to receive load")
+	}
+}
+
 func TestRunDesignWithQueueAndWorkerPath(t *testing.T) {
 	service := NewService()
 

@@ -96,11 +96,15 @@ type EdgeSimulationResult struct {
 	FanoutMultiplier float64             `json:"fanout_multiplier"`
 	TimeoutMS        float64             `json:"timeout_ms,omitempty"`
 	RetryAttempts    int                 `json:"retry_attempts,omitempty"`
+	RetryBudgetRatio float64             `json:"retry_budget_ratio,omitempty"`
 	RuleType         RoutingRuleType     `json:"rule_type"`
 	RoutingWeight    float64             `json:"routing_weight,omitempty"`
 	AttemptedRPS     float64             `json:"attempted_rps,omitempty"`
 	RetriedRPS       float64             `json:"retried_rps,omitempty"`
 	TimedOutRPS      float64             `json:"timed_out_rps,omitempty"`
+	FallbackRPS      float64             `json:"fallback_rps,omitempty"`
+	DeadLetteredRPS  float64             `json:"dead_lettered_rps,omitempty"`
+	CircuitOpen      bool                `json:"circuit_open,omitempty"`
 	RoutedRPS        float64             `json:"routed_rps"`
 }
 
@@ -113,6 +117,8 @@ type PathExplanation struct {
 	QueueLagMS         float64  `json:"queue_lag_ms,omitempty"`
 	RetriedRPS         float64  `json:"retried_rps,omitempty"`
 	TimedOutRPS        float64  `json:"timed_out_rps,omitempty"`
+	FallbackRPS        float64  `json:"fallback_rps,omitempty"`
+	DeadLetteredRPS    float64  `json:"dead_lettered_rps,omitempty"`
 }
 
 type SimulationTick struct {
@@ -136,10 +142,21 @@ type NodeTickState struct {
 }
 
 type EdgeTickState struct {
-	EdgeID        string  `json:"edge_id"`
-	AttemptedRPS  float64 `json:"attempted_rps,omitempty"`
-	RoutedRPS     float64 `json:"routed_rps"`
-	RetriedRPS    float64 `json:"retried_rps,omitempty"`
-	TimedOutRPS   float64 `json:"timed_out_rps,omitempty"`
-	RoutingWeight float64 `json:"routing_weight,omitempty"`
+	EdgeID          string  `json:"edge_id"`
+	AttemptedRPS    float64 `json:"attempted_rps,omitempty"`
+	RoutedRPS       float64 `json:"routed_rps"`
+	RetriedRPS      float64 `json:"retried_rps,omitempty"`
+	TimedOutRPS     float64 `json:"timed_out_rps,omitempty"`
+	FallbackRPS     float64 `json:"fallback_rps,omitempty"`
+	DeadLetteredRPS float64 `json:"dead_lettered_rps,omitempty"`
+	CircuitOpen     bool    `json:"circuit_open,omitempty"`
+	RoutingWeight   float64 `json:"routing_weight,omitempty"`
+}
+
+type SimulationStreamEvent struct {
+	Type   string            `json:"type"`
+	RunID  string            `json:"run_id,omitempty"`
+	Tick   *SimulationTick   `json:"tick,omitempty"`
+	Result *SimulationResult `json:"result,omitempty"`
+	Error  string            `json:"error,omitempty"`
 }
