@@ -11,7 +11,13 @@ import (
 )
 
 type Simulator interface {
-	RunDesign(design domain.Design, workload domain.Workload) (*domain.SimulationResult, error)
+	RunDesignWithConfig(design domain.Design, workload domain.Workload, config domain.SimulationConfig) (*domain.SimulationResult, error)
+	StreamDesignWithConfig(
+		design domain.Design,
+		workload domain.Workload,
+		config domain.SimulationConfig,
+		observeTick func(domain.SimulationTick),
+	) (*domain.SimulationResult, error)
 }
 
 type Service struct {
@@ -47,7 +53,58 @@ func (s *Service) Create(req domain.CreateRunRequest) (*domain.Run, error) {
 		config.Mode = domain.SimulationModeAnalytical
 	}
 
-	result, err := s.simulator.RunDesign(design, req.Workload)
+	result, err := s.simulator.RunDesignWithConfig(design, req.Workload, config)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	run := domain.Run{
+		ID:               fmt.Sprintf("run_%d", now.UnixNano()),
+		DesignID:         req.DesignID,
+		DesignSnapshot:   design,
+		Workload:         req.Workload,
+		SimulationConfig: config,
+		Status:           domain.RunStatusCompleted,
+		Result:           result,
+		CreatedAt:        now,
+		CompletedAt:      &now,
+	}
+
+	if run.DesignID == "" {
+		run.DesignID = design.ID
+	}
+
+	if err := s.runs.Save(run); err != nil {
+		return nil, err
+	}
+
+	return &run, nil
+}
+
+func (s *Service) Stream(
+	req domain.CreateRunRequest,
+	observeTick func(domain.SimulationTick),
+) (*domain.Run, error) {
+	if err := validateCreateRunRequest(req); err != nil {
+		return nil, err
+	}
+
+	design, err := s.resolveDesign(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := graphs.ValidateGraph(design.Graph, graphs.ModeRun); err != nil {
+		return nil, err
+	}
+
+	config := req.SimulationConfig
+	if config.Mode == "" {
+		config.Mode = domain.SimulationModeTickBased
+	}
+
+	result, err := s.simulator.StreamDesignWithConfig(design, req.Workload, config, observeTick)
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +190,14 @@ func validateCreateRunRequest(req domain.CreateRunRequest) error {
 		return errors.New("workload.payload_kb cannot be negative")
 	case req.Workload.FanoutCount < 0:
 		return errors.New("workload.fanout_count cannot be negative")
+	case req.SimulationConfig.Mode != "" &&
+		req.SimulationConfig.Mode != domain.SimulationModeAnalytical &&
+		req.SimulationConfig.Mode != domain.SimulationModeTickBased:
+		return errors.New("simulation_config.mode must be analytical or tick_based")
+	case req.SimulationConfig.TickCount < 0:
+		return errors.New("simulation_config.tick_count cannot be negative")
+	case req.SimulationConfig.TickDurationMS < 0:
+		return errors.New("simulation_config.tick_duration_ms cannot be negative")
 	default:
 		return nil
 	}

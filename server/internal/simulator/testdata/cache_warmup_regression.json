@@ -1,0 +1,99 @@
+{
+  "name": "cache-warmup-regression",
+  "design": {
+    "id": "fixture-cache-warmup",
+    "name": "Cache Warmup Regression",
+    "graph": {
+      "nodes": [
+        {
+          "id": "client-1",
+          "label": "Client",
+          "archetype": "client",
+          "color": "cobalt",
+          "position": { "x": 0, "y": 0 },
+          "properties": {}
+        },
+        {
+          "id": "service-1",
+          "label": "API",
+          "archetype": "stateless_service",
+          "color": "emerald",
+          "position": { "x": 140, "y": 0 },
+          "properties": {
+            "replicas": 2,
+            "capacity_rps": 12000,
+            "base_latency_ms": 18
+          }
+        },
+        {
+          "id": "cache-1",
+          "label": "Cache",
+          "archetype": "cache",
+          "color": "amber",
+          "position": { "x": 320, "y": -80 },
+          "properties": {
+            "replicas": 1,
+            "capacity_rps": 50000,
+            "base_latency_ms": 3,
+            "cache_hit_rate": 0.92,
+            "cache_warmup_ticks": 4,
+            "cache_invalidation_rate": 0.08
+          }
+        },
+        {
+          "id": "db-1",
+          "label": "DB",
+          "archetype": "database",
+          "color": "coral",
+          "position": { "x": 520, "y": 0 },
+          "properties": {
+            "replicas": 3,
+            "capacity_rps": 4500,
+            "base_latency_ms": 24,
+            "read_capacity_rps": 6500,
+            "write_capacity_rps": 2500,
+            "connection_limit": 90
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-client-service",
+          "source_node_id": "client-1",
+          "target_node_id": "service-1",
+          "interaction_type": "sync_request",
+          "routing_rule": { "rule_type": "always" }
+        },
+        {
+          "id": "edge-service-cache",
+          "source_node_id": "service-1",
+          "target_node_id": "cache-1",
+          "interaction_type": "sync_request",
+          "routing_rule": { "rule_type": "always" }
+        },
+        {
+          "id": "edge-cache-db",
+          "source_node_id": "cache-1",
+          "target_node_id": "db-1",
+          "interaction_type": "conditional_branch",
+          "routing_rule": { "rule_type": "cache_miss" }
+        }
+      ]
+    }
+  },
+  "workload": {
+    "requests_per_second": 14000,
+    "concurrent_users": 60000,
+    "read_write_ratio": 6,
+    "payload_kb": 5
+  },
+  "simulation_config": {
+    "mode": "tick_based",
+    "tick_count": 6,
+    "tick_duration_ms": 1000
+  },
+  "expect": {
+    "bottleneck_node_id": "db-1",
+    "min_ticks": 6
+  }
+}

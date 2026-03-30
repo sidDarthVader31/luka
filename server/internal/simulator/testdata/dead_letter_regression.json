@@ -1,0 +1,117 @@
+{
+  "name": "dead-letter-regression",
+  "design": {
+    "id": "fixture-dead-letter",
+    "name": "Dead Letter Regression",
+    "graph": {
+      "nodes": [
+        {
+          "id": "client-1",
+          "label": "Client",
+          "archetype": "client",
+          "color": "cobalt",
+          "position": { "x": 0, "y": 0 },
+          "properties": {}
+        },
+        {
+          "id": "service-1",
+          "label": "Write Service",
+          "archetype": "stateless_service",
+          "color": "emerald",
+          "position": { "x": 120, "y": 0 },
+          "properties": {
+            "replicas": 1,
+            "capacity_rps": 7000,
+            "base_latency_ms": 16
+          }
+        },
+        {
+          "id": "queue-1",
+          "label": "Primary Queue",
+          "archetype": "queue",
+          "color": "orange",
+          "position": { "x": 300, "y": 0 },
+          "properties": {
+            "replicas": 1,
+            "capacity_rps": 5000,
+            "base_latency_ms": 4
+          }
+        },
+        {
+          "id": "worker-1",
+          "label": "Slow Worker",
+          "archetype": "worker",
+          "color": "teal",
+          "position": { "x": 480, "y": 0 },
+          "properties": {
+            "replicas": 1,
+            "capacity_rps": 1100,
+            "base_latency_ms": 240
+          }
+        },
+        {
+          "id": "queue-dlq",
+          "label": "Dead Letter Queue",
+          "archetype": "queue",
+          "color": "orange",
+          "position": { "x": 480, "y": 160 },
+          "properties": {
+            "replicas": 1,
+            "capacity_rps": 10000,
+            "base_latency_ms": 4
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-client-service",
+          "source_node_id": "client-1",
+          "target_node_id": "service-1",
+          "interaction_type": "sync_request",
+          "routing_rule": { "rule_type": "always" }
+        },
+        {
+          "id": "edge-service-queue",
+          "source_node_id": "service-1",
+          "target_node_id": "queue-1",
+          "interaction_type": "async_enqueue",
+          "fanout_multiplier": 2,
+          "routing_rule": { "rule_type": "always" }
+        },
+        {
+          "id": "edge-queue-worker",
+          "source_node_id": "queue-1",
+          "target_node_id": "worker-1",
+          "interaction_type": "consume",
+          "timeout_ms": 80,
+          "retry_attempts": 2,
+          "retry_budget_ratio": 0.5,
+          "circuit_breaker_threshold": 0.25,
+          "routing_rule": { "rule_type": "always" }
+        },
+        {
+          "id": "edge-queue-dlq",
+          "source_node_id": "queue-1",
+          "target_node_id": "queue-dlq",
+          "interaction_type": "fallback",
+          "routing_rule": { "rule_type": "always" }
+        }
+      ]
+    }
+  },
+  "workload": {
+    "requests_per_second": 5000,
+    "fanout_count": 2,
+    "payload_kb": 4
+  },
+  "simulation_config": {
+    "mode": "tick_based",
+    "tick_count": 6,
+    "tick_duration_ms": 1000
+  },
+  "expect": {
+    "min_ticks": 6,
+    "require_dead_letter": true,
+    "require_queue_backlog": true
+  }
+}

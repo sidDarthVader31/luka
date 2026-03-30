@@ -79,10 +79,16 @@ type NodePosition struct {
 }
 
 type NodeProperties struct {
-	Replicas      int     `json:"replicas,omitempty"`
-	CapacityRPS   float64 `json:"capacity_rps,omitempty"`
-	BaseLatencyMS float64 `json:"base_latency_ms,omitempty"`
-	CacheHitRate  float64 `json:"cache_hit_rate,omitempty"`
+	Replicas              int     `json:"replicas,omitempty"`
+	CapacityRPS           float64 `json:"capacity_rps,omitempty"`
+	BaseLatencyMS         float64 `json:"base_latency_ms,omitempty"`
+	CacheHitRate          float64 `json:"cache_hit_rate,omitempty"`
+	BalancingStrategy     string  `json:"balancing_strategy,omitempty"`
+	CacheWarmupTicks      int     `json:"cache_warmup_ticks,omitempty"`
+	CacheInvalidationRate float64 `json:"cache_invalidation_rate,omitempty"`
+	ReadCapacityRPS       float64 `json:"read_capacity_rps,omitempty"`
+	WriteCapacityRPS      float64 `json:"write_capacity_rps,omitempty"`
+	ConnectionLimit       int     `json:"connection_limit,omitempty"`
 }
 
 type RequestClass struct {
@@ -92,15 +98,17 @@ type RequestClass struct {
 }
 
 type Edge struct {
-	ID               string              `json:"id"`
-	SourceNodeID     string              `json:"source_node_id"`
-	TargetNodeID     string              `json:"target_node_id"`
-	InteractionType  EdgeInteractionType `json:"interaction_type"`
-	FanoutMultiplier float64             `json:"fanout_multiplier,omitempty"`
-	TimeoutMS        float64             `json:"timeout_ms,omitempty"`
-	RetryAttempts    int                 `json:"retry_attempts,omitempty"`
-	RequestClassIDs  []string            `json:"request_class_ids,omitempty"`
-	RoutingRule      RoutingRule         `json:"routing_rule"`
+	ID                      string              `json:"id"`
+	SourceNodeID            string              `json:"source_node_id"`
+	TargetNodeID            string              `json:"target_node_id"`
+	InteractionType         EdgeInteractionType `json:"interaction_type"`
+	FanoutMultiplier        float64             `json:"fanout_multiplier,omitempty"`
+	TimeoutMS               float64             `json:"timeout_ms,omitempty"`
+	RetryAttempts           int                 `json:"retry_attempts,omitempty"`
+	RetryBudgetRatio        float64             `json:"retry_budget_ratio,omitempty"`
+	CircuitBreakerThreshold float64             `json:"circuit_breaker_threshold,omitempty"`
+	RequestClassIDs         []string            `json:"request_class_ids,omitempty"`
+	RoutingRule             RoutingRule         `json:"routing_rule"`
 }
 
 type RoutingRule struct {
