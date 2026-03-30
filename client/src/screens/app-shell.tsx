@@ -1320,6 +1320,13 @@ export function AppShell() {
     key: keyof GraphNode["properties"],
     value: string,
   ) {
+    const nextValue =
+      key === "balancing_strategy"
+        ? (value === "" ? undefined : value)
+        : value === ""
+          ? undefined
+          : Number(value);
+
     pushUndoSnapshot();
     setCanvasNodes((current) =>
       current.map((node) =>
@@ -1330,7 +1337,7 @@ export function AppShell() {
                 ...node.data,
                 properties: {
                   ...node.data.properties,
-                  [key]: value === "" ? undefined : Number(value),
+                  [key]: nextValue,
                 },
               },
             }
@@ -1915,6 +1922,37 @@ export function AppShell() {
                     ) : null}
                   </div>
                 </div>
+                {activeTick ? (
+                  <div className="comparison-grid comparison-grid--run">
+                    <div className="comparison-card">
+                      <span>Live tick</span>
+                      <strong>
+                        {liveTickCount}
+                        {liveTargetTickCount ? ` / ${liveTargetTickCount}` : ""}
+                      </strong>
+                    </div>
+                    <div className="comparison-card">
+                      <span>Current bottleneck</span>
+                      <strong>{displayedBottleneck?.label ?? "Scanning..."}</strong>
+                    </div>
+                    <div className="comparison-card">
+                      <span>Current hottest edge</span>
+                      <strong>
+                        {hottestEdge
+                          ? `${nodeLabelsByID.get(hottestEdge.source_node_id) ?? hottestEdge.source_node_id} → ${nodeLabelsByID.get(hottestEdge.target_node_id) ?? hottestEdge.target_node_id}`
+                          : "No routed edge yet"}
+                      </strong>
+                    </div>
+                    <div className="comparison-card">
+                      <span>Current peak load</span>
+                      <strong>
+                        {hottestEdge
+                          ? `${formatCompactNumber(hottestEdge.routed_rps)} rps`
+                          : "0 rps"}
+                      </strong>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="flow-toggle-bar">
                   <button
                     className={`flow-toggle${activeFlowResultID === "overall" ? " flow-toggle--active" : ""}`}
@@ -2185,20 +2223,35 @@ export function AppShell() {
                 {getVisibleNodePropertyKeys(selectedNode.data.archetype).map((key) => (
                   <label className="field" key={key}>
                     <span>{nodePropertyLabels[key]}</span>
-                    <input
-                      inputMode="decimal"
-                      placeholder={getNodePropertyPlaceholder(key)}
-                      value={
-                        selectedNode.data.properties[key] ?? ""
-                      }
-                      onChange={(event) =>
-                        handleNodePropertyChange(
-                          selectedNode.id,
-                          key,
-                          event.target.value,
-                        )
-                      }
-                    />
+                    {key === "balancing_strategy" ? (
+                      <select
+                        value={(selectedNode.data.properties[key] as string | undefined) ?? ""}
+                        onChange={(event) =>
+                          handleNodePropertyChange(
+                            selectedNode.id,
+                            key,
+                            event.target.value,
+                          )
+                        }
+                      >
+                        <option value="">Default</option>
+                        <option value="weighted_round_robin">Weighted round robin</option>
+                        <option value="least_pressure">Least pressure</option>
+                      </select>
+                    ) : (
+                      <input
+                        inputMode="decimal"
+                        placeholder={getNodePropertyPlaceholder(key)}
+                        value={selectedNode.data.properties[key] ?? ""}
+                        onChange={(event) =>
+                          handleNodePropertyChange(
+                            selectedNode.id,
+                            key,
+                            event.target.value,
+                          )
+                        }
+                      />
+                    )}
                     <small className="field-hint">
                       {getNodePropertyHelp(key, selectedNode.data.archetype)}
                     </small>
@@ -3373,7 +3426,25 @@ function getVisibleNodePropertyKeys(
     case "client":
       return [];
     case "cache":
-      return ["replicas", "capacity_rps", "base_latency_ms", "cache_hit_rate"];
+      return [
+        "replicas",
+        "capacity_rps",
+        "base_latency_ms",
+        "cache_hit_rate",
+        "cache_warmup_ticks",
+        "cache_invalidation_rate",
+      ];
+    case "gateway":
+      return ["replicas", "capacity_rps", "base_latency_ms", "balancing_strategy"];
+    case "database":
+      return [
+        "replicas",
+        "capacity_rps",
+        "base_latency_ms",
+        "read_capacity_rps",
+        "write_capacity_rps",
+        "connection_limit",
+      ];
     default:
       return ["replicas", "capacity_rps", "base_latency_ms"];
   }
@@ -3410,6 +3481,18 @@ function getNodePropertyPlaceholder(key: keyof GraphNode["properties"]) {
       return "e.g. 20";
     case "cache_hit_rate":
       return "e.g. 0.9";
+    case "cache_warmup_ticks":
+      return "e.g. 4";
+    case "cache_invalidation_rate":
+      return "e.g. 0.05";
+    case "read_capacity_rps":
+      return "e.g. 7000";
+    case "write_capacity_rps":
+      return "e.g. 3200";
+    case "connection_limit":
+      return "e.g. 120";
+    case "balancing_strategy":
+      return "least_pressure";
     default:
       return "";
   }
@@ -3430,6 +3513,18 @@ function getNodePropertyHelp(
       return archetype === "cache"
         ? "Fraction of reads served directly by cache. The remaining miss traffic continues downstream."
         : "Only relevant for cache nodes.";
+    case "cache_warmup_ticks":
+      return "How many simulation ticks the cache needs before it reaches the configured hit rate. Use 0 to disable warmup.";
+    case "cache_invalidation_rate":
+      return "Fraction of cache entries invalidated over time. Use 0 to keep the configured hit rate stable.";
+    case "read_capacity_rps":
+      return "Read throughput available from the database pool, including replicas when modeled.";
+    case "write_capacity_rps":
+      return "Write throughput available on the primary write path.";
+    case "connection_limit":
+      return "Approximate maximum active connections before database pressure penalties kick in.";
+    case "balancing_strategy":
+      return "How a gateway spreads load across parallel downstream edges. least_pressure shifts traffic away from stressed targets.";
     default:
       return "";
   }

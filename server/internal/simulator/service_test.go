@@ -517,6 +517,47 @@ func TestSampleQueueDesignAtTenKRPS(t *testing.T) {
 	}
 }
 
+func TestCacheHitRateOneDoesNotRouteToDatabase(t *testing.T) {
+	repo := store.NewMemoryDesignRepository()
+	design, err := repo.GetByID(store.SampleDesignID)
+	if err != nil {
+		t.Fatalf("get design: %v", err)
+	}
+
+	for index := range design.Graph.Nodes {
+		if design.Graph.Nodes[index].ID == "cache-1" {
+			design.Graph.Nodes[index].Properties.CacheHitRate = 1
+			design.Graph.Nodes[index].Properties.CacheWarmupTicks = 0
+			design.Graph.Nodes[index].Properties.CacheInvalidationRate = 0
+		}
+	}
+
+	result, err := NewService().RunDesignWithConfig(
+		design,
+		domain.Workload{
+			RequestsPerSecond: 10000,
+			ConcurrentUsers:   1000,
+			ReadWriteRatio:    4,
+			PayloadKB:         8,
+			FanoutCount:       1,
+		},
+		domain.SimulationConfig{
+			Mode:           domain.SimulationModeTickBased,
+			TickCount:      18,
+			TickDurationMS: 1000,
+		},
+	)
+	if err != nil {
+		t.Fatalf("RunDesignWithConfig() error = %v", err)
+	}
+
+	for _, edge := range result.Edges {
+		if edge.EdgeID == "edge-cache-db" && edge.RoutedRPS > 0 {
+			t.Fatalf("db edge routed_rps = %.2f, want 0 when cache hit rate is 1", edge.RoutedRPS)
+		}
+	}
+}
+
 func TestRunDesignWithQueueAndWorkerPath(t *testing.T) {
 	service := NewService()
 

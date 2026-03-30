@@ -153,6 +153,7 @@ func (s *Service) StreamDesignWithConfig(
 
 	flowResults := make([]domain.FlowSimulationResult, 0, len(requestClasses))
 	aggregateTicks := make([]domain.SimulationTick, 0)
+	shouldStreamPerTick := observeTick != nil && len(requestClasses) == 1
 
 	for _, requestClass := range requestClasses {
 		flowWorkload := scaleWorkload(workload, requestClass.TrafficShare)
@@ -164,7 +165,11 @@ func (s *Service) StreamDesignWithConfig(
 			flowEdges,
 			normalizedFlowWorkload,
 			config,
-			nil,
+			func(tick domain.SimulationTick) {
+				if shouldStreamPerTick && observeTick != nil {
+					observeTick(tick)
+				}
+			},
 		)
 		if err != nil {
 			return nil, err
@@ -199,7 +204,7 @@ func (s *Service) StreamDesignWithConfig(
 		Ticks:      aggregateTicks,
 	}
 
-	if observeTick != nil {
+	if observeTick != nil && !shouldStreamPerTick {
 		for _, tick := range aggregateTicks {
 			observeTick(tick)
 		}

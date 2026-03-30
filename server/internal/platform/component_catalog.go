@@ -63,8 +63,8 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 				CapacityRPS:           50000,
 				BaseLatencyMS:         3,
 				CacheHitRate:          0.8,
-				CacheWarmupTicks:      4,
-				CacheInvalidationRate: 0.05,
+				CacheWarmupTicks:      0,
+				CacheInvalidationRate: 0,
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
 				domain.EdgeInteractionSyncRequest,
