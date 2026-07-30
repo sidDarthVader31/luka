@@ -14,6 +14,7 @@ var (
 type DesignRepository interface {
 	Create(design domain.Design) error
 	GetByID(id string) (domain.Design, error)
+	List() ([]domain.Design, error)
 	Update(design domain.Design) error
 }
 

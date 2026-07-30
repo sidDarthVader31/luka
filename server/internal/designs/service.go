@@ -60,6 +60,10 @@ func (s *Service) Get(id string) (*domain.Design, error) {
 	return &design, nil
 }
 
+func (s *Service) List() ([]domain.Design, error) {
+	return s.repo.List()
+}
+
 func (s *Service) Update(id string, req domain.UpdateDesignRequest) (*domain.Design, error) {
 	existing, err := s.repo.GetByID(id)
 	if err != nil {

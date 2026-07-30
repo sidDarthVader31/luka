@@ -298,7 +298,8 @@ go test ./...
 
 ## Local URLs
 
-- Frontend: `http://127.0.0.1:5173`
+- Frontend library: `http://127.0.0.1:5173`
+- Editor (blank): `http://127.0.0.1:5173/designs/new`
 - Backend API: `http://127.0.0.1:8080/api/v1/status`
 
 ## Persistence configuration

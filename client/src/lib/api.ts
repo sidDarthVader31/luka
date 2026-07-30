@@ -237,6 +237,11 @@ export function getDesign(designId: string) {
   return request<Design>(`/designs/${designId}`);
 }
 
+export async function listDesigns() {
+  const response = await request<{ items: Design[] }>("/designs");
+  return response.items;
+}
+
 export function createDesign(input: CreateDesignInput) {
   return request<Design>("/designs", {
     method: "POST",

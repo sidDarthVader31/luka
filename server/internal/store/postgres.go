@@ -76,6 +76,44 @@ func (r *PostgresDesignRepository) GetByID(id string) (domain.Design, error) {
 	return design, nil
 }
 
+func (r *PostgresDesignRepository) List() ([]domain.Design, error) {
+	rows, err := r.pool.Query(
+		context.Background(),
+		`select id, name, description, graph, created_at, updated_at
+		 from designs
+		 order by updated_at desc, name asc`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query designs: %w", err)
+	}
+	defer rows.Close()
+
+	designs := make([]domain.Design, 0)
+	for rows.Next() {
+		var design domain.Design
+		var graphJSON []byte
+		if err := rows.Scan(
+			&design.ID,
+			&design.Name,
+			&design.Description,
+			&graphJSON,
+			&design.CreatedAt,
+			&design.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan design: %w", err)
+		}
+		if err := json.Unmarshal(graphJSON, &design.Graph); err != nil {
+			return nil, fmt.Errorf("unmarshal design graph: %w", err)
+		}
+		designs = append(designs, design)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate designs: %w", err)
+	}
+
+	return designs, nil
+}
+
 func (r *PostgresDesignRepository) Update(design domain.Design) error {
 	graphJSON, err := json.Marshal(design.Graph)
 	if err != nil {

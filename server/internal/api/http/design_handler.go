@@ -59,6 +59,21 @@ func (h *DesignHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, design)
 }
 
+func (h *DesignHandler) List(c *gin.Context) {
+	items, err := h.service.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "design list failed",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items": items,
+	})
+}
+
 func (h *DesignHandler) Update(c *gin.Context) {
 	var request domain.UpdateDesignRequest
 	if err := c.ShouldBindJSON(&request); err != nil {

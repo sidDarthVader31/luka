@@ -3,6 +3,7 @@ package store
 import (
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
 )
@@ -33,6 +34,43 @@ func (r *MemoryDesignRepository) GetByID(id string) (domain.Design, error) {
 	}
 
 	return design, nil
+}
+
+func (r *MemoryDesignRepository) List() ([]domain.Design, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	designs := make([]domain.Design, 0, len(r.designs))
+	for _, design := range r.designs {
+		designs = append(designs, design)
+	}
+
+	slices.SortFunc(designs, func(a, b domain.Design) int {
+		aTime := time.Time{}
+		bTime := time.Time{}
+		if a.UpdatedAt != nil {
+			aTime = *a.UpdatedAt
+		}
+		if b.UpdatedAt != nil {
+			bTime = *b.UpdatedAt
+		}
+		if aTime.Equal(bTime) {
+			switch {
+			case a.Name < b.Name:
+				return -1
+			case a.Name > b.Name:
+				return 1
+			default:
+				return 0
+			}
+		}
+		if aTime.After(bTime) {
+			return -1
+		}
+		return 1
+	})
+
+	return designs, nil
 }
 
 func (r *MemoryDesignRepository) Create(design domain.Design) error {
