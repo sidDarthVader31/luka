@@ -9,6 +9,7 @@ Planning docs for Luka beyond the MVP, oriented around **architecture review** u
 | [02-frontend-modularization.md](./02-frontend-modularization.md) | Split AppShell, routes, preflight, compare/export |
 | [03-office-workflow.md](./03-office-workflow.md) | Share links, present mode, templates, seeds, meetings |
 | [04-productization.md](./04-productization.md) | Docker, CI, list APIs, auth deferral |
+| [05-capacity-presets-fe.md](./05-capacity-presets-fe.md) | FE size presets — contract for later backend |
 
 ## Recommended build order
 

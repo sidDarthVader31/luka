@@ -1,9 +1,34 @@
 import { describe, expect, it } from "vitest";
 
+import { applyPreset, matchPreset, supportsCapacityPresets } from "./capacity-presets";
 import { resolveEdgeDefaults } from "./edge-defaults";
 import { validateGraphForRun } from "./graph-validation";
 import { buildRunComparison, formatSignedPercent } from "./run-comparison";
 import type { GraphNode, Run } from "../../../lib/api";
+
+describe("capacity presets", () => {
+  it("applies medium service preset", () => {
+    const preset = applyPreset("stateless_service", "medium");
+    expect(preset).toEqual({
+      replicas: 2,
+      capacity_rps: 10000,
+      base_latency_ms: 20,
+    });
+  });
+
+  it("matches applied preset and falls back to custom", () => {
+    const medium = applyPreset("database", "medium")!;
+    expect(matchPreset("database", medium)).toBe("medium");
+    expect(
+      matchPreset("database", { ...medium, capacity_rps: 999 }),
+    ).toBe("custom");
+  });
+
+  it("does not support client presets", () => {
+    expect(supportsCapacityPresets("client")).toBe(false);
+    expect(applyPreset("client", "small")).toBeNull();
+  });
+});
 
 describe("validateGraphForRun", () => {
   it("requires a client node", () => {

@@ -113,7 +113,13 @@ export function PresentModePage() {
           nodes={displayNodes}
           edges={edges.map((edge) => ({
             ...edge,
-            markerEnd: { type: MarkerType.ArrowClosed, color: "#9aa8b8" },
+            style: { strokeWidth: 1.25, stroke: "#7a8a9c" },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              width: 18,
+              height: 18,
+              color: "#5b6b7c",
+            },
           }))}
           nodeTypes={nodeTypes}
           nodesDraggable={false}

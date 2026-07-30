@@ -2,17 +2,22 @@
   position: relative;
   min-width: 168px;
   max-width: 220px;
-  padding: 0.7rem 0.8rem 0.75rem 0.95rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-node);
   background: var(--node-fill);
   box-shadow: 0 6px 16px rgba(26, 35, 50, 0.06);
+  cursor: grab;
+  overflow: visible;
   transition:
     box-shadow 140ms ease,
-    border-color 140ms ease,
-    transform 140ms ease;
+    border-color 140ms ease;
 }
 
+.luka-node:active {
+  cursor: grabbing;
+}
+
+/* Decorative accent only — never capture pointer (connect works on full rim) */
 .luka-node::before {
   content: "";
   position: absolute;
@@ -22,6 +27,8 @@
   width: 4px;
   border-radius: 999px;
   background: var(--node-accent, var(--accent));
+  pointer-events: none;
+  z-index: 0;
 }
 
 .luka-node:hover {
@@ -44,6 +51,8 @@
 }
 
 .luka-node--bottleneck {
+  border-color: #e11d2e;
+  box-shadow: 0 0 0 3px rgba(225, 29, 46, 0.28);
   animation: bottleneck-pulse 1.4s ease-in-out infinite;
 }
 
@@ -55,9 +64,17 @@
   border-color: var(--warn);
 }
 
+.luka-node__body {
+  position: relative;
+  z-index: 1;
+  padding: 0.7rem 0.8rem 0.75rem 0.95rem;
+  pointer-events: none;
+}
+
 .luka-node__eyebrow {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 0.4rem;
   margin-bottom: 0.25rem;
   color: var(--muted);
@@ -65,6 +82,19 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.luka-node__hot {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  background: #e11d2e;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  box-shadow: 0 0 0 2px rgba(225, 29, 46, 0.25);
 }
 
 .luka-node__label {
@@ -103,73 +133,89 @@
   color: var(--danger);
 }
 
-.luka-node .luka-handle {
-  width: 50%;
-  height: 100% !important;
-  top: 0 !important;
+/*
+  Invisible rim hit targets on ALL four sides.
+  Use opacity 1 + transparent bg (opacity:0 can drop pointer events in some browsers).
+  Handles sit slightly outside so edge arrows are not buried under the node.
+*/
+.luka-node .luka-rim-handle {
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
   border: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
   transform: none !important;
-  opacity: 1;
-  z-index: 2;
+  cursor: crosshair;
+  pointer-events: all !important;
 }
 
-.luka-node .luka-handle--target {
-  left: 0 !important;
-  right: auto !important;
+.luka-node .luka-rim-handle--source {
+  z-index: 6;
 }
 
-.luka-node .luka-handle--source {
-  right: 0 !important;
+.luka-node .luka-rim-handle--target {
+  z-index: 5;
+}
+
+.luka-node .luka-rim-handle--top {
+  top: -8px !important;
+  left: 10px !important;
+  right: 10px !important;
+  width: calc(100% - 20px) !important;
+  height: 16px !important;
+}
+
+.luka-node .luka-rim-handle--bottom {
+  bottom: -8px !important;
+  top: auto !important;
+  left: 10px !important;
+  right: 10px !important;
+  width: calc(100% - 20px) !important;
+  height: 16px !important;
+}
+
+.luka-node .luka-rim-handle--left {
+  left: -8px !important;
+  top: 10px !important;
+  bottom: 10px !important;
+  width: 16px !important;
+  height: calc(100% - 20px) !important;
+}
+
+.luka-node .luka-rim-handle--right {
+  right: -8px !important;
   left: auto !important;
+  top: 10px !important;
+  bottom: 10px !important;
+  width: 16px !important;
+  height: calc(100% - 20px) !important;
 }
 
-.luka-node .luka-handle::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  background: var(--accent);
-  opacity: 0;
-  transition: opacity 120ms ease, transform 120ms ease;
-  pointer-events: none;
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-.luka-node .luka-handle--target::after {
-  left: 2px;
-  transform: translateY(-50%);
-  background: var(--ok);
-  box-shadow: 0 0 0 3px rgba(31, 138, 91, 0.15);
-}
-
-.luka-node .luka-handle--source::after {
-  right: 2px;
-  left: auto;
-  transform: translateY(-50%);
-}
-
-.luka-node:hover .luka-handle::after,
-.luka-node.selected .luka-handle::after,
-.luka-node--connect-source .luka-handle::after {
-  opacity: 1;
+.react-flow__node {
+  overflow: visible !important;
 }
 
 .react-flow__edge-path {
-  stroke: var(--line-strong);
+  stroke: #7a8a9c;
+  stroke-width: 1.25;
 }
 
 .react-flow__edge.selected .react-flow__edge-path {
   stroke: var(--accent);
+  stroke-width: 1.75;
 }
 
 .react-flow__edge-text {
   font-size: 10px;
   fill: var(--muted);
+}
+
+.react-flow__arrowhead {
+  fill: #5b6b7c;
 }
 
 .react-flow__controls {
@@ -192,10 +238,10 @@
 @keyframes bottleneck-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(196, 60, 60, 0.2);
+    box-shadow: 0 0 0 3px rgba(225, 29, 46, 0.22);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(196, 60, 60, 0.08);
+    box-shadow: 0 0 0 7px rgba(225, 29, 46, 0.12);
   }
 }
 
@@ -219,4 +265,65 @@
 }
 .luka-node--worker {
   --node-accent: #0f7a7a;
+}
+
+.coming-soon-wrap {
+  position: relative;
+  margin-top: 0.35rem;
+}
+
+.coming-soon-wrap__content {
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.45;
+  filter: grayscale(0.15);
+}
+
+.coming-soon-wrap__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  border-radius: 12px;
+  background: rgba(244, 246, 248, 0.55);
+  pointer-events: auto;
+  cursor: not-allowed;
+}
+
+.coming-soon-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: var(--shadow);
+}
+
+.preset-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+
+.preset-chip {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.4rem 0.25rem;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.preset-chip[data-active="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }

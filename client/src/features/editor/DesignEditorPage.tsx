@@ -61,6 +61,13 @@ import {
   getSupportedEdgeOptions,
 } from "../../lib/design-draft";
 import { ComponentPalette } from "./components/ComponentPalette";
+import {
+  applyPreset,
+  matchPreset,
+  PROPERTY_LABELS,
+  supportsCapacityPresets,
+  type CapacitySize,
+} from "./lib/capacity-presets";
 import { captureEditorSnapshot, pushUndoSnapshot } from "./lib/editor-state";
 import { resolveEdgeDefaults } from "./lib/edge-defaults";
 import {
@@ -223,12 +230,14 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
           label: buildEdgeLabel(edge, result?.routed_rps),
           animated: Boolean(result && result.routed_rps > 0 && (result.timed_out_rps ?? 0) > 0),
           style: {
-            stroke: selected ? "var(--accent)" : undefined,
-            strokeWidth: selected ? 3 : 2,
+            stroke: selected ? "var(--accent)" : "#7a8a9c",
+            strokeWidth: selected ? 1.75 : 1.25,
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: selected ? "#2f5bff" : "#9aa8b8",
+            width: 18,
+            height: 18,
+            color: selected ? "#2f5bff" : "#5b6b7c",
           },
         };
       }),
@@ -861,7 +870,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
                 setConnectSourceID(null);
               }}
             >
-              Connect {connectMode ? "(on)" : ""}
+              Click connect {connectMode ? "(on)" : ""}
             </button>
             <button
               className="btn btn--ghost"
@@ -890,8 +899,9 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
             <div className="editor-canvas__empty">
               <h2>Drop a Client to start</h2>
               <p>
-                Drag components from the left, then use Connect (or drag from a node) to
-                wire the path — no tiny handle hunting.
+                Drag from a node&apos;s <strong>edge</strong> to connect; drag the{" "}
+                <strong>center</strong> to move. Optional: Click connect (C) for
+                two-click linking.
               </p>
               <div className="editor-canvas__empty-actions">
                 <button
@@ -945,10 +955,16 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
             connectionMode={ConnectionMode.Loose}
             connectionRadius={96}
             connectionLineType={ConnectionLineType.SmoothStep}
-            connectionLineStyle={{ stroke: "#2f5bff", strokeWidth: 2.5 }}
+            connectionLineStyle={{ stroke: "#2f5bff", strokeWidth: 1.5 }}
             defaultEdgeOptions={{
               type: "smoothstep",
-              markerEnd: { type: MarkerType.ArrowClosed, color: "#9aa8b8" },
+              style: { strokeWidth: 1.25, stroke: "#7a8a9c" },
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                width: 18,
+                height: 18,
+                color: "#5b6b7c",
+              },
             }}
             onNodeClick={(_, node) => handleNodeClick(node.id)}
             onEdgeClick={(_, edge) => {
@@ -1009,26 +1025,128 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
                           }
                         />
                       </label>
-                      {Object.entries(selectedNode.data.properties)
-                        .filter(([, value]) => value !== undefined)
-                        .map(([key, value]) => (
-                          <label className="field" key={key}>
-                            <span>{key.replaceAll("_", " ")}</span>
-                            <input
-                              inputMode="decimal"
-                              value={String(value ?? "")}
-                              onChange={(event) => {
-                                const next = Number(event.target.value);
-                                updateSelectedNode({
-                                  properties: {
-                                    ...selectedNode.data.properties,
-                                    [key]: Number.isFinite(next) ? next : value,
-                                  },
-                                });
-                              }}
-                            />
-                          </label>
-                        ))}
+                      {supportsCapacityPresets(selectedNode.data.archetype) ? (
+                        <div className="field">
+                          <span>Capacity size</span>
+                          <div className="preset-row">
+                            {(["small", "medium", "large", "custom"] as CapacitySize[]).map(
+                              (size) => (
+                                <button
+                                  key={size}
+                                  className="preset-chip"
+                                  type="button"
+                                  data-active={
+                                    matchPreset(
+                                      selectedNode.data.archetype,
+                                      selectedNode.data.properties,
+                                    ) === size
+                                  }
+                                  disabled={size === "custom"}
+                                  onClick={() => {
+                                    if (size === "custom") {
+                                      return;
+                                    }
+                                    const preset = applyPreset(
+                                      selectedNode.data.archetype,
+                                      size,
+                                    );
+                                    if (!preset) {
+                                      return;
+                                    }
+                                    updateSelectedNode({
+                                      properties: {
+                                        ...selectedNode.data.properties,
+                                        ...preset,
+                                      },
+                                    });
+                                  }}
+                                >
+                                  {size === "custom"
+                                    ? "Custom"
+                                    : size[0]!.toUpperCase() + size.slice(1)}
+                                </button>
+                              ),
+                            )}
+                          </div>
+                          <small>
+                            Pick a size to set instances and work capacity. Custom appears
+                            when you edit advanced numbers.
+                          </small>
+                        </div>
+                      ) : null}
+                      {selectedNode.data.archetype === "cache" ? (
+                        <label className="field">
+                          <span>{PROPERTY_LABELS.cache_hit_rate.label}</span>
+                          <input
+                            inputMode="decimal"
+                            value={String(
+                              selectedNode.data.properties.cache_hit_rate ?? 0.8,
+                            )}
+                            onChange={(event) => {
+                              const next = Number(event.target.value);
+                              updateSelectedNode({
+                                properties: {
+                                  ...selectedNode.data.properties,
+                                  cache_hit_rate: Number.isFinite(next)
+                                    ? next
+                                    : selectedNode.data.properties.cache_hit_rate,
+                                },
+                              });
+                            }}
+                          />
+                          <small>{PROPERTY_LABELS.cache_hit_rate.help}</small>
+                        </label>
+                      ) : null}
+                      {selectedNode.data.archetype !== "client" ? (
+                        <details className="advanced-block">
+                          <summary>Advanced capacity</summary>
+                          <div className="field-stack" style={{ marginTop: "0.65rem" }}>
+                            {(
+                              [
+                                "replicas",
+                                "capacity_rps",
+                                "base_latency_ms",
+                              ] as const
+                            ).map((key) => {
+                              if (selectedNode.data.properties[key] === undefined) {
+                                return null;
+                              }
+                              const meta = PROPERTY_LABELS[key];
+                              return (
+                                <label className="field" key={key}>
+                                  <span>{meta.label}</span>
+                                  <input
+                                    inputMode="decimal"
+                                    value={String(selectedNode.data.properties[key] ?? "")}
+                                    onChange={(event) => {
+                                      const next = Number(event.target.value);
+                                      updateSelectedNode({
+                                        properties: {
+                                          ...selectedNode.data.properties,
+                                          [key]: Number.isFinite(next)
+                                            ? next
+                                            : selectedNode.data.properties[key],
+                                        },
+                                      });
+                                    }}
+                                  />
+                                  <small>{meta.help}</small>
+                                </label>
+                              );
+                            })}
+                            {selectedNode.data.archetype === "cache" &&
+                            selectedNode.data.properties.cache_hit_rate !== undefined ? (
+                              <p className="hint">
+                                Hit rate is shown above; latency stays in advanced.
+                              </p>
+                            ) : null}
+                          </div>
+                        </details>
+                      ) : (
+                        <p className="hint">
+                          Client emits traffic from the Scenario tab — no capacity size.
+                        </p>
+                      )}
                     </div>
                     <button
                       className="btn btn--danger"
@@ -1200,8 +1318,8 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
                   <>
                     <h3>Inspect</h3>
                     <p className="hint">
-                      Select a node or edge on the canvas. Use Connect (C) to wire two
-                      nodes with a click.
+                      Select a node or edge on the canvas. Drag from a node&apos;s edge
+                      to connect, or use Click connect (C).
                     </p>
                     <details
                       className="advanced-block"
@@ -1255,18 +1373,20 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
                 </label>
                 <div className="field-stack">
                   <label className="field">
-                    <span>Requests / sec</span>
+                    <span>Incoming traffic (req/sec)</span>
                     <input
                       value={requestsPerSecond}
                       onChange={(event) => setRequestsPerSecond(event.target.value)}
                     />
+                    <small>Main load entering the system.</small>
                   </label>
                   <label className="field">
-                    <span>Concurrent users</span>
+                    <span>Active users</span>
                     <input
                       value={concurrentUsers}
                       onChange={(event) => setConcurrentUsers(event.target.value)}
                     />
+                    <small>Soft pressure on gateways and services.</small>
                   </label>
                   <label className="field">
                     <span>Write pressure (read:write)</span>
@@ -1276,22 +1396,25 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
                     />
                     <small>Capacity penalty only — use flows for path splits.</small>
                   </label>
-                  <div className="field-row">
-                    <label className="field">
-                      <span>Payload KB</span>
-                      <input
-                        value={payloadKB}
-                        onChange={(event) => setPayloadKB(event.target.value)}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Fanout</span>
-                      <input
-                        value={fanoutCount}
-                        onChange={(event) => setFanoutCount(event.target.value)}
-                      />
-                    </label>
-                  </div>
+                  <details className="advanced-block">
+                    <summary>More load assumptions</summary>
+                    <div className="field-row" style={{ marginTop: "0.65rem" }}>
+                      <label className="field">
+                        <span>Payload KB</span>
+                        <input
+                          value={payloadKB}
+                          onChange={(event) => setPayloadKB(event.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Fanout</span>
+                        <input
+                          value={fanoutCount}
+                          onChange={(event) => setFanoutCount(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                  </details>
                 </div>
                 <h3>Request flows</h3>
                 <div className="flow-list">
@@ -1475,50 +1598,43 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
                   <p className="hint">Run a simulation to see bottleneck and path insights.</p>
                 )}
 
-                <h3>History</h3>
-                {savedDesign ? (
-                  <div className="history-list">
-                    {designRuns.map((run) => (
-                      <div className="history-card" key={run.id}>
-                        <strong>{run.result?.bottleneck?.label ?? run.id}</strong>
-                        <small>{formatWorkload(run.workload)}</small>
-                        <div className="history-card__actions">
-                          <button
-                            className="btn btn--ghost"
-                            type="button"
-                            onClick={() => {
-                              setLastRun(run);
-                              setDockTab("results");
-                            }}
-                          >
-                            View
-                          </button>
-                          <button
-                            className="btn btn--ghost"
-                            type="button"
-                            onClick={() => {
-                              setBaselineRun(run);
-                              showToast("Baseline set");
-                            }}
-                          >
-                            Compare
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    {designRuns.length === 0 ? (
-                      <p className="hint">No persisted runs yet.</p>
-                    ) : null}
-                    <p className="hint">{designVersions.length} saved versions</p>
+                <h3>Saved runs</h3>
+                <div className="coming-soon-wrap">
+                  <div className="coming-soon-wrap__overlay" aria-hidden="true">
+                    <span className="coming-soon-chip">Coming soon</span>
                   </div>
-                ) : (
-                  <p className="hint">Save the design to unlock run history.</p>
-                )}
-                {savedDesign ? (
-                  <Link className="btn" to={`/designs/${savedDesign.id}/compare`}>
-                    Open compare page
-                  </Link>
-                ) : null}
+                  <div className="coming-soon-wrap__content" aria-disabled="true">
+                    {savedDesign ? (
+                      <div className="history-list">
+                        {designRuns.map((run) => (
+                          <div className="history-card" key={run.id}>
+                            <strong>{run.result?.bottleneck?.label ?? run.id}</strong>
+                            <small>{formatWorkload(run.workload)}</small>
+                            <div className="history-card__actions">
+                              <button className="btn btn--ghost" type="button" tabIndex={-1}>
+                                View
+                              </button>
+                              <button className="btn btn--ghost" type="button" tabIndex={-1}>
+                                Compare
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        {designRuns.length === 0 ? (
+                          <p className="hint">No persisted runs yet.</p>
+                        ) : null}
+                        <p className="hint">{designVersions.length} saved versions</p>
+                      </div>
+                    ) : (
+                      <p className="hint">Save the design to unlock run history.</p>
+                    )}
+                    {savedDesign ? (
+                      <span className="btn" style={{ display: "inline-flex", marginTop: "0.5rem" }}>
+                        Open compare page
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             ) : null}
           </div>
