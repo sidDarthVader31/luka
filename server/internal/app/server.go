@@ -68,6 +68,12 @@ func bootstrapRepositories(ctx context.Context) (store.DesignRepository, store.D
 		return nil, nil, nil, fmt.Errorf("run postgres migrations: %w", err)
 	}
 
+	designRepo := store.NewPostgresDesignRepository(pool)
+	if err := store.SeedSampleDesigns(designRepo); err != nil {
+		pool.Close()
+		return nil, nil, nil, fmt.Errorf("seed sample designs: %w", err)
+	}
+
 	log.Print("using PostgreSQL persistence")
-	return store.NewPostgresDesignRepository(pool), store.NewPostgresDesignVersionRepository(pool), store.NewPostgresRunRepository(pool), nil
+	return designRepo, store.NewPostgresDesignVersionRepository(pool), store.NewPostgresRunRepository(pool), nil
 }

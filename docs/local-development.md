@@ -44,7 +44,7 @@ cd server
 go run ./cmd/api
 ```
 
-The server runs embedded SQL migrations automatically on startup when a database URL is configured.
+The server runs embedded SQL migrations automatically on startup when a database URL is configured. Built-in sample designs (`sample-cache-aside`, `sample-queue-workflow`) are seeded if they are missing so the UI sample buttons work with Postgres as well as in-memory mode.
 
 Default backend address:
 

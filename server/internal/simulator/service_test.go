@@ -641,3 +641,190 @@ func TestRunDesignAddsRetriesTimeoutsQueueLagAndPathExplanations(t *testing.T) {
 		t.Fatalf("first path kind = %q, want critical_path", result.Paths[0].Kind)
 	}
 }
+
+func TestRunDesignSplitsLoadAcrossParallelAsyncEnqueueEdges(t *testing.T) {
+	service := NewService()
+
+	result, err := service.RunDesign(domain.Design{
+		ID:   "design-async-split",
+		Name: "Dual Queue Enqueue",
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{ID: "client-1", Label: "Client", Archetype: domain.NodeArchetypeClient, Color: "blue", Position: domain.NodePosition{X: 0, Y: 0}},
+				{
+					ID:        "service-1",
+					Label:     "Write Service",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "green",
+					Position:  domain.NodePosition{X: 140, Y: 0},
+					Properties: domain.NodeProperties{
+						CapacityRPS:   12000,
+						BaseLatencyMS: 18,
+					},
+				},
+				{
+					ID:        "queue-1",
+					Label:     "Queue A",
+					Archetype: domain.NodeArchetypeQueue,
+					Color:     "yellow",
+					Position:  domain.NodePosition{X: 320, Y: -60},
+					Properties: domain.NodeProperties{
+						CapacityRPS:   20000,
+						BaseLatencyMS: 4,
+					},
+				},
+				{
+					ID:        "queue-2",
+					Label:     "Queue B",
+					Archetype: domain.NodeArchetypeQueue,
+					Color:     "yellow",
+					Position:  domain.NodePosition{X: 320, Y: 60},
+					Properties: domain.NodeProperties{
+						CapacityRPS:   20000,
+						BaseLatencyMS: 4,
+					},
+				},
+			},
+			Edges: []domain.Edge{
+				{
+					ID:              "edge-client-service",
+					SourceNodeID:    "client-1",
+					TargetNodeID:    "service-1",
+					InteractionType: domain.EdgeInteractionSyncRequest,
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+				{
+					ID:              "edge-service-queue-a",
+					SourceNodeID:    "service-1",
+					TargetNodeID:    "queue-1",
+					InteractionType: domain.EdgeInteractionAsyncEnqueue,
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+				{
+					ID:              "edge-service-queue-b",
+					SourceNodeID:    "service-1",
+					TargetNodeID:    "queue-2",
+					InteractionType: domain.EdgeInteractionAsyncEnqueue,
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+			},
+		},
+	}, domain.Workload{RequestsPerSecond: 8000})
+	if err != nil {
+		t.Fatalf("RunDesign() error = %v", err)
+	}
+
+	var queueA, queueB *domain.NodeSimulationResult
+	for index := range result.Nodes {
+		switch result.Nodes[index].NodeID {
+		case "queue-1":
+			queueA = &result.Nodes[index]
+		case "queue-2":
+			queueB = &result.Nodes[index]
+		}
+	}
+
+	if queueA == nil || queueB == nil {
+		t.Fatal("expected both queues in node results")
+	}
+
+	if queueA.IncomingRPS != 4000 || queueB.IncomingRPS != 4000 {
+		t.Fatalf("parallel async queues got %.0f and %.0f rps, want 4000 each", queueA.IncomingRPS, queueB.IncomingRPS)
+	}
+}
+
+func TestRunDesignKeepsSyncAndAsyncAsSideEffects(t *testing.T) {
+	service := NewService()
+
+	result, err := service.RunDesign(domain.Design{
+		ID:   "design-side-effect",
+		Name: "Sync Plus Async",
+		Graph: domain.Graph{
+			Nodes: []domain.Node{
+				{ID: "client-1", Label: "Client", Archetype: domain.NodeArchetypeClient, Color: "blue", Position: domain.NodePosition{X: 0, Y: 0}},
+				{
+					ID:        "service-1",
+					Label:     "API",
+					Archetype: domain.NodeArchetypeStatelessService,
+					Color:     "green",
+					Position:  domain.NodePosition{X: 140, Y: 0},
+					Properties: domain.NodeProperties{
+						CapacityRPS:   10000,
+						BaseLatencyMS: 18,
+					},
+				},
+				{
+					ID:        "cache-1",
+					Label:     "Cache",
+					Archetype: domain.NodeArchetypeCache,
+					Color:     "yellow",
+					Position:  domain.NodePosition{X: 320, Y: -60},
+					Properties: domain.NodeProperties{
+						CapacityRPS:   50000,
+						BaseLatencyMS: 3,
+						CacheHitRate:  0.8,
+					},
+				},
+				{
+					ID:        "queue-1",
+					Label:     "Queue",
+					Archetype: domain.NodeArchetypeQueue,
+					Color:     "orange",
+					Position:  domain.NodePosition{X: 320, Y: 60},
+					Properties: domain.NodeProperties{
+						CapacityRPS:   20000,
+						BaseLatencyMS: 4,
+					},
+				},
+			},
+			Edges: []domain.Edge{
+				{
+					ID:              "edge-client-service",
+					SourceNodeID:    "client-1",
+					TargetNodeID:    "service-1",
+					InteractionType: domain.EdgeInteractionSyncRequest,
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+				{
+					ID:              "edge-service-cache",
+					SourceNodeID:    "service-1",
+					TargetNodeID:    "cache-1",
+					InteractionType: domain.EdgeInteractionSyncRequest,
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+				{
+					ID:              "edge-service-queue",
+					SourceNodeID:    "service-1",
+					TargetNodeID:    "queue-1",
+					InteractionType: domain.EdgeInteractionAsyncEnqueue,
+					RoutingRule:     domain.RoutingRule{RuleType: domain.RoutingRuleAlways},
+				},
+			},
+		},
+	}, domain.Workload{RequestsPerSecond: 5000})
+	if err != nil {
+		t.Fatalf("RunDesign() error = %v", err)
+	}
+
+	var cacheNode, queueNode *domain.NodeSimulationResult
+	for index := range result.Nodes {
+		switch result.Nodes[index].NodeID {
+		case "cache-1":
+			cacheNode = &result.Nodes[index]
+		case "queue-1":
+			queueNode = &result.Nodes[index]
+		}
+	}
+
+	if cacheNode == nil || queueNode == nil {
+		t.Fatal("expected cache and queue results")
+	}
+
+	if cacheNode.IncomingRPS != 5000 {
+		t.Fatalf("cache incoming = %.0f, want full side-effect sync load 5000", cacheNode.IncomingRPS)
+	}
+	if queueNode.IncomingRPS != 5000 {
+		t.Fatalf("queue incoming = %.0f, want full side-effect async load 5000", queueNode.IncomingRPS)
+	}
+}
+

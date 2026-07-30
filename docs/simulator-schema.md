@@ -290,26 +290,38 @@ The routing rule is the heart of the edge model. An edge without routing semanti
 
 For MVP, routing rules should be constrained to a small set.
 
-### 8.1 Supported routing rule types
+### 8.1 Supported routing rule types (implemented)
 
 | Rule Type | Meaning |
 | --- | --- |
-| `always` | All eligible traffic follows this edge |
-| `percentage_split` | A fixed percentage follows this edge |
-| `cache_hit` | Traffic follows this edge on cache hit |
-| `cache_miss` | Traffic follows this edge on cache miss |
-| `fanout` | One request produces multiple downstream operations |
-| `on_success` | Used after successful upstream operation |
-| `on_failure` | Used as fallback after failure |
+| `always` | All eligible traffic follows this edge (subject to interaction type and peer weight split) |
+| `cache_hit` | Traffic follows this edge on cache hit (source must be a cache) |
+| `cache_miss` | Traffic follows this edge on cache miss (source must be a cache) |
+
+Fanout is modeled as `edge.fanout_multiplier` and global `workload.fanout_count` on async enqueue edges — not as a routing rule type.
+
+### 8.1.1 Not yet implemented
+
+These appear in older planning notes and are **not** in the engine today:
+
+| Rule Type | Status |
+| --- | --- |
+| `percentage_split` | Use `routing_rule.value` weights among peer edges with the same interaction + rule instead |
+| `fanout` as a rule type | Use `fanout_multiplier` on the edge |
+| `on_success` / `on_failure` | Use `fallback` interaction for dropped load |
 
 ### 8.2 Routing rule fields
 
 | Field | Purpose |
 | --- | --- |
 | `rule_type` | Which routing behavior is used |
-| `value` | Numeric parameter such as percentage or fanout count |
-| `depends_on` | Optional upstream node or edge whose outcome controls the branch |
-| `order` | Evaluation order when multiple branch edges exist |
+| `value` | Weight among peer edges that share the same interaction type and rule type |
+
+### 8.3 Async enqueue split semantics
+
+- A **sync** edge and an **async_enqueue** edge from the same node both receive full processed RPS (side-effect enqueue: every request may also enqueue).
+- Multiple **async_enqueue** edges that share the same routing rule split processed RPS by routing weight.
+- Timeout / retry on edges are **display-only estimates**. They do not change node incoming RPS or utilization in the current analytical model.
 
 ## 9. Request Class Schema
 
@@ -343,11 +355,11 @@ Each workload definition should support:
 | `requests_per_second` | Input arrival rate |
 | `concurrent_users` | Concurrent active users if relevant |
 | `payload_size` | Relative request size assumption |
-| `read_write_ratio` | Optional split for mixed paths |
-| `burst_factor` | Optional multiplier for stress scenarios |
-| `duration` | Optional future support for time-based runs |
+| `read_write_ratio` | Write-pressure mix used as a capacity penalty (not path routing) |
+| `burst_factor` | Optional multiplier for stress scenarios (not implemented) |
+| `duration` | Optional future support for time-based runs (not implemented) |
 
-For MVP, `requests_per_second` is the most important field.
+For MVP, `requests_per_second` is the most important field. Use request classes to model separate read vs write paths.
 
 ## 11. Simulation Output Schema
 

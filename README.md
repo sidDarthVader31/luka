@@ -45,7 +45,7 @@ Luka currently supports:
 - workload inputs:
   - requests per second
   - concurrent users
-  - read/write ratio
+  - write pressure (read:write mix; capacity penalty, not path routing)
   - payload size
   - global fanout count
 - simulation output:
@@ -208,16 +208,20 @@ How many users are active at the same time.
 
 Luka uses this as an extra pressure signal in the simplified model.
 
-#### Read:write ratio
+#### Write pressure (read:write mix)
 
-How read-heavy the workload is.
+This control is a **capacity pressure factor**, not a traffic router.
 
 Examples:
 
-- `4:1` means reads dominate
-- `1:1` means balanced read and write pressure
+- `4` means a 4:1 read:write mix (writes are 20% of the mix)
+- `1` means balanced read and write pressure
 
-This helps Luka reason about how pressure should move across caches, queues, services, and databases.
+Higher write share tightens effective capacity on databases, queues, workers, and (more lightly) services. It does **not** send traffic down separate read vs write edges.
+
+To model separate read and write paths, use **request flows** and attach edges to those flows.
+
+Timeout and retry fields on edges produce **display-only** edge estimates. They do not currently change node utilization.
 
 #### Payload (KB)
 
@@ -350,3 +354,4 @@ Luka is in active MVP development, but the core end-to-end loop already exists:
 - [`docs/local-development.md`](docs/local-development.md)
 - [`docs/monorepo-structure.md`](docs/monorepo-structure.md)
 - [`docs/simulator-schema.md`](docs/simulator-schema.md)
+- [`docs/next-version/README.md`](docs/next-version/README.md) — office / vNext roadmap

@@ -85,7 +85,7 @@ const runFieldHelp: Record<
   },
   read_write_ratio: {
     placeholder: "e.g. 4",
-    hint: "A value of 4 means 4 reads for every 1 write.",
+    hint: "Write-pressure mix, not path routing. 4 means a 4:1 read:write mix that tightens capacity on databases, queues, and workers. Use request flows to model separate read vs write paths.",
   },
   payload_kb: {
     placeholder: "e.g. 8",
@@ -1583,7 +1583,7 @@ export function AppShell() {
                 <small className="field-hint">{runFieldHelp.concurrent_users.hint}</small>
               </label>
               <label className="field">
-                <span>Read:write ratio</span>
+                <span>Write pressure (read:write)</span>
                 <input
                   inputMode="decimal"
                   placeholder={runFieldHelp.read_write_ratio.placeholder}
@@ -3250,9 +3250,9 @@ function getEdgeFieldHelp(
     case "fanoutMultiplier":
       return "Amplifies work on this edge. A value of 20 means one upstream action becomes 20 downstream operations here.";
     case "timeoutMS":
-      return "If the downstream component is slower than this, Luka treats part of the traffic as timed out.";
+      return "If the downstream component is slower than this, Luka estimates timed-out traffic on this edge. These estimates are display-only and do not change node utilization yet.";
     case "retryAttempts":
-      return "Extra attempts after a timeout. Retries can recover requests, but they also amplify load downstream.";
+      return "Extra attempts after a timeout, shown as estimated edge stats. Retries are not fed back into downstream capacity pressure in the current model.";
     default:
       return "";
   }
@@ -3285,7 +3285,7 @@ function detectGraphPatterns(nodes: GraphNode[], edges: GraphEdge[]) {
   if (hasAsyncQueue && hasWorkerConsume) {
     patterns.push({
       title: "Async queue workflow detected",
-      body: "Your service is pushing work into a queue and workers consume it later. This decouples user-facing latency from background processing, but backlog appears when enqueue rate exceeds worker throughput.",
+      body: "Your service is pushing work into a queue and workers consume it later. Sync and async edges from the same node both carry full processed load (side-effect enqueue). Multiple async enqueue edges with the same rule split by routing weight.",
     });
   }
 
@@ -3416,7 +3416,7 @@ function formatWorkload(workload: Workload) {
   const fanoutCount = workload.fanout_count ?? 1;
   const concurrentUsers = workload.concurrent_users ?? 0;
 
-  return `${formatCompactNumber(workload.requests_per_second)} rps, ${formatCompactNumber(concurrentUsers)} concurrent users, ${readWriteRatio}:1 read/write, ${payloadKB} KB payload, fanout x${fanoutCount}`;
+  return `${formatCompactNumber(workload.requests_per_second)} rps, ${formatCompactNumber(concurrentUsers)} concurrent users, write pressure ${readWriteRatio}:1, ${payloadKB} KB payload, fanout x${fanoutCount}`;
 }
 
 function formatAutosaveState(

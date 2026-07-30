@@ -363,7 +363,15 @@ func routeShare(edge domain.Edge, siblingEdges []domain.Edge) float64 {
 
 func shouldSplitOutgoingLoad(edge domain.Edge) bool {
 	switch edge.InteractionType {
-	case domain.EdgeInteractionSyncRequest, domain.EdgeInteractionConsume, domain.EdgeInteractionConditionalPath, domain.EdgeInteractionFallback:
+	case domain.EdgeInteractionSyncRequest,
+		domain.EdgeInteractionAsyncEnqueue,
+		domain.EdgeInteractionConsume,
+		domain.EdgeInteractionConditionalPath,
+		domain.EdgeInteractionFallback:
+		// Peers are matched by interaction type + routing rule.
+		// Sync + async from the same node are different interaction types, so both
+		// still receive full processed load (side-effect enqueue). Multiple async
+		// enqueue edges with the same rule share load by routing weight.
 		return true
 	default:
 		return false
@@ -490,7 +498,7 @@ func summarize(design domain.Design, workload normalizedWorkload, bottleneck dom
 	}
 
 	return fmt.Sprintf(
-		"For %.0f requests/sec with %.0f concurrent users, %.1f:1 read/write, %.0f KB payload, and fanout x%.0f on %q, %s %s at %.0f%% utilization.",
+		"For %.0f requests/sec with %.0f concurrent users, write-pressure from %.1f:1 read:write mix, %.0f KB payload, and fanout x%.0f on %q, %s %s at %.0f%% utilization.",
 		workload.RequestsPerSecond,
 		workload.ConcurrentUsers,
 		workload.ReadWriteRatio,
@@ -649,6 +657,9 @@ func aggregateMetrics(
 	}
 }
 
+// enrichEdgeResults estimates timeout and retry outcomes for display and path
+// explanations. These stats do not feed back into node incoming rates or
+// utilization; capacity pressure is computed from the graph walk only.
 func enrichEdgeResults(
 	edges []domain.Edge,
 	rawEdgeResults []domain.EdgeSimulationResult,
@@ -848,13 +859,13 @@ func buildCriticalPathSummary(
 
 	summary := fmt.Sprintf("%s is the hottest path and converges on %s at %.0f%% utilization.", pathLabel, bottleneck.Label, bottleneck.Utilization*100)
 	if queueLagMS > 0 {
-		summary += fmt.Sprintf(" Queue lag on this path adds about %.0f ms.", queueLagMS)
+		summary += fmt.Sprintf(" Queue lag on this path adds about %.0f ms (illustrative backlog window).", queueLagMS)
 	}
 	if retriedRPS > 0 {
-		summary += fmt.Sprintf(" Retries amplify load by %.0f requests/sec.", retriedRPS)
+		summary += fmt.Sprintf(" Estimated edge retries: %.0f requests/sec (display-only; not applied to node utilization).", retriedRPS)
 	}
 	if timedOutRPS > 0 {
-		summary += fmt.Sprintf(" About %.0f requests/sec still time out after retries.", timedOutRPS)
+		summary += fmt.Sprintf(" Estimated remaining timeouts after retries: %.0f requests/sec (display-only).", timedOutRPS)
 	}
 
 	return summary
