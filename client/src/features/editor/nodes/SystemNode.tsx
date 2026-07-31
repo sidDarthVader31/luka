@@ -1,4 +1,4 @@
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
 
 import type { NodeArchetype, NodeColor } from "../../../lib/api";
 
@@ -28,8 +28,8 @@ const RIM_SIDES: Array<{
 ];
 
 /**
- * Interior = move node. Boundary rim (any side) = start/finish connection.
- * Handles sit slightly outside the box so arrowheads stay visible.
+ * Interior = move. Rim = connect from that side. Corners = resize when selected.
+ * Handle centers sit on the border so arrow tips touch the box.
  */
 export function SystemNode({ data, selected }: NodeProps) {
   const typed = data as SystemNodeData;
@@ -51,6 +51,15 @@ export function SystemNode({ data, selected }: NodeProps) {
         .filter(Boolean)
         .join(" ")}
     >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={140}
+        minHeight={72}
+        keepAspectRatio={false}
+        lineClassName="luka-node-resize-line"
+        handleClassName="luka-node-resize-handle"
+      />
+
       {RIM_SIDES.map((side) => (
         <Handle
           key={side.sourceId}

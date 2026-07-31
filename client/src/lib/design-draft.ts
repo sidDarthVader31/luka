@@ -34,7 +34,7 @@ export function createBlankDraft() {
     description: "",
     nodes: [] as GraphNode[],
     edges: [] as GraphEdge[],
-    requestClasses: [createRequestClass("Primary Flow", 100, 1)] as RequestClass[],
+    requestClasses: [createRequestClass("All traffic", 100, 1)] as RequestClass[],
   };
 }
 
@@ -67,6 +67,8 @@ export function createNodeFromArchetype(
 export function buildEdge(input: {
   sourceNodeID: string;
   targetNodeID: string;
+  sourceHandleID?: string;
+  targetHandleID?: string;
   interactionType: EdgeInteractionType;
   ruleType: RoutingRuleType;
   routingWeight?: number;
@@ -85,6 +87,8 @@ export function buildEdge(input: {
     id: `edge-${nextIndex}`,
     source_node_id: input.sourceNodeID,
     target_node_id: input.targetNodeID,
+    source_handle_id: input.sourceHandleID,
+    target_handle_id: input.targetHandleID,
     interaction_type: input.interactionType,
     timeout_ms: input.timeoutMS && input.timeoutMS > 0 ? input.timeoutMS : undefined,
     retry_attempts:
@@ -144,7 +148,7 @@ export function cloneDesignIntoDraft(design: Design) {
     requestClasses:
       requestClasses.length > 0
         ? requestClasses
-        : [createRequestClass("Primary Flow", 100, 1)],
+        : [createRequestClass("All traffic", 100, 1)],
   };
 }
 

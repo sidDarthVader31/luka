@@ -2,9 +2,88 @@ import { describe, expect, it } from "vitest";
 
 import { applyPreset, matchPreset, supportsCapacityPresets } from "./capacity-presets";
 import { resolveEdgeDefaults } from "./edge-defaults";
+import { pickHandlesForNodes } from "./handle-geometry";
+import { graphEdgeToFlowEdge, withResolvedHandles } from "./flow-mappers";
 import { validateGraphForRun } from "./graph-validation";
 import { buildRunComparison, formatSignedPercent } from "./run-comparison";
+import {
+  pathCoverageWarnings,
+  pathPercents,
+  readWriteSplitTemplate,
+  setPathPercent,
+  sumPercents,
+} from "./traffic-paths";
 import type { GraphNode, Run } from "../../../lib/api";
+import type { Node } from "@xyflow/react";
+import type { SystemNodeData } from "../nodes/SystemNode";
+
+describe("traffic paths", () => {
+  it("keeps percents summing to 100 when editing one path", () => {
+    const paths = readWriteSplitTemplate();
+    const next = setPathPercent(paths, paths[0]!.id, 70);
+    expect(sumPercents(next)).toBe(100);
+    expect(pathPercents(next).get(paths[0]!.id)).toBe(70);
+  });
+
+  it("warns when a path has no tagged edges", () => {
+    const paths = readWriteSplitTemplate();
+    const warnings = pathCoverageWarnings(paths, [
+      {
+        id: "edge-1",
+        source_node_id: "a",
+        target_node_id: "b",
+        interaction_type: "sync_request",
+        request_class_ids: [paths[0]!.id],
+        routing_rule: { rule_type: "always" },
+      },
+    ]);
+    expect(warnings.some((item) => item.pathId === paths[1]!.id)).toBe(true);
+  });
+});
+
+describe("handle geometry", () => {
+  const base = (id: string, x: number, y: number): Node<SystemNodeData> => ({
+    id,
+    type: "system",
+    position: { x, y },
+    width: 180,
+    height: 88,
+    data: {
+      label: id,
+      archetype: "stateless_service",
+      color: "emerald",
+      properties: {},
+    },
+  });
+
+  it("picks right→left when target is to the right", () => {
+    expect(pickHandlesForNodes(base("a", 0, 0), base("b", 300, 10))).toEqual({
+      sourceHandle: "out-right",
+      targetHandle: "in-left",
+    });
+  });
+
+  it("picks bottom→top when target is below", () => {
+    expect(pickHandlesForNodes(base("a", 0, 0), base("b", 10, 300))).toEqual({
+      sourceHandle: "out-bottom",
+      targetHandle: "in-top",
+    });
+  });
+
+  it("resolves missing handles on display edges", () => {
+    const nodes = [base("a", 0, 0), base("b", 300, 0)];
+    const edge = graphEdgeToFlowEdge({
+      id: "edge-1",
+      source_node_id: "a",
+      target_node_id: "b",
+      interaction_type: "sync_request",
+      routing_rule: { rule_type: "always" },
+    });
+    const resolved = withResolvedHandles(edge, nodes);
+    expect(resolved.sourceHandle).toBe("out-right");
+    expect(resolved.targetHandle).toBe("in-left");
+  });
+});
 
 describe("capacity presets", () => {
   it("applies medium service preset", () => {

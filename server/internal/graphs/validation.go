@@ -99,6 +99,14 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 			issues = append(issues, fmt.Sprintf("%s position must contain finite x and y values", prefix))
 		}
 
+		if node.Width != 0 && (!isFinite(node.Width) || node.Width < 80) {
+			issues = append(issues, fmt.Sprintf("%s width must be at least 80 when set", prefix))
+		}
+
+		if node.Height != 0 && (!isFinite(node.Height) || node.Height < 48) {
+			issues = append(issues, fmt.Sprintf("%s height must be at least 48 when set", prefix))
+		}
+
 		if node.Archetype == domain.NodeArchetypeClient {
 			clientCount += 1
 		}

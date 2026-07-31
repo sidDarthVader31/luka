@@ -78,14 +78,14 @@ export function validateGraphForRun(input: {
   for (const requestClass of input.requestClasses) {
     if (!requestClass.name.trim()) {
       issues.push({
-        message: "Every request flow needs a name.",
+        message: "Every traffic path needs a name.",
         nodeIds: [],
         edgeIds: [],
       });
     }
     if ((requestClass.traffic_share ?? 0) <= 0) {
       issues.push({
-        message: `Flow "${requestClass.name}" needs a traffic share greater than zero.`,
+        message: `Traffic path "${requestClass.name}" needs a share greater than zero.`,
         nodeIds: [],
         edgeIds: [],
       });
@@ -145,7 +145,7 @@ export function validateGraphForRun(input: {
 
     if (input.requestClasses.length > 0 && (edge.request_class_ids?.length ?? 0) === 0) {
       issues.push({
-        message: `Edge ${edge.id} must belong to at least one request flow.`,
+        message: `Edge ${edge.id} must belong to at least one traffic path.`,
         nodeIds: [],
         edgeIds: [edge.id],
       });
@@ -154,7 +154,7 @@ export function validateGraphForRun(input: {
     for (const flowID of edge.request_class_ids ?? []) {
       if (!requestClassIDs.has(flowID)) {
         issues.push({
-          message: `Edge ${edge.id} references unknown flow ${flowID}.`,
+          message: `Edge ${edge.id} references unknown traffic path ${flowID}.`,
           nodeIds: [],
           edgeIds: [edge.id],
         });

@@ -37,6 +37,8 @@ export type GraphNode = {
     x: number;
     y: number;
   };
+  width?: number;
+  height?: number;
   properties: {
     replicas?: number;
     capacity_rps?: number;
@@ -49,6 +51,8 @@ export type GraphEdge = {
   id: string;
   source_node_id: string;
   target_node_id: string;
+  source_handle_id?: string;
+  target_handle_id?: string;
   interaction_type: EdgeInteractionType;
   fanout_multiplier?: number;
   timeout_ms?: number;

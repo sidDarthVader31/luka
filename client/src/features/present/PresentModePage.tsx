@@ -14,6 +14,7 @@ import { getDesign, listRunsForDesign, type Design, type Run } from "../../lib/a
 import {
   graphEdgeToFlowEdge,
   graphNodeToFlowNode,
+  withResolvedHandles,
   type FlowEdgeData,
 } from "../editor/lib/flow-mappers";
 import { formatCompactNumber } from "../editor/lib/run-comparison";
@@ -66,6 +67,24 @@ export function PresentModePage() {
     });
   }, [nodes, run]);
 
+  const displayEdges = useMemo(
+    () =>
+      edges.map((edge) => {
+        const resolved = withResolvedHandles(edge, nodes);
+        return {
+          ...resolved,
+          style: { strokeWidth: 1.25, stroke: "#7a8a9c" },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 14,
+            height: 14,
+            color: "#5b6b7c",
+          },
+        };
+      }),
+    [edges, nodes],
+  );
+
   if (error) {
     return (
       <main className="present-page">
@@ -111,16 +130,7 @@ export function PresentModePage() {
       <div className="present-page__canvas">
         <ReactFlow
           nodes={displayNodes}
-          edges={edges.map((edge) => ({
-            ...edge,
-            style: { strokeWidth: 1.25, stroke: "#7a8a9c" },
-            markerEnd: {
-              type: MarkerType.ArrowClosed,
-              width: 18,
-              height: 18,
-              color: "#5b6b7c",
-            },
-          }))}
+          edges={displayEdges}
           nodeTypes={nodeTypes}
           nodesDraggable={false}
           nodesConnectable={false}

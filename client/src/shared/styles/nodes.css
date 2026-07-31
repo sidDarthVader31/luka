@@ -1,7 +1,10 @@
 .luka-node {
   position: relative;
-  min-width: 168px;
-  max-width: 220px;
+  width: 100%;
+  height: 100%;
+  min-width: 140px;
+  min-height: 72px;
+  box-sizing: border-box;
   border: 1px solid var(--line);
   border-radius: var(--radius-node);
   background: var(--node-fill);
@@ -17,7 +20,7 @@
   cursor: grabbing;
 }
 
-/* Decorative accent only — never capture pointer (connect works on full rim) */
+/* Decorative accent only — never capture pointer */
 .luka-node::before {
   content: "";
   position: absolute;
@@ -67,8 +70,10 @@
 .luka-node__body {
   position: relative;
   z-index: 1;
+  height: 100%;
   padding: 0.7rem 0.8rem 0.75rem 0.95rem;
   pointer-events: none;
+  box-sizing: border-box;
 }
 
 .luka-node__eyebrow {
@@ -134,9 +139,8 @@
 }
 
 /*
-  Invisible rim hit targets on ALL four sides.
-  Use opacity 1 + transparent bg (opacity:0 can drop pointer events in some browsers).
-  Handles sit slightly outside so edge arrows are not buried under the node.
+  Rim hit targets: centers sit ON the border so arrow tips touch the box.
+  Corner gaps (~14px) leave room for NodeResizer handles.
 */
 .luka-node .luka-rim-handle {
   width: auto !important;
@@ -162,41 +166,83 @@
 }
 
 .luka-node .luka-rim-handle--top {
-  top: -8px !important;
-  left: 10px !important;
-  right: 10px !important;
-  width: calc(100% - 20px) !important;
-  height: 16px !important;
+  top: -6px !important;
+  left: 14px !important;
+  right: 14px !important;
+  width: calc(100% - 28px) !important;
+  height: 12px !important;
 }
 
 .luka-node .luka-rim-handle--bottom {
-  bottom: -8px !important;
+  bottom: -6px !important;
   top: auto !important;
-  left: 10px !important;
-  right: 10px !important;
-  width: calc(100% - 20px) !important;
-  height: 16px !important;
+  left: 14px !important;
+  right: 14px !important;
+  width: calc(100% - 28px) !important;
+  height: 12px !important;
 }
 
 .luka-node .luka-rim-handle--left {
-  left: -8px !important;
-  top: 10px !important;
-  bottom: 10px !important;
-  width: 16px !important;
-  height: calc(100% - 20px) !important;
+  left: -6px !important;
+  top: 14px !important;
+  bottom: 14px !important;
+  width: 12px !important;
+  height: calc(100% - 28px) !important;
 }
 
 .luka-node .luka-rim-handle--right {
-  right: -8px !important;
+  right: -6px !important;
   left: auto !important;
-  top: 10px !important;
-  bottom: 10px !important;
-  width: 16px !important;
-  height: calc(100% - 20px) !important;
+  top: 14px !important;
+  bottom: 14px !important;
+  width: 12px !important;
+  height: calc(100% - 28px) !important;
 }
 
 .react-flow__node {
   overflow: visible !important;
+}
+
+/* Corner resize controls — dual-axis arrows via cursor */
+.luka-node-resize-line {
+  border-color: transparent !important;
+}
+
+.luka-node-resize-handle {
+  width: 10px !important;
+  height: 10px !important;
+  border: 1.5px solid var(--accent) !important;
+  border-radius: 2px !important;
+  background: #fff !important;
+  z-index: 10 !important;
+}
+
+.react-flow__resize-control.handle.top.left,
+.luka-node-resize-handle.top.left {
+  cursor: nwse-resize !important;
+}
+
+.react-flow__resize-control.handle.top.right,
+.luka-node-resize-handle.top.right {
+  cursor: nesw-resize !important;
+}
+
+.react-flow__resize-control.handle.bottom.left,
+.luka-node-resize-handle.bottom.left {
+  cursor: nesw-resize !important;
+}
+
+.react-flow__resize-control.handle.bottom.right,
+.luka-node-resize-handle.bottom.right {
+  cursor: nwse-resize !important;
+}
+
+/* Corners only — hide edge mid-point resize controls */
+.react-flow__resize-control.handle.top:not(.left):not(.right),
+.react-flow__resize-control.handle.bottom:not(.left):not(.right),
+.react-flow__resize-control.handle.left:not(.top):not(.bottom),
+.react-flow__resize-control.handle.right:not(.top):not(.bottom) {
+  display: none !important;
 }
 
 .react-flow__edge-path {
@@ -212,10 +258,6 @@
 .react-flow__edge-text {
   font-size: 10px;
   fill: var(--muted);
-}
-
-.react-flow__arrowhead {
-  fill: #5b6b7c;
 }
 
 .react-flow__controls {

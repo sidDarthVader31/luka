@@ -57,17 +57,12 @@ import {
   cloneDesignIntoDraft,
   createBlankDraft,
   createNodeFromArchetype,
-  createRequestClass,
   getSupportedEdgeOptions,
 } from "../../lib/design-draft";
 import { ComponentPalette } from "./components/ComponentPalette";
-import {
-  applyPreset,
-  matchPreset,
-  PROPERTY_LABELS,
-  supportsCapacityPresets,
-  type CapacitySize,
-} from "./lib/capacity-presets";
+import { LoadPanel } from "./components/LoadPanel";
+import { ResultsPanel } from "./components/ResultsPanel";
+import { SelectionContextSheet } from "./components/SelectionContextSheet";
 import { captureEditorSnapshot, pushUndoSnapshot } from "./lib/editor-state";
 import { resolveEdgeDefaults } from "./lib/edge-defaults";
 import {
@@ -76,24 +71,24 @@ import {
   flowNodeToGraphNode,
   graphEdgeToFlowEdge,
   graphNodeToFlowNode,
+  withResolvedHandles,
   type FlowEdgeData,
 } from "./lib/flow-mappers";
+import { pickHandlesForNodes } from "./lib/handle-geometry";
 import { validateGraphForRun } from "./lib/graph-validation";
 import {
   buildExportMarkdown,
   buildRunComparison,
   formatCompactNumber,
-  formatSignedNumber,
-  formatSignedPercent,
-  formatWorkload,
 } from "./lib/run-comparison";
+import { pathCoverageWarnings } from "./lib/traffic-paths";
 import { nodeTypes } from "./nodes/nodeTypes";
 import type { SystemNodeData } from "./nodes/SystemNode";
 
 const SAMPLE_CHAT = "sample-cache-aside";
 const SAMPLE_QUEUE = "sample-queue-workflow";
 
-type DockTab = "inspect" | "scenario" | "results";
+type DockTab = "load" | "results";
 
 type DesignEditorPageProps = {
   mode: "new" | "draft" | "saved";
@@ -118,18 +113,18 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
   >("idle");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [dockTab, setDockTab] = useState<DockTab>("scenario");
+  const [dockTab, setDockTab] = useState<DockTab>("load");
   const [connectMode, setConnectMode] = useState(false);
   const [connectSourceID, setConnectSourceID] = useState<string | null>(null);
   const [selectedNodeID, setSelectedNodeID] = useState<string | null>(null);
   const [selectedEdgeID, setSelectedEdgeID] = useState<string | null>(null);
-  const [showAdvancedConnect, setShowAdvancedConnect] = useState(false);
 
   const [requestsPerSecond, setRequestsPerSecond] = useState("10000");
   const [concurrentUsers, setConcurrentUsers] = useState("50000");
-  const [readWriteRatio, setReadWriteRatio] = useState("4");
   const [payloadKB, setPayloadKB] = useState("8");
   const [fanoutCount, setFanoutCount] = useState("1");
+  /** Harmless default — not shown in Load UI; engine uses as soft write-pressure. */
+  const readWriteRatio = "4";
 
   const [lastRun, setLastRun] = useState<Run | null>(null);
   const [baselineRun, setBaselineRun] = useState<Run | null>(null);
@@ -147,6 +142,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
   const undoStack = useRef<ReturnType<typeof captureEditorSnapshot>[]>([]);
   const dragArchetype = useRef<ComponentArchetype | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const resizeUndoPushed = useRef(false);
 
   const graphNodes = useMemo(() => nodes.map(flowNodeToGraphNode), [nodes]);
   const graphEdges = useMemo(() => edges.map(flowEdgeToGraphEdge), [edges]);
@@ -163,6 +159,13 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
       }),
     [graphNodes, graphEdges, requestClasses],
   );
+
+  const coverageWarnings = useMemo(
+    () => pathCoverageWarnings(requestClasses, graphEdges),
+    [requestClasses, graphEdges],
+  );
+
+  const loadIssueCount = preflight.issues.length + coverageWarnings.length;
 
   const errorNodeIDs = useMemo(() => {
     const ids = new Set<string>();
@@ -223,11 +226,12 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
   const displayEdges = useMemo(
     () =>
       edges.map((edge) => {
+        const resolved = withResolvedHandles(edge, nodes);
         const result = edgeResultsByID.get(edge.id);
         const selected = edge.id === selectedEdgeID;
         return {
-          ...edge,
-          label: buildEdgeLabel(edge, result?.routed_rps),
+          ...resolved,
+          label: buildEdgeLabel(resolved, result?.routed_rps),
           animated: Boolean(result && result.routed_rps > 0 && (result.timed_out_rps ?? 0) > 0),
           style: {
             stroke: selected ? "var(--accent)" : "#7a8a9c",
@@ -235,13 +239,13 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            width: 18,
-            height: 18,
+            width: 14,
+            height: 14,
             color: selected ? "#2f5bff" : "#5b6b7c",
           },
         };
       }),
-    [edges, edgeResultsByID, selectedEdgeID],
+    [edges, nodes, edgeResultsByID, selectedEdgeID],
   );
 
   const showToast = useCallback((message: string) => {
@@ -451,8 +455,24 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
   ]);
 
   function onNodesChange(changes: NodeChange<Node<SystemNodeData>>[]) {
+    for (const change of changes) {
+      if (change.type === "dimensions" && change.resizing && !resizeUndoPushed.current) {
+        pushUndo();
+        resizeUndoPushed.current = true;
+      }
+      if (change.type === "dimensions" && change.resizing === false) {
+        resizeUndoPushed.current = false;
+      }
+    }
     onNodesChangeBase(changes);
-    if (changes.some((change) => change.type === "position" || change.type === "remove")) {
+    if (
+      changes.some(
+        (change) =>
+          change.type === "position" ||
+          change.type === "remove" ||
+          (change.type === "dimensions" && change.resizing === true),
+      )
+    ) {
       markDirty();
     }
   }
@@ -464,11 +484,23 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     }
   }
 
-  function createConnection(sourceID: string, targetID: string) {
+  function createConnection(
+    sourceID: string,
+    targetID: string,
+    sourceHandleID?: string | null,
+    targetHandleID?: string | null,
+  ) {
     if (sourceID === targetID) {
       showToast("Source and target must be different nodes.");
       return;
     }
+    const sourceNode = nodes.find((node) => node.id === sourceID);
+    const targetNode = nodes.find((node) => node.id === targetID);
+    const picked =
+      sourceNode && targetNode ? pickHandlesForNodes(sourceNode, targetNode) : null;
+    const resolvedSourceHandle = sourceHandleID || picked?.sourceHandle;
+    const resolvedTargetHandle = targetHandleID || picked?.targetHandle;
+
     const defaults = resolveEdgeDefaults({
       sourceNodeID: sourceID,
       nodes: graphNodes,
@@ -478,6 +510,8 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     const edge = buildEdge({
       sourceNodeID: sourceID,
       targetNodeID: targetID,
+      sourceHandleID: resolvedSourceHandle,
+      targetHandleID: resolvedTargetHandle,
       interactionType: defaults.interactionType,
       ruleType: defaults.ruleType,
       requestClassIDs: requestClasses[0] ? [requestClasses[0].id] : undefined,
@@ -493,9 +527,8 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     );
     markDirty();
     setSelectedEdgeID(edge.id);
-    setDockTab("inspect");
     showToast(
-      `Connected as ${defaults.interactionType.replaceAll("_", " ")} — change in Inspect`,
+      `Connected as ${defaults.interactionType.replaceAll("_", " ")} — edit in the side sheet`,
     );
   }
 
@@ -503,7 +536,12 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     if (!connection.source || !connection.target) {
       return;
     }
-    createConnection(connection.source, connection.target);
+    createConnection(
+      connection.source,
+      connection.target,
+      connection.sourceHandle,
+      connection.targetHandle,
+    );
   }
 
   function handleNodeClick(nodeID: string) {
@@ -523,7 +561,6 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     }
     setSelectedNodeID(nodeID);
     setSelectedEdgeID(null);
-    setDockTab("inspect");
   }
 
   function placeArchetype(
@@ -539,7 +576,6 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     setNodes((current) => [...current, graphNodeToFlowNode(graphNode)]);
     markDirty();
     setSelectedNodeID(graphNode.id);
-    setDockTab("inspect");
   }
 
   function handleCanvasDrop(event: DragEvent<HTMLDivElement>) {
@@ -630,7 +666,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     const payload = Number(payloadKB);
     const fanout = Number(fanoutCount);
     if (!(rps > 0) || users < 0 || !(ratio > 0) || !(payload > 0) || !(fanout > 0)) {
-      showToast("Check workload inputs — RPS and sizes must be positive.");
+      showToast("Check load inputs — RPS and sizes must be positive.");
       return null;
     }
     return {
@@ -645,7 +681,16 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
   async function handleRun() {
     if (!preflight.ok) {
       setShowPreflight(true);
-      setDockTab("inspect");
+      setSelectedNodeID(null);
+      setSelectedEdgeID(null);
+      setDockTab("load");
+      return;
+    }
+    if (coverageWarnings.length > 0) {
+      setSelectedNodeID(null);
+      setSelectedEdgeID(null);
+      setDockTab("load");
+      showToast(coverageWarnings[0]!.message);
       return;
     }
     const workload = buildWorkload();
@@ -677,10 +722,9 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
       );
       setLastRun(run);
       setActiveFlowResultID("overall");
+      setSelectedNodeID(null);
+      setSelectedEdgeID(null);
       setDockTab("results");
-      if (run.result?.bottleneck?.node_id) {
-        setSelectedNodeID(run.result.bottleneck.node_id);
-      }
       if (savedDesign && run.design_id === savedDesign.id) {
         setDesignRuns(await listRunsForDesign(savedDesign.id));
       }
@@ -794,6 +838,16 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
               markDirty();
             }}
             aria-label="Design name"
+          />
+          <input
+            className="editor-topbar__description"
+            value={draftDescription}
+            placeholder="Short description (optional)"
+            onChange={(event) => {
+              setDraftDescription(event.target.value);
+              markDirty();
+            }}
+            aria-label="Design description"
           />
         </div>
         <div className="editor-topbar__status">
@@ -961,8 +1015,8 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
               style: { strokeWidth: 1.25, stroke: "#7a8a9c" },
               markerEnd: {
                 type: MarkerType.ArrowClosed,
-                width: 18,
-                height: 18,
+                width: 14,
+                height: 14,
                 color: "#5b6b7c",
               },
             }}
@@ -970,7 +1024,6 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
             onEdgeClick={(_, edge) => {
               setSelectedEdgeID(edge.id);
               setSelectedNodeID(null);
-              setDockTab("inspect");
             }}
             onPaneClick={() => {
               if (!connectMode) {
@@ -994,714 +1047,121 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
 
         <aside className="editor-dock">
           <div className="editor-dock__tabs">
-            {(["inspect", "scenario", "results"] as DockTab[]).map((tab) => (
+            {(["load", "results"] as DockTab[]).map((tab) => (
               <button
                 key={tab}
                 className="editor-dock__tab"
                 type="button"
-                data-active={dockTab === tab}
-                onClick={() => setDockTab(tab)}
+                data-active={
+                  !selectedNode && !selectedEdge && dockTab === tab
+                }
+                onClick={() => {
+                  setSelectedNodeID(null);
+                  setSelectedEdgeID(null);
+                  setDockTab(tab);
+                }}
               >
-                {tab === "inspect" ? "Inspect" : tab === "scenario" ? "Scenario" : "Results"}
+                {tab === "load" ? "Load" : "Results"}
               </button>
             ))}
+            {selectedNode || selectedEdge ? (
+              <span className="editor-dock__tab editor-dock__tab--context" data-active="true">
+                Selected
+              </span>
+            ) : null}
           </div>
           <div className="editor-dock__body">
-            {dockTab === "inspect" ? (
-              <div className="dock-section">
-                {selectedNode ? (
-                  <>
-                    <h3>{selectedNode.data.label}</h3>
-                    <p className="hint">
-                      {selectedNode.data.archetype.replaceAll("_", " ")}
-                    </p>
-                    <div className="field-stack">
-                      <label className="field">
-                        <span>Label</span>
-                        <input
-                          value={selectedNode.data.label}
-                          onChange={(event) =>
-                            updateSelectedNode({ label: event.target.value })
-                          }
-                        />
-                      </label>
-                      {supportsCapacityPresets(selectedNode.data.archetype) ? (
-                        <div className="field">
-                          <span>Capacity size</span>
-                          <div className="preset-row">
-                            {(["small", "medium", "large", "custom"] as CapacitySize[]).map(
-                              (size) => (
-                                <button
-                                  key={size}
-                                  className="preset-chip"
-                                  type="button"
-                                  data-active={
-                                    matchPreset(
-                                      selectedNode.data.archetype,
-                                      selectedNode.data.properties,
-                                    ) === size
-                                  }
-                                  disabled={size === "custom"}
-                                  onClick={() => {
-                                    if (size === "custom") {
-                                      return;
-                                    }
-                                    const preset = applyPreset(
-                                      selectedNode.data.archetype,
-                                      size,
-                                    );
-                                    if (!preset) {
-                                      return;
-                                    }
-                                    updateSelectedNode({
-                                      properties: {
-                                        ...selectedNode.data.properties,
-                                        ...preset,
-                                      },
-                                    });
-                                  }}
-                                >
-                                  {size === "custom"
-                                    ? "Custom"
-                                    : size[0]!.toUpperCase() + size.slice(1)}
-                                </button>
-                              ),
-                            )}
-                          </div>
-                          <small>
-                            Pick a size to set instances and work capacity. Custom appears
-                            when you edit advanced numbers.
-                          </small>
-                        </div>
-                      ) : null}
-                      {selectedNode.data.archetype === "cache" ? (
-                        <label className="field">
-                          <span>{PROPERTY_LABELS.cache_hit_rate.label}</span>
-                          <input
-                            inputMode="decimal"
-                            value={String(
-                              selectedNode.data.properties.cache_hit_rate ?? 0.8,
-                            )}
-                            onChange={(event) => {
-                              const next = Number(event.target.value);
-                              updateSelectedNode({
-                                properties: {
-                                  ...selectedNode.data.properties,
-                                  cache_hit_rate: Number.isFinite(next)
-                                    ? next
-                                    : selectedNode.data.properties.cache_hit_rate,
-                                },
-                              });
-                            }}
-                          />
-                          <small>{PROPERTY_LABELS.cache_hit_rate.help}</small>
-                        </label>
-                      ) : null}
-                      {selectedNode.data.archetype !== "client" ? (
-                        <details className="advanced-block">
-                          <summary>Advanced capacity</summary>
-                          <div className="field-stack" style={{ marginTop: "0.65rem" }}>
-                            {(
-                              [
-                                "replicas",
-                                "capacity_rps",
-                                "base_latency_ms",
-                              ] as const
-                            ).map((key) => {
-                              if (selectedNode.data.properties[key] === undefined) {
-                                return null;
-                              }
-                              const meta = PROPERTY_LABELS[key];
-                              return (
-                                <label className="field" key={key}>
-                                  <span>{meta.label}</span>
-                                  <input
-                                    inputMode="decimal"
-                                    value={String(selectedNode.data.properties[key] ?? "")}
-                                    onChange={(event) => {
-                                      const next = Number(event.target.value);
-                                      updateSelectedNode({
-                                        properties: {
-                                          ...selectedNode.data.properties,
-                                          [key]: Number.isFinite(next)
-                                            ? next
-                                            : selectedNode.data.properties[key],
-                                        },
-                                      });
-                                    }}
-                                  />
-                                  <small>{meta.help}</small>
-                                </label>
-                              );
-                            })}
-                            {selectedNode.data.archetype === "cache" &&
-                            selectedNode.data.properties.cache_hit_rate !== undefined ? (
-                              <p className="hint">
-                                Hit rate is shown above; latency stays in advanced.
-                              </p>
-                            ) : null}
-                          </div>
-                        </details>
-                      ) : (
-                        <p className="hint">
-                          Client emits traffic from the Scenario tab — no capacity size.
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      className="btn btn--danger"
-                      type="button"
-                      onClick={() => {
-                        pushUndo();
-                        setNodes((current) =>
-                          current.filter((node) => node.id !== selectedNode.id),
-                        );
-                        setEdges((current) =>
-                          current.filter(
-                            (edge) =>
-                              edge.source !== selectedNode.id &&
-                              edge.target !== selectedNode.id,
-                          ),
-                        );
-                        setSelectedNodeID(null);
-                        markDirty();
-                      }}
-                    >
-                      Remove node
-                    </button>
-                  </>
-                ) : selectedEdge ? (
-                  <>
-                    <h3>Connection</h3>
-                    <p className="hint">
-                      {selectedEdge.source} → {selectedEdge.target}
-                    </p>
-                    <div className="field-stack">
-                      <label className="field">
-                        <span>Interaction</span>
-                        <select
-                          value={selectedEdge.data?.interactionType}
-                          onChange={(event) =>
-                            updateSelectedEdge({
-                              interactionType: event.target
-                                .value as EdgeInteractionType,
-                            })
-                          }
-                        >
-                          {edgeOptions.interactions.map((item) => (
-                            <option key={item} value={item}>
-                              {item}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="field">
-                        <span>Routing rule</span>
-                        <select
-                          value={selectedEdge.data?.ruleType}
-                          onChange={(event) =>
-                            updateSelectedEdge({
-                              ruleType: event.target.value as RoutingRuleType,
-                            })
-                          }
-                        >
-                          {edgeOptions.routingRules.map((item) => (
-                            <option key={item} value={item}>
-                              {item}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="field">
-                        <span>Request flows</span>
-                        <div className="flow-list">
-                          {requestClasses.map((flow) => (
-                            <label className="flow-item" key={flow.id}>
-                              <input
-                                type="checkbox"
-                                checked={
-                                  selectedEdge.data?.requestClassIDs?.includes(flow.id) ??
-                                  false
-                                }
-                                onChange={() => {
-                                  const current = selectedEdge.data?.requestClassIDs ?? [];
-                                  const next = current.includes(flow.id)
-                                    ? current.filter((id) => id !== flow.id)
-                                    : [...current, flow.id];
-                                  updateSelectedEdge({
-                                    requestClassIDs:
-                                      next.length > 0
-                                        ? next
-                                        : requestClasses[0]
-                                          ? [requestClasses[0].id]
-                                          : [],
-                                  });
-                                }}
-                              />
-                              {flow.name}
-                            </label>
-                          ))}
-                        </div>
-                      </label>
-                      <details className="advanced-block">
-                        <summary>Advanced (weight, fanout, timeout)</summary>
-                        <div className="field-stack" style={{ marginTop: "0.65rem" }}>
-                          <div className="field-row">
-                            <label className="field">
-                              <span>Weight</span>
-                              <input
-                                value={String(selectedEdge.data?.routingWeight ?? 1)}
-                                onChange={(event) =>
-                                  updateSelectedEdge({
-                                    routingWeight: Number(event.target.value) || 1,
-                                  })
-                                }
-                              />
-                            </label>
-                            <label className="field">
-                              <span>Fanout</span>
-                              <input
-                                value={String(selectedEdge.data?.fanoutMultiplier ?? 1)}
-                                onChange={(event) =>
-                                  updateSelectedEdge({
-                                    fanoutMultiplier: Number(event.target.value) || 1,
-                                  })
-                                }
-                              />
-                            </label>
-                          </div>
-                          <div className="field-row">
-                            <label className="field">
-                              <span>Timeout ms</span>
-                              <input
-                                value={String(selectedEdge.data?.timeoutMS ?? 0)}
-                                onChange={(event) =>
-                                  updateSelectedEdge({
-                                    timeoutMS: Number(event.target.value) || 0,
-                                  })
-                                }
-                              />
-                              <small>Display-only estimate</small>
-                            </label>
-                            <label className="field">
-                              <span>Retries</span>
-                              <input
-                                value={String(selectedEdge.data?.retryAttempts ?? 0)}
-                                onChange={(event) =>
-                                  updateSelectedEdge({
-                                    retryAttempts: Number(event.target.value) || 0,
-                                  })
-                                }
-                              />
-                              <small>Does not change utilization</small>
-                            </label>
-                          </div>
-                        </div>
-                      </details>
-                    </div>
-                    <button
-                      className="btn btn--danger"
-                      type="button"
-                      onClick={() => {
-                        pushUndo();
-                        setEdges((current) =>
-                          current.filter((edge) => edge.id !== selectedEdge.id),
-                        );
-                        setSelectedEdgeID(null);
-                        markDirty();
-                      }}
-                    >
-                      Remove edge
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <h3>Inspect</h3>
-                    <p className="hint">
-                      Select a node or edge on the canvas. Drag from a node&apos;s edge
-                      to connect, or use Click connect (C).
-                    </p>
-                    <details
-                      className="advanced-block"
-                      open={showAdvancedConnect}
-                      onToggle={(event) =>
-                        setShowAdvancedConnect((event.target as HTMLDetailsElement).open)
-                      }
-                    >
-                      <summary>Add connection…</summary>
-                      <ManualConnectForm
-                        nodes={graphNodes}
-                        archetypes={archetypes}
-                        requestClasses={requestClasses}
-                        onCreate={(source, target, interaction, rule) => {
-                          pushUndo();
-                          const edge = buildEdge({
-                            sourceNodeID: source,
-                            targetNodeID: target,
-                            interactionType: interaction,
-                            ruleType: rule,
-                            requestClassIDs: requestClasses[0]
-                              ? [requestClasses[0].id]
-                              : undefined,
-                            existingEdges: graphEdges,
-                          });
-                          setEdges((current) => [...current, graphEdgeToFlowEdge(edge)]);
-                          markDirty();
-                          setSelectedEdgeID(edge.id);
-                        }}
-                      />
-                    </details>
-                  </>
-                )}
-              </div>
-            ) : null}
-
-            {dockTab === "scenario" ? (
-              <div className="dock-section">
-                <h3>Scenario</h3>
-                <p className="hint">Workload assumptions and request flows for this design.</p>
-                <label className="field">
-                  <span>Description</span>
-                  <textarea
-                    rows={2}
-                    value={draftDescription}
-                    onChange={(event) => {
-                      setDraftDescription(event.target.value);
-                      markDirty();
-                    }}
-                  />
-                </label>
-                <div className="field-stack">
-                  <label className="field">
-                    <span>Incoming traffic (req/sec)</span>
-                    <input
-                      value={requestsPerSecond}
-                      onChange={(event) => setRequestsPerSecond(event.target.value)}
-                    />
-                    <small>Main load entering the system.</small>
-                  </label>
-                  <label className="field">
-                    <span>Active users</span>
-                    <input
-                      value={concurrentUsers}
-                      onChange={(event) => setConcurrentUsers(event.target.value)}
-                    />
-                    <small>Soft pressure on gateways and services.</small>
-                  </label>
-                  <label className="field">
-                    <span>Write pressure (read:write)</span>
-                    <input
-                      value={readWriteRatio}
-                      onChange={(event) => setReadWriteRatio(event.target.value)}
-                    />
-                    <small>Capacity penalty only — use flows for path splits.</small>
-                  </label>
-                  <details className="advanced-block">
-                    <summary>More load assumptions</summary>
-                    <div className="field-row" style={{ marginTop: "0.65rem" }}>
-                      <label className="field">
-                        <span>Payload KB</span>
-                        <input
-                          value={payloadKB}
-                          onChange={(event) => setPayloadKB(event.target.value)}
-                        />
-                      </label>
-                      <label className="field">
-                        <span>Fanout</span>
-                        <input
-                          value={fanoutCount}
-                          onChange={(event) => setFanoutCount(event.target.value)}
-                        />
-                      </label>
-                    </div>
-                  </details>
-                </div>
-                <h3>Request flows</h3>
-                <div className="flow-list">
-                  {requestClasses.map((flow, index) => (
-                    <div className="flow-item" key={flow.id}>
-                      <label className="field">
-                        <span>Name</span>
-                        <input
-                          value={flow.name}
-                          onChange={(event) => {
-                            pushUndo();
-                            setRequestClasses((current) =>
-                              current.map((item) =>
-                                item.id === flow.id
-                                  ? { ...item, name: event.target.value }
-                                  : item,
-                              ),
-                            );
-                            markDirty();
-                          }}
-                        />
-                      </label>
-                      <label className="field">
-                        <span>Share</span>
-                        <input
-                          value={String(flow.traffic_share ?? 100)}
-                          onChange={(event) => {
-                            pushUndo();
-                            setRequestClasses((current) =>
-                              current.map((item) =>
-                                item.id === flow.id
-                                  ? {
-                                      ...item,
-                                      traffic_share: Number(event.target.value) || 1,
-                                    }
-                                  : item,
-                              ),
-                            );
-                            markDirty();
-                          }}
-                        />
-                      </label>
-                      {requestClasses.length > 1 ? (
-                        <button
-                          className="btn btn--ghost"
-                          type="button"
-                          onClick={() => {
-                            pushUndo();
-                            setRequestClasses((current) =>
-                              current.filter((item) => item.id !== flow.id),
-                            );
-                            markDirty();
-                          }}
-                        >
-                          Remove
-                        </button>
-                      ) : null}
-                      <span className="hint">Flow {index + 1}</span>
-                    </div>
-                  ))}
-                </div>
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => {
-                    pushUndo();
-                    setRequestClasses((current) => [
-                      ...current,
-                      createRequestClass(`Flow ${current.length + 1}`, 100, current.length + 1),
-                    ]);
-                    markDirty();
-                  }}
-                >
-                  Add flow
-                </button>
-              </div>
-            ) : null}
-
-            {dockTab === "results" ? (
-              <div className="dock-section">
-                <h3>Results</h3>
-                {lastRun?.result ? (
-                  <>
-                    <div className="metric-strip">
-                      <div className="metric-strip__kicker">Bottleneck</div>
-                      <strong>
-                        {lastRun.result.bottleneck?.label ?? "None"} ·{" "}
-                        {Math.round((lastRun.result.bottleneck?.utilization ?? 0) * 100)}%
-                      </strong>
-                      <p>{lastRun.result.summary}</p>
-                    </div>
-                    {(lastRun.result.flows?.length ?? 0) > 0 ? (
-                      <div className="field-row">
-                        <button
-                          className="btn btn--tool"
-                          type="button"
-                          data-active={activeFlowResultID === "overall"}
-                          onClick={() => setActiveFlowResultID("overall")}
-                        >
-                          Overall
-                        </button>
-                        {lastRun.result.flows?.map((flow) => (
-                          <button
-                            key={flow.request_class_id}
-                            className="btn btn--tool"
-                            type="button"
-                            data-active={activeFlowResultID === flow.request_class_id}
-                            onClick={() => setActiveFlowResultID(flow.request_class_id)}
-                          >
-                            {flow.name}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    {activeResult?.paths?.map((path) => (
-                      <div className="metric-strip" key={path.kind}>
-                        <div className="metric-strip__kicker">{path.kind}</div>
-                        <p>{path.summary}</p>
-                      </div>
-                    ))}
-                    <div className="field-row">
-                      <button className="btn" type="button" onClick={exportJSON}>
-                        Export JSON
-                      </button>
-                      <button className="btn" type="button" onClick={exportMarkdown}>
-                        Export MD
-                      </button>
-                    </div>
-                    <button
-                      className="btn"
-                      type="button"
-                      onClick={() => setBaselineRun(lastRun)}
-                    >
-                      Set as baseline
-                    </button>
-                    {runComparison ? (
-                      <>
-                        <h3>Compare vs baseline</h3>
-                        <p className="hint">{runComparison.message}</p>
-                        <p className="hint">
-                          Util {formatSignedPercent(runComparison.utilizationDelta)} ·
-                          Latency {formatSignedNumber(runComparison.latencyDelta)} ms ·
-                          Drop {formatSignedNumber(runComparison.droppedDelta)}
-                        </p>
-                        <div style={{ overflowX: "auto" }}>
-                          <table className="compare-table">
-                            <thead>
-                              <tr>
-                                <th>Node</th>
-                                <th>Util</th>
-                                <th>Δ util</th>
-                                <th>Δ lat</th>
-                                <th>Δ drop</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {runComparison.rows.map((row) => (
-                                <tr key={row.nodeId} data-hot={row.hot}>
-                                  <td>{row.label}</td>
-                                  <td className="mono">
-                                    {Math.round(row.latestUtil * 100)}%
-                                  </td>
-                                  <td className="mono">
-                                    {formatSignedPercent(row.utilDelta)}
-                                  </td>
-                                  <td className="mono">
-                                    {formatSignedNumber(row.latencyDelta)}
-                                  </td>
-                                  <td className="mono">
-                                    {formatSignedNumber(row.droppedDelta)}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </>
-                    ) : null}
-                  </>
-                ) : (
-                  <p className="hint">Run a simulation to see bottleneck and path insights.</p>
-                )}
-
-                <h3>Saved runs</h3>
-                <div className="coming-soon-wrap">
-                  <div className="coming-soon-wrap__overlay" aria-hidden="true">
-                    <span className="coming-soon-chip">Coming soon</span>
-                  </div>
-                  <div className="coming-soon-wrap__content" aria-disabled="true">
-                    {savedDesign ? (
-                      <div className="history-list">
-                        {designRuns.map((run) => (
-                          <div className="history-card" key={run.id}>
-                            <strong>{run.result?.bottleneck?.label ?? run.id}</strong>
-                            <small>{formatWorkload(run.workload)}</small>
-                            <div className="history-card__actions">
-                              <button className="btn btn--ghost" type="button" tabIndex={-1}>
-                                View
-                              </button>
-                              <button className="btn btn--ghost" type="button" tabIndex={-1}>
-                                Compare
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                        {designRuns.length === 0 ? (
-                          <p className="hint">No persisted runs yet.</p>
-                        ) : null}
-                        <p className="hint">{designVersions.length} saved versions</p>
-                      </div>
-                    ) : (
-                      <p className="hint">Save the design to unlock run history.</p>
-                    )}
-                    {savedDesign ? (
-                      <span className="btn" style={{ display: "inline-flex", marginTop: "0.5rem" }}>
-                        Open compare page
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            ) : null}
+            {selectedNode || selectedEdge ? (
+              <SelectionContextSheet
+                selectedNode={selectedNode}
+                selectedEdge={selectedEdge}
+                requestClasses={requestClasses}
+                edgeOptions={edgeOptions}
+                onDone={() => {
+                  setSelectedNodeID(null);
+                  setSelectedEdgeID(null);
+                }}
+                onUpdateNode={updateSelectedNode}
+                onUpdateEdge={updateSelectedEdge}
+                onRemoveNode={() => {
+                  if (!selectedNode) {
+                    return;
+                  }
+                  pushUndo();
+                  setNodes((current) =>
+                    current.filter((node) => node.id !== selectedNode.id),
+                  );
+                  setEdges((current) =>
+                    current.filter(
+                      (edge) =>
+                        edge.source !== selectedNode.id &&
+                        edge.target !== selectedNode.id,
+                    ),
+                  );
+                  setSelectedNodeID(null);
+                  markDirty();
+                }}
+                onRemoveEdge={() => {
+                  if (!selectedEdge) {
+                    return;
+                  }
+                  pushUndo();
+                  setEdges((current) =>
+                    current.filter((edge) => edge.id !== selectedEdge.id),
+                  );
+                  setSelectedEdgeID(null);
+                  markDirty();
+                }}
+              />
+            ) : dockTab === "load" ? (
+              <LoadPanel
+                requestsPerSecond={requestsPerSecond}
+                concurrentUsers={concurrentUsers}
+                payloadKB={payloadKB}
+                fanoutCount={fanoutCount}
+                requestClasses={requestClasses}
+                graphEdges={graphEdges}
+                preflightIssueCount={loadIssueCount}
+                onRequestsPerSecondChange={setRequestsPerSecond}
+                onConcurrentUsersChange={setConcurrentUsers}
+                onPayloadKBChange={setPayloadKB}
+                onFanoutCountChange={setFanoutCount}
+                onRequestClassesChange={(next, options) => {
+                  pushUndo();
+                  setRequestClasses(next);
+                  if (options?.retagEdges) {
+                    const ids = next.map((path) => path.id);
+                    setEdges((current) =>
+                      current.map((edge) => ({
+                        ...edge,
+                        data: {
+                          ...edge.data!,
+                          requestClassIDs: ids,
+                        },
+                      })),
+                    );
+                  }
+                  markDirty();
+                }}
+              />
+            ) : (
+              <ResultsPanel
+                lastRun={lastRun}
+                activeFlowResultID={activeFlowResultID}
+                activeResult={activeResult}
+                runComparison={runComparison}
+                savedDesign={savedDesign}
+                designRuns={designRuns}
+                designVersions={designVersions}
+                onActiveFlowChange={setActiveFlowResultID}
+                onExportJSON={exportJSON}
+                onExportMarkdown={exportMarkdown}
+                onSetBaseline={() => setBaselineRun(lastRun)}
+              />
+            )}
           </div>
         </aside>
       </div>
-    </div>
-  );
-}
-
-function ManualConnectForm(props: {
-  nodes: GraphNode[];
-  archetypes: ComponentArchetype[];
-  requestClasses: RequestClass[];
-  onCreate: (
-    source: string,
-    target: string,
-    interaction: EdgeInteractionType,
-    rule: RoutingRuleType,
-  ) => void;
-}) {
-  const [source, setSource] = useState("");
-  const [target, setTarget] = useState("");
-  const options = getSupportedEdgeOptions({
-    sourceNodeID: source,
-    nodes: props.nodes,
-    archetypes: props.archetypes,
-  });
-
-  return (
-    <div className="field-stack" style={{ marginTop: "0.65rem" }}>
-      <label className="field">
-        <span>Source</span>
-        <select value={source} onChange={(event) => setSource(event.target.value)}>
-          <option value="">Select</option>
-          {props.nodes.map((node) => (
-            <option key={node.id} value={node.id}>
-              {node.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        <span>Target</span>
-        <select value={target} onChange={(event) => setTarget(event.target.value)}>
-          <option value="">Select</option>
-          {props.nodes.map((node) => (
-            <option key={node.id} value={node.id}>
-              {node.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button
-        className="btn"
-        type="button"
-        disabled={!source || !target}
-        onClick={() =>
-          props.onCreate(
-            source,
-            target,
-            options.interactions[0] ?? "sync_request",
-            options.routingRules[0] ?? "always",
-          )
-        }
-      >
-        Add edge
-      </button>
     </div>
   );
 }

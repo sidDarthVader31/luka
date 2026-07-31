@@ -70,6 +70,8 @@ type Node struct {
 	Archetype  NodeArchetype  `json:"archetype"`
 	Color      string         `json:"color,omitempty"`
 	Position   NodePosition   `json:"position"`
+	Width      float64        `json:"width,omitempty"`
+	Height     float64        `json:"height,omitempty"`
 	Properties NodeProperties `json:"properties"`
 }
 
@@ -95,6 +97,8 @@ type Edge struct {
 	ID               string              `json:"id"`
 	SourceNodeID     string              `json:"source_node_id"`
 	TargetNodeID     string              `json:"target_node_id"`
+	SourceHandleID   string              `json:"source_handle_id,omitempty"`
+	TargetHandleID   string              `json:"target_handle_id,omitempty"`
 	InteractionType  EdgeInteractionType `json:"interaction_type"`
 	FanoutMultiplier float64             `json:"fanout_multiplier,omitempty"`
 	TimeoutMS        float64             `json:"timeout_ms,omitempty"`

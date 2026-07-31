@@ -8,6 +8,11 @@ import type {
 } from "../../../lib/api";
 import type { SystemNodeData } from "../nodes/SystemNode";
 import { shortInteractionLabel } from "./edge-defaults";
+import {
+  DEFAULT_NODE_HEIGHT,
+  DEFAULT_NODE_WIDTH,
+  pickHandlesForNodes,
+} from "./handle-geometry";
 import { formatCompactNumber } from "./run-comparison";
 
 export type FlowEdgeData = {
@@ -25,6 +30,8 @@ export function graphNodeToFlowNode(node: GraphNode): Node<SystemNodeData> {
     id: node.id,
     type: "system",
     position: node.position,
+    width: node.width ?? DEFAULT_NODE_WIDTH,
+    height: node.height ?? DEFAULT_NODE_HEIGHT,
     data: {
       label: node.label,
       archetype: node.archetype,
@@ -35,12 +42,16 @@ export function graphNodeToFlowNode(node: GraphNode): Node<SystemNodeData> {
 }
 
 export function flowNodeToGraphNode(node: Node<SystemNodeData>): GraphNode {
+  const width = node.width ?? node.measured?.width;
+  const height = node.height ?? node.measured?.height;
   return {
     id: node.id,
     label: node.data.label,
     archetype: node.data.archetype,
     color: node.data.color,
     position: { x: node.position.x, y: node.position.y },
+    width: width && width > 0 ? Math.round(width) : undefined,
+    height: height && height > 0 ? Math.round(height) : undefined,
     properties: node.data.properties,
   };
 }
@@ -50,6 +61,8 @@ export function graphEdgeToFlowEdge(edge: GraphEdge): Edge<FlowEdgeData> {
     id: edge.id,
     source: edge.source_node_id,
     target: edge.target_node_id,
+    sourceHandle: edge.source_handle_id,
+    targetHandle: edge.target_handle_id,
     data: {
       interactionType: edge.interaction_type,
       ruleType: edge.routing_rule.rule_type,
@@ -62,11 +75,34 @@ export function graphEdgeToFlowEdge(edge: GraphEdge): Edge<FlowEdgeData> {
   };
 }
 
+/** Fill missing handle IDs from relative node positions (older designs). */
+export function withResolvedHandles(
+  edge: Edge<FlowEdgeData>,
+  nodes: Node<SystemNodeData>[],
+): Edge<FlowEdgeData> {
+  if (edge.sourceHandle && edge.targetHandle) {
+    return edge;
+  }
+  const source = nodes.find((node) => node.id === edge.source);
+  const target = nodes.find((node) => node.id === edge.target);
+  if (!source || !target) {
+    return edge;
+  }
+  const picked = pickHandlesForNodes(source, target);
+  return {
+    ...edge,
+    sourceHandle: edge.sourceHandle ?? picked.sourceHandle,
+    targetHandle: edge.targetHandle ?? picked.targetHandle,
+  };
+}
+
 export function flowEdgeToGraphEdge(edge: Edge<FlowEdgeData>): GraphEdge {
   return {
     id: edge.id,
     source_node_id: edge.source,
     target_node_id: edge.target,
+    source_handle_id: edge.sourceHandle ?? undefined,
+    target_handle_id: edge.targetHandle ?? undefined,
     interaction_type: edge.data?.interactionType ?? "sync_request",
     fanout_multiplier:
       edge.data?.fanoutMultiplier && edge.data.fanoutMultiplier > 1
