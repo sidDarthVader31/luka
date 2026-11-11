@@ -9,6 +9,8 @@
     "client:lint": "corepack pnpm --dir client lint",
     "client:test": "corepack pnpm --dir client test",
     "server:dev": "cd server && go run ./cmd/api",
-    "server:test": "cd server && go test ./..."
+    "server:test": "cd server && go test ./...",
+    "client:typecheck": "corepack pnpm --dir client typecheck",
+    "lint": "corepack pnpm --dir client lint"
   }
 }

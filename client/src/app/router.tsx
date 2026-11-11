@@ -1,9 +1,7 @@
 import { createBrowserRouter } from "react-router-dom";
 
-import { CompareRunsPage } from "../features/compare/CompareRunsPage";
 import { DesignEditorPage } from "../features/editor/DesignEditorPage";
 import { DesignLibraryPage } from "../features/library/DesignLibraryPage";
-import { PresentModePage } from "../features/present/PresentModePage";
 
 export const router = createBrowserRouter([
   {
@@ -21,13 +19,5 @@ export const router = createBrowserRouter([
   {
     path: "/designs/:designId",
     element: <DesignEditorPage mode="saved" />,
-  },
-  {
-    path: "/designs/:designId/present",
-    element: <PresentModePage />,
-  },
-  {
-    path: "/designs/:designId/compare",
-    element: <CompareRunsPage />,
   },
 ]);

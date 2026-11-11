@@ -64,7 +64,7 @@ export function LoadPanel(props: LoadPanelProps) {
           />
           <small>Main load entering the system — drives utilization.</small>
         </label>
-        <div className="chip-row" role="group" aria-label="RPS presets">
+        <fieldset className="chip-row" aria-label="RPS presets">
           {RPS_CHIPS.map((chip) => (
             <button
               key={chip}
@@ -76,14 +76,14 @@ export function LoadPanel(props: LoadPanelProps) {
               {formatRpsChip(chip)}
             </button>
           ))}
-        </div>
+        </fieldset>
       </section>
 
       <section className="load-block">
         <h4 className="load-block__title">Traffic paths</h4>
         <p className="hint">
-          Named slices of peak RPS (for example Read vs Write). Tag connections in the
-          selection sheet so each path uses the right edges.
+          Named slices of peak RPS (for example Read vs Write). Tag connections in the selection
+          sheet so each path uses the right edges.
         </p>
 
         <div className="flow-list">
@@ -122,9 +122,7 @@ export function LoadPanel(props: LoadPanelProps) {
                   className="btn btn--ghost"
                   type="button"
                   onClick={() =>
-                    props.onRequestClassesChange(
-                      removePath(props.requestClasses, path.id),
-                    )
+                    props.onRequestClassesChange(removePath(props.requestClasses, path.id))
                   }
                 >
                   Remove
@@ -146,7 +144,7 @@ export function LoadPanel(props: LoadPanelProps) {
           </p>
         ))}
 
-        <div className="field-row" style={{ marginTop: "0.5rem" }}>
+        <div className="field-row field-row--mt-sm">
           {props.requestClasses.length === 1 ? (
             <button
               className="btn"
@@ -186,7 +184,7 @@ export function LoadPanel(props: LoadPanelProps) {
 
       <details className="advanced-block">
         <summary>Assumptions</summary>
-        <div className="field-stack" style={{ marginTop: "0.65rem" }}>
+        <div className="field-stack field-stack--mt">
           <label className="field">
             <span>Session pressure (soft)</span>
             <input
@@ -195,8 +193,7 @@ export function LoadPanel(props: LoadPanelProps) {
               onChange={(event) => props.onConcurrentUsersChange(event.target.value)}
             />
             <small>
-              Soft concurrency pressure on gateways and services — not a hard session
-              limit.
+              Soft concurrency pressure on gateways and services — not a hard session limit.
             </small>
           </label>
           <label className="field">
@@ -216,8 +213,8 @@ export function LoadPanel(props: LoadPanelProps) {
               onChange={(event) => props.onFanoutCountChange(event.target.value)}
             />
             <small>
-              Multiplies async enqueue edges only. Prefer per-connection fanout when
-              editing an edge.
+              Multiplies async enqueue edges only. Prefer per-connection fanout when editing an
+              edge.
             </small>
           </label>
         </div>

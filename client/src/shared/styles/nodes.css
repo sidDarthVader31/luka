@@ -11,9 +11,7 @@
   box-shadow: 0 6px 16px rgba(26, 35, 50, 0.06);
   cursor: grab;
   overflow: visible;
-  transition:
-    box-shadow 140ms ease,
-    border-color 140ms ease;
+  transition: box-shadow 140ms ease, border-color 140ms ease;
 }
 
 .luka-node:active {
@@ -307,45 +305,6 @@
 }
 .luka-node--worker {
   --node-accent: #0f7a7a;
-}
-
-.coming-soon-wrap {
-  position: relative;
-  margin-top: 0.35rem;
-}
-
-.coming-soon-wrap__content {
-  pointer-events: none;
-  user-select: none;
-  opacity: 0.45;
-  filter: grayscale(0.15);
-}
-
-.coming-soon-wrap__overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: grid;
-  place-content: center;
-  border-radius: 12px;
-  background: rgba(244, 246, 248, 0.55);
-  pointer-events: auto;
-  cursor: not-allowed;
-}
-
-.coming-soon-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.4rem 0.85rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.95);
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  box-shadow: var(--shadow);
 }
 
 .preset-row {

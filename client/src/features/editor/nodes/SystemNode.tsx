@@ -34,8 +34,7 @@ const RIM_SIDES: Array<{
 export function SystemNode({ data, selected }: NodeProps) {
   const typed = data as SystemNodeData;
   const util = typed.utilization ?? 0;
-  const statusClass =
-    util >= 1 ? "luka-node--saturated" : util >= 0.8 ? "luka-node--warming" : "";
+  const statusClass = util >= 1 ? "luka-node--saturated" : util >= 0.8 ? "luka-node--warming" : "";
 
   return (
     <div

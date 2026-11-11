@@ -43,9 +43,7 @@ export function SelectionContextSheet(props: SelectionContextSheetProps) {
         <div className="context-sheet__header">
           <div>
             <h3>{selectedNode.data.label}</h3>
-            <p className="hint">
-              {selectedNode.data.archetype.replaceAll("_", " ")}
-            </p>
+            <p className="hint">{selectedNode.data.archetype.replaceAll("_", " ")}</p>
           </div>
           <button className="btn btn--ghost" type="button" onClick={props.onDone}>
             Done
@@ -71,10 +69,8 @@ export function SelectionContextSheet(props: SelectionContextSheetProps) {
                     className="preset-chip"
                     type="button"
                     data-active={
-                      matchPreset(
-                        selectedNode.data.archetype,
-                        selectedNode.data.properties,
-                      ) === size
+                      matchPreset(selectedNode.data.archetype, selectedNode.data.properties) ===
+                      size
                     }
                     disabled={size === "custom"}
                     onClick={() => {
@@ -98,8 +94,7 @@ export function SelectionContextSheet(props: SelectionContextSheetProps) {
                 ))}
               </div>
               <small>
-                Sets instances and work capacity. Custom appears when you edit advanced
-                numbers.
+                Sets instances and work capacity. Custom appears when you edit advanced numbers.
               </small>
             </div>
           ) : null}
@@ -129,7 +124,7 @@ export function SelectionContextSheet(props: SelectionContextSheetProps) {
           {selectedNode.data.archetype !== "client" ? (
             <details className="advanced-block">
               <summary>Advanced capacity</summary>
-              <div className="field-stack" style={{ marginTop: "0.65rem" }}>
+              <div className="field-stack field-stack--mt">
                 {(["replicas", "capacity_rps", "base_latency_ms"] as const).map((key) => {
                   if (selectedNode.data.properties[key] === undefined) {
                     return null;
@@ -160,9 +155,7 @@ export function SelectionContextSheet(props: SelectionContextSheetProps) {
               </div>
             </details>
           ) : (
-            <p className="hint">
-              Client emits traffic from Load — no capacity size on this node.
-            </p>
+            <p className="hint">Client emits traffic from Load — no capacity size on this node.</p>
           )}
         </div>
 
@@ -226,16 +219,14 @@ export function SelectionContextSheet(props: SelectionContextSheetProps) {
             </select>
           </label>
 
-          <label className="field">
+          <div className="field">
             <span>Traffic paths</span>
             <div className="flow-list">
               {props.requestClasses.map((path) => (
                 <label className="flow-item" key={path.id}>
                   <input
                     type="checkbox"
-                    checked={
-                      selectedEdge.data?.requestClassIDs?.includes(path.id) ?? false
-                    }
+                    checked={selectedEdge.data?.requestClassIDs?.includes(path.id) ?? false}
                     onChange={() => {
                       const current = selectedEdge.data?.requestClassIDs ?? [];
                       const next = current.includes(path.id)
@@ -256,11 +247,11 @@ export function SelectionContextSheet(props: SelectionContextSheetProps) {
               ))}
             </div>
             <small>Which load paths use this connection.</small>
-          </label>
+          </div>
 
           <details className="advanced-block">
             <summary>Advanced (weight, fanout, timeout)</summary>
-            <div className="field-stack" style={{ marginTop: "0.65rem" }}>
+            <div className="field-stack field-stack--mt">
               <div className="field-row">
                 <label className="field">
                   <span>Weight</span>

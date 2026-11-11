@@ -104,13 +104,6 @@ export type ComponentArchetype = {
   supported_routing_rules: RoutingRuleType[];
 };
 
-export type DesignVersion = {
-  design_id: string;
-  version: number;
-  design_snapshot: Design;
-  created_at: string;
-};
-
 export type Workload = {
   requests_per_second: number;
   concurrent_users?: number;
@@ -162,7 +155,7 @@ export type PathExplanation = {
   timed_out_rps?: number;
 };
 
-export type RunResult = {
+export type SimulationResult = {
   summary: string;
   bottleneck?: RunNodeResult;
   nodes: RunNodeResult[];
@@ -181,24 +174,11 @@ export type RunResult = {
   }>;
 };
 
-export type Run = {
+export type Template = {
   id: string;
-  design_id?: string;
-  design_snapshot: Design;
-  workload: Workload;
-  simulation_config: {
-    mode: "analytical";
-  };
-  status: "completed";
-  result?: RunResult;
-  created_at: string;
-  completed_at?: string;
-};
-
-export type ApiStatus = {
   name: string;
-  version: string;
-  api: string;
+  description?: string;
+  graph: Design["graph"];
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
@@ -213,26 +193,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const errorBody = (await response.json().catch(() => null)) as
-      | { error?: string; details?: string }
-      | null;
+    const errorBody = (await response.json().catch(() => null)) as {
+      error?: string;
+      details?: string;
+    } | null;
 
-    throw new Error(
-      errorBody?.details ?? errorBody?.error ?? "Luka API request failed",
-    );
+    throw new Error(errorBody?.details ?? errorBody?.error ?? "Luka API request failed");
   }
 
   return (await response.json()) as T;
 }
 
-export function getStatus() {
-  return request<ApiStatus>("/status");
-}
-
 export async function listComponentArchetypes() {
-  const response = await request<{ items: ComponentArchetype[] }>(
-    "/component-archetypes",
-  );
+  const response = await request<{ items: ComponentArchetype[] }>("/component-archetypes");
 
   return response.items;
 }
@@ -273,32 +246,20 @@ export function duplicateDesign(
   });
 }
 
-export function createRun(input: {
+export async function listTemplates() {
+  const response = await request<{ items: Template[] }>("/templates");
+  return response.items;
+}
+
+export async function simulate(input: {
   design_id?: string;
   design?: Design;
   workload: Workload;
-  simulation_config: {
-    mode: "analytical";
-  };
 }) {
-  return request<Run>("/runs", {
+  const response = await request<{ result: SimulationResult }>("/simulate", {
     method: "POST",
     body: JSON.stringify(input),
   });
-}
 
-export function getRun(runId: string) {
-  return request<Run>(`/runs/${runId}`);
-}
-
-export async function listRunsForDesign(designId: string) {
-  const response = await request<{ items: Run[] }>(`/designs/${designId}/runs`);
-
-  return response.items;
-}
-
-export async function listDesignVersions(designId: string) {
-  const response = await request<{ items: DesignVersion[] }>(`/designs/${designId}/versions`);
-
-  return response.items;
+  return response.result;
 }

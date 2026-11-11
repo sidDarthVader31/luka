@@ -124,10 +124,7 @@
   border-radius: 10px;
   background: var(--paper);
   text-align: left;
-  transition:
-    border-color 120ms ease,
-    box-shadow 120ms ease,
-    transform 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 
 .palette-tile:hover:not(:disabled) {
@@ -161,10 +158,8 @@
   position: relative;
   min-width: 0;
   min-height: 0;
-  background:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px),
-    var(--paper);
+  background: linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px), var(--paper);
   background-size: 24px 24px;
 }
 
@@ -317,6 +312,10 @@
 }
 
 .chip-row {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
@@ -382,10 +381,7 @@
   color: var(--ink);
   font-size: 0.82rem;
   font-weight: 600;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
 .btn:hover:not(:disabled) {
@@ -515,62 +511,6 @@
   font-size: 0.78rem;
 }
 
-.history-list {
-  display: grid;
-  gap: 0.45rem;
-}
-
-.history-card {
-  display: grid;
-  gap: 0.35rem;
-  padding: 0.65rem 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--paper);
-}
-
-.history-card strong {
-  font-size: 0.82rem;
-}
-
-.history-card small {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-family: var(--font-mono);
-}
-
-.history-card__actions {
-  display: flex;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-}
-
-.compare-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.75rem;
-}
-
-.compare-table th,
-.compare-table td {
-  border-bottom: 1px solid var(--line);
-  padding: 0.4rem 0.35rem;
-  text-align: left;
-}
-
-.compare-table th {
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.compare-table tr[data-hot="true"] {
-  background: rgba(196, 60, 60, 0.06);
-}
-
-.compare-table .mono {
-  font-family: var(--font-mono);
-}
-
 .flow-list {
   display: grid;
   gap: 0.5rem;
@@ -600,10 +540,8 @@
 .library-page {
   min-height: 100vh;
   padding: 2.5rem 2rem 3rem;
-  background:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px),
-    var(--paper);
+  background: linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px), var(--paper);
   background-size: 28px 28px;
 }
 
@@ -650,9 +588,7 @@
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: var(--shadow);
-  transition:
-    border-color 120ms ease,
-    transform 120ms ease;
+  transition: border-color 120ms ease, transform 120ms ease;
 }
 
 .library-card:hover {
@@ -728,4 +664,36 @@
     border-top: 1px solid var(--line);
     max-height: 42vh;
   }
+}
+
+.library-section-title {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.library-grid--spaced-sm {
+  margin-bottom: 1.5rem;
+}
+
+.library-grid--spaced-lg {
+  margin-bottom: 1.75rem;
+}
+
+.library-error {
+  color: var(--danger);
+}
+
+button.library-card {
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.field-row--mt-sm {
+  margin-top: 0.5rem;
+}
+
+.field-stack--mt {
+  margin-top: 0.65rem;
 }
