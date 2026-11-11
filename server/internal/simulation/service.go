@@ -4,32 +4,30 @@ package simulation
 import (
 	"context"
 
+	"github.com/sidDarthVader31/luka/server/internal/catalog"
 	"github.com/sidDarthVader31/luka/server/internal/domain"
 	"github.com/sidDarthVader31/luka/server/internal/graphs"
+	"github.com/sidDarthVader31/luka/server/internal/simulator"
 	"github.com/sidDarthVader31/luka/server/internal/store"
 )
 
-type Simulator interface {
-	RunDesign(design domain.Design, workload domain.Workload) (*domain.SimulationResult, error)
-}
-
 type Service struct {
-	designs   store.DesignRepository
-	simulator Simulator
+	designs store.DesignRepository
 }
 
-func NewService(designs store.DesignRepository, simulator Simulator) *Service {
-	return &Service{designs: designs, simulator: simulator}
+func NewService(designs store.DesignRepository) *Service {
+	return &Service{designs: designs}
 }
 
 // Simulate validates the request and design, runs the simulator and returns the
 // result. Nothing is stored.
 func (s *Service) Simulate(ctx context.Context, req domain.SimulateRequest) (*domain.SimulationResult, error) {
-	if err := validateRequest(req); err != nil {
+	design, err := s.resolveDesign(ctx, req)
+	if err != nil {
 		return nil, err
 	}
 
-	design, err := s.resolveDesign(ctx, req)
+	workload, err := resolveWorkload(design, req.Workload)
 	if err != nil {
 		return nil, err
 	}
@@ -38,51 +36,46 @@ func (s *Service) Simulate(ctx context.Context, req domain.SimulateRequest) (*do
 		return nil, err
 	}
 
-	result, err := s.simulator.RunDesign(design, req.Workload)
+	result, err := simulator.Run(design.Graph, workload, catalog.Default())
 	if err != nil {
 		// The simulator only fails on designs it cannot model, which is a
 		// problem with the submitted input rather than the server.
 		return nil, domain.Invalid("%s", err.Error())
 	}
+	result.Warnings = graphs.Warnings(design.Graph)
 
-	return result, nil
+	return &result, nil
 }
 
 func (s *Service) resolveDesign(ctx context.Context, req domain.SimulateRequest) (domain.Design, error) {
-	if req.Design != nil {
-		design := *req.Design
-		if design.ID == "" {
-			design.ID = "adhoc-design"
-		}
-		if design.Name == "" {
-			design.Name = "Ad Hoc Design"
-		}
-		return design, nil
+	switch {
+	case req.DesignID == "" && req.Design == nil:
+		return domain.Design{}, domain.Invalid("exactly one of design_id or design must be provided")
+	case req.DesignID != "" && req.Design != nil:
+		return domain.Design{}, domain.Invalid("design_id and design cannot be provided together")
+	case req.Design != nil:
+		return *req.Design, nil
+	default:
+		return s.designs.GetByID(ctx, req.DesignID)
 	}
-
-	return s.designs.GetByID(ctx, req.DesignID)
 }
 
-func validateRequest(req domain.SimulateRequest) error {
-	hasDesignID := req.DesignID != ""
-	hasInlineDesign := req.Design != nil
-
-	switch {
-	case !hasDesignID && !hasInlineDesign:
-		return domain.Invalid("exactly one of design_id or design must be provided")
-	case hasDesignID && hasInlineDesign:
-		return domain.Invalid("design_id and design cannot be provided together")
-	case req.Workload.RequestsPerSecond <= 0:
-		return domain.Invalid("workload.requests_per_second must be greater than zero")
-	case req.Workload.ConcurrentUsers < 0:
-		return domain.Invalid("workload.concurrent_users cannot be negative")
-	case req.Workload.ReadWriteRatio < 0:
-		return domain.Invalid("workload.read_write_ratio cannot be negative")
-	case req.Workload.PayloadKB < 0:
-		return domain.Invalid("workload.payload_kb cannot be negative")
-	case req.Workload.FanoutCount < 0:
-		return domain.Invalid("workload.fanout_count cannot be negative")
-	default:
-		return nil
+// resolveWorkload picks the workload: the request's (required) for now.
+func resolveWorkload(_ domain.Design, w *domain.Workload) (domain.Workload, error) {
+	if w == nil {
+		return domain.Workload{}, domain.Invalid("workload is required")
 	}
+	return validateWorkload(*w)
+}
+
+func validateWorkload(w domain.Workload) (domain.Workload, error) {
+	switch {
+	case w.RequestsPerSecond <= 0:
+		return w, domain.Invalid("workload.requests_per_second must be greater than zero")
+	case w.ReadShare < 0 || w.ReadShare > 1:
+		return w, domain.Invalid("workload.read_share must be between 0 and 1")
+	case w.PayloadKB < 0:
+		return w, domain.Invalid("workload.payload_kb cannot be negative")
+	}
+	return w, nil
 }

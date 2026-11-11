@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
-	"github.com/sidDarthVader31/luka/server/internal/simulator"
 	"github.com/sidDarthVader31/luka/server/internal/store"
 )
 
@@ -17,81 +16,70 @@ func newTestService(t *testing.T) *Service {
 	if err := store.SeedSampleDesigns(context.Background(), repo); err != nil {
 		t.Fatalf("SeedSampleDesigns() error = %v", err)
 	}
-	return NewService(repo, simulator.NewService())
+	return NewService(repo)
 }
 
-func TestSimulateSeededDesign(t *testing.T) {
-	result, err := newTestService(t).Simulate(context.Background(), domain.SimulateRequest{
-		DesignID: store.SampleCacheAsideID,
-		Workload: domain.Workload{
-			RequestsPerSecond: 100000,
-			ConcurrentUsers:   250000,
-			ReadWriteRatio:    4,
-			PayloadKB:         8,
-			FanoutCount:       1,
+func TestSimulateSeededDesigns(t *testing.T) {
+	for _, id := range []string{store.SampleCacheAsideID, store.SampleQueueWorkflowID} {
+		result, err := newTestService(t).Simulate(context.Background(), domain.SimulateRequest{
+			DesignID: id,
+			Workload: &domain.Workload{RequestsPerSecond: 10000},
+		})
+		if err != nil {
+			t.Fatalf("%s: Simulate() error = %v", id, err)
+		}
+		if len(result.Nodes) == 0 || result.BottleneckNodeID == "" {
+			t.Fatalf("%s: expected nodes and a bottleneck, got %+v", id, result)
+		}
+		if result.Workload.ReadShare != 0.9 || result.Workload.PayloadKB != 1 {
+			t.Fatalf("%s: workload defaults not applied: %+v", id, result.Workload)
+		}
+	}
+}
+
+func TestSimulateWarnsAboutUnconnectedNodes(t *testing.T) {
+	design := domain.Design{Graph: domain.Graph{
+		Nodes: []domain.Node{
+			{ID: "c", Label: "Client", Archetype: domain.NodeArchetypeClient},
+			{ID: "s", Label: "Service", Archetype: domain.NodeArchetypeStatelessService},
+			{ID: "x", Label: "Spare", Archetype: domain.NodeArchetypeCache},
 		},
+		Edges: []domain.Edge{{ID: "e", SourceNodeID: "c", TargetNodeID: "s"}},
+	}}
+	result, err := newTestService(t).Simulate(context.Background(), domain.SimulateRequest{
+		Design: &design, Workload: &domain.Workload{RequestsPerSecond: 100},
 	})
 	if err != nil {
-		t.Fatalf("Simulate() error = %v", err)
+		t.Fatal(err)
 	}
-
-	if result == nil || result.Bottleneck == nil {
-		t.Fatal("expected simulation result with bottleneck")
-	}
-	if len(result.Flows) != 1 {
-		t.Fatalf("flows len = %d, want 1", len(result.Flows))
-	}
-	if result.Bottleneck.NodeID != "db-1" {
-		t.Fatalf("bottleneck = %q, want db-1", result.Bottleneck.NodeID)
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "Spare") {
+		t.Fatalf("warnings = %v", result.Warnings)
 	}
 }
 
-func TestSimulateRejectsInvalidInlineGraph(t *testing.T) {
-	_, err := newTestService(t).Simulate(context.Background(), domain.SimulateRequest{
-		Design: &domain.Design{
-			ID:   "adhoc",
-			Name: "Broken Inline Design",
-			Graph: domain.Graph{
-				Nodes: []domain.Node{
-					{
-						ID:        "service-1",
-						Label:     "Service",
-						Archetype: domain.NodeArchetypeStatelessService,
-						Color:     "green",
-						Position:  domain.NodePosition{X: 10, Y: 10},
-					},
-				},
-			},
-		},
-		Workload: domain.Workload{RequestsPerSecond: 1000, PayloadKB: 2},
-	})
-	if !errors.Is(err, domain.ErrInvalid) {
-		t.Fatalf("error = %v, want ErrInvalid", err)
+func TestSimulateErrors(t *testing.T) {
+	inlineNoClient := &domain.Design{Graph: domain.Graph{Nodes: []domain.Node{
+		{ID: "s", Label: "Service", Archetype: domain.NodeArchetypeStatelessService},
+	}}}
+	cases := []struct {
+		name string
+		req  domain.SimulateRequest
+		want error
+		msg  string
+	}{
+		{"no design", domain.SimulateRequest{Workload: &domain.Workload{RequestsPerSecond: 1}}, domain.ErrInvalid, "exactly one of"},
+		{"no workload", domain.SimulateRequest{DesignID: store.SampleCacheAsideID}, domain.ErrInvalid, "workload is required"},
+		{"zero rps", domain.SimulateRequest{DesignID: store.SampleCacheAsideID, Workload: &domain.Workload{}}, domain.ErrInvalid, "requests_per_second"},
+		{"bad read share", domain.SimulateRequest{DesignID: store.SampleCacheAsideID, Workload: &domain.Workload{RequestsPerSecond: 1, ReadShare: 1.5}}, domain.ErrInvalid, "read_share"},
+		{"no client", domain.SimulateRequest{Design: inlineNoClient, Workload: &domain.Workload{RequestsPerSecond: 1}}, domain.ErrInvalid, "client"},
+		{"unknown design", domain.SimulateRequest{DesignID: "missing", Workload: &domain.Workload{RequestsPerSecond: 1}}, domain.ErrNotFound, ""},
 	}
-	if !strings.Contains(err.Error(), "exactly one client node is required") {
-		t.Fatalf("error = %q, want client validation message", err.Error())
-	}
-}
-
-func TestSimulateRejectsNegativeWorkloadValues(t *testing.T) {
-	_, err := newTestService(t).Simulate(context.Background(), domain.SimulateRequest{
-		DesignID: store.SampleCacheAsideID,
-		Workload: domain.Workload{RequestsPerSecond: 1000, FanoutCount: -2},
-	})
-	if !errors.Is(err, domain.ErrInvalid) {
-		t.Fatalf("error = %v, want ErrInvalid", err)
-	}
-	if !strings.Contains(err.Error(), "workload.fanout_count cannot be negative") {
-		t.Fatalf("error = %q, want fanout validation message", err.Error())
-	}
-}
-
-func TestSimulateUnknownDesignIsNotFound(t *testing.T) {
-	_, err := newTestService(t).Simulate(context.Background(), domain.SimulateRequest{
-		DesignID: "missing",
-		Workload: domain.Workload{RequestsPerSecond: 1000},
-	})
-	if !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("error = %v, want ErrNotFound", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := newTestService(t).Simulate(context.Background(), tc.req)
+			if !errors.Is(err, tc.want) || !strings.Contains(err.Error(), tc.msg) {
+				t.Fatalf("error = %v, want %v containing %q", err, tc.want, tc.msg)
+			}
+		})
 	}
 }

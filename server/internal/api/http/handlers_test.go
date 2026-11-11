@@ -15,7 +15,6 @@ import (
 	"github.com/sidDarthVader31/luka/server/internal/designs"
 	"github.com/sidDarthVader31/luka/server/internal/domain"
 	"github.com/sidDarthVader31/luka/server/internal/simulation"
-	"github.com/sidDarthVader31/luka/server/internal/simulator"
 	"github.com/sidDarthVader31/luka/server/internal/store"
 )
 
@@ -26,7 +25,7 @@ func newTestRouter(t *testing.T, repo store.DesignRepository) *gin.Engine {
 	if err := store.SeedSampleDesigns(context.Background(), repo); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	return NewRouter(designs.NewService(repo), simulation.NewService(repo, simulator.NewService())).Engine()
+	return NewRouter(designs.NewService(repo), simulation.NewService(repo)).Engine()
 }
 
 func do(t *testing.T, engine *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {
@@ -66,7 +65,7 @@ func TestSimulateByID(t *testing.T) {
 
 	rec := do(t, engine, http.MethodPost, "/api/v1/simulate", domain.SimulateRequest{
 		DesignID: store.SampleCacheAsideID,
-		Workload: testWorkload,
+		Workload: &testWorkload,
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
@@ -91,7 +90,7 @@ func TestSimulateInlineDesign(t *testing.T) {
 
 	rec := do(t, engine, http.MethodPost, "/api/v1/simulate", domain.SimulateRequest{
 		Design:   &sample,
-		Workload: testWorkload,
+		Workload: &testWorkload,
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
@@ -105,7 +104,7 @@ func TestSimulateStoresNothing(t *testing.T) {
 
 	do(t, engine, http.MethodPost, "/api/v1/simulate", domain.SimulateRequest{
 		DesignID: store.SampleCacheAsideID,
-		Workload: testWorkload,
+		Workload: &testWorkload,
 	})
 
 	after, _ := repo.List(context.Background())
@@ -124,8 +123,8 @@ func TestErrorMapping(t *testing.T) {
 		body   any
 		want   int
 	}{
-		{"simulate unknown design", http.MethodPost, "/api/v1/simulate", domain.SimulateRequest{DesignID: "missing", Workload: testWorkload}, http.StatusNotFound},
-		{"simulate no design", http.MethodPost, "/api/v1/simulate", domain.SimulateRequest{Workload: testWorkload}, http.StatusBadRequest},
+		{"simulate unknown design", http.MethodPost, "/api/v1/simulate", domain.SimulateRequest{DesignID: "missing", Workload: &testWorkload}, http.StatusNotFound},
+		{"simulate no design", http.MethodPost, "/api/v1/simulate", domain.SimulateRequest{Workload: &testWorkload}, http.StatusBadRequest},
 		{"simulate bad workload", http.MethodPost, "/api/v1/simulate", domain.SimulateRequest{DesignID: store.SampleCacheAsideID}, http.StatusBadRequest},
 		{"get unknown design", http.MethodGet, "/api/v1/designs/missing", nil, http.StatusNotFound},
 		{"create without name", http.MethodPost, "/api/v1/designs", domain.CreateDesignRequest{}, http.StatusBadRequest},
@@ -174,7 +173,7 @@ func (failingRepo) GetByID(context.Context, string) (domain.Design, error) {
 }
 
 func TestRepositoryFailureIs500(t *testing.T) {
-	engine := NewRouter(designs.NewService(failingRepo{}), simulation.NewService(failingRepo{}, simulator.NewService())).Engine()
+	engine := NewRouter(designs.NewService(failingRepo{}), simulation.NewService(failingRepo{})).Engine()
 
 	rec := do(t, engine, http.MethodGet, "/api/v1/designs/any", nil)
 	if rec.Code != http.StatusInternalServerError {
@@ -243,7 +242,7 @@ func TestCatalogEndpoint(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Items) != 14 || len(catalog.Categories) != 5 {
+	if len(catalog.Items) != 17 || len(catalog.Categories) != 5 {
 		t.Fatalf("got %d items, %d categories", len(catalog.Items), len(catalog.Categories))
 	}
 

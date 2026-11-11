@@ -14,13 +14,15 @@ Types: `server/internal/domain`. Engine: `server/internal/simulator`.
 | `read_share` (s) | 0.9 | Fraction of requests that are reads |
 | `payload_kb` (P) | 1 | Average request or record size |
 
-Each client node emits reads `R·s` and writes `R·(1−s)`. With more than one client, R is split evenly across them.
+Each client node emits reads `R·s` and writes `R·(1−s)`. With more than one client, R is split evenly across the clients that have at least one outgoing edge (an unconnected client is only a warning and emits nothing).
+
+`read_share` 0 means "use the default", so a workload of only writes cannot be expressed; use a small read share such as 0.01.
 
 **Edges.** An edge has `traffic` (`all`, `reads` or `writes`; default `all`) and `mode` (`sync` or `async`; default `sync`). An edge carries only the traffic it names.
 - **Sync:** the caller waits for the target. The edge adds latency and can fail the caller's request.
 - **Async:** the edge carries load to the target but adds no latency and never fails the caller. Edges out of a queue are always treated as async.
 
-**Node properties.** Missing values take the catalog item's defaults. A missing or non-positive `capacity_rps` on a node that has capacity is a validation error, never a silent default.
+**Node properties.** Missing (zero) values take the catalog item's defaults: the node's `component_id` item, or the kind's generic item. A negative `capacity_rps`, or one that is still not positive after defaults, is a validation error.
 
 ## How traffic moves
 
@@ -29,7 +31,7 @@ Nodes are processed in topological order; cycles are rejected. A node's demand i
 | Kind | What it forwards |
 |---|---|
 | `client` | Its emitted traffic, to every target |
-| `gateway` | Splits served traffic across its targets in proportion to edge `weight` (load balancing) |
+| `gateway` | Splits served traffic across its targets in proportion to edge `weight` (load balancing). Each class is split only across the edges that carry it |
 | `stateless_service`, `worker` | Served traffic to **every** target (each dependency gets every request it is wired for) |
 | `cache`, `cdn` | Read misses `reads·(1−h)` plus all writes, to every target. `h` = `cache_hit_rate` |
 | `queue` | Every served message to every target (each consumer group gets every message). Messages arrive downstream as writes |
@@ -44,7 +46,7 @@ For most kinds: capacity `C = replicas × capacity_rps`, utilisation `ρ = (read
 - Writes go to primaries only; reads spread evenly over primaries and replicas.
 - Primary load is `writes + reads/(1+m)`, over primary capacity `k·c`, so `ρ = (writes + reads/(1+m)) / (k·c)`. Replicas carry less than primaries, so this is the binding utilisation. `capacity_rps` in the result is `k·c`.
 
-**Queue.** `ρ = messages / (replicas × capacity_rps)` measures the broker. A queue never drops messages. Consumers that are slower than arrivals show up as overload on the consumer, and the review flags the backlog.
+**Queue.** `ρ = messages / (replicas × capacity_rps)` measures the broker. A queue never drops messages because consumers are slow: consumers that are slower than arrivals show up as overload on the consumer, and the review flags the backlog. If the broker itself is over capacity (ρ > 1), the usual served rule below applies to it.
 
 **Served traffic.** If ρ ≤ 1, everything is served. Otherwise each class is served at `1/ρ` of demand and the rest fails. The node is `overloaded` when ρ > 1.
 
@@ -59,7 +61,9 @@ Each instance is modelled as an M/M/1 queue with service time `S = base_latency_
 
 **End-to-end latency** for a class, starting at the client:
 - **Sync calls in sequence:** a node's latency plus the sum of its sync dependencies' latencies (a service is assumed to call its dependencies one after another).
-- **Branches.** A branch taken with probability p is included in the q-quantile only if `p > 1−q`. A cache miss path with miss rate 5% therefore counts in p99 but not in p50. Gateway branches take the slowest branch that meets this test.
+- **Branches.** A branch taken with probability p is included in the q-quantile only if `p > 1−q`. A cache miss path with miss rate 5% therefore counts in p99 but not in p50. Gateway branches take the slowest branch that meets this test; if no branch meets it (for example two equal branches at p50), the slowest of all branches is used, which keeps the upper bound.
+- **Several clients:** end-to-end latency is the slowest client's.
+- **No route:** a client with no edge for a class has no latency for it.
 - **Upper bound:** summing per-node quantiles gives an upper bound, and the UI labels it as one.
 
 ## Success rate and backpressure
@@ -69,13 +73,15 @@ For each class, success at a node is `σ = served/demand` (1 when not overloaded
 - **Gateway:** the weight-averaged success of its targets.
 - **Cache or CDN:** `h + (1−h) × success(downstream)` for reads; downstream success for writes.
 
-End-to-end served = demand × success at the client's targets. An overloaded database therefore lowers what the service in front of it really serves.
+A client with no edge for a class, or a gateway with no target for it, gives that class success 0 (the requests have nowhere to go).
+
+End-to-end served = demand × success at the client's targets, summed over clients. An overloaded database therefore lowers what the service in front of it really serves.
 
 ## Availability
 
 - **One node:** with per-instance availability `a` (catalog default, for example 0.999) and n instances, the node is up if any instance is up: `1 − (1−a)^n`.
 - **Database:** each shard needs its primary or a promoted replica, `1 − (1−a)^(1+m)`, and every shard must be up: that value `^k`.
-- **End to end:** the product over nodes on the sync path, weight-averaged across gateway branches. Clients count as 1. A cache is treated as a hard dependency (conservative), so a single-instance cache shows up in availability.
+- **End to end:** the product over nodes on the sync path, weight-averaged across gateway branches. Clients count as 1. With several clients, the end-to-end value is the average over clients. A class with no route from a client has availability 0. A cache is treated as a hard dependency (conservative), so a single-instance cache shows up in availability.
 
 ## Estimates
 
