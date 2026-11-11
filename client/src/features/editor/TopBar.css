@@ -1,0 +1,95 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--topbar-h);
+  padding: 0 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar__name {
+  min-width: 120px;
+  width: 28ch;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.topbar__name:hover {
+  border-color: var(--line);
+}
+
+.topbar__name:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.topbar__save {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.topbar__save[data-state="error"] {
+  color: var(--danger);
+}
+
+.topbar__spacer {
+  flex: 1;
+}
+
+.topbar__issues {
+  position: relative;
+}
+
+.topbar__issues > button[data-blocking="true"] {
+  color: var(--danger);
+}
+
+.topbar__issues > button[data-blocking="false"] {
+  color: var(--warn);
+}
+
+.topbar__issue-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  width: 340px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow);
+}
+
+.topbar__issue-list button {
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-left: 3px solid var(--warn);
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.topbar__issue-list button[data-blocking="true"] {
+  border-left-color: var(--danger);
+}
+
+.topbar__issue-list button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.topbar__issue-list button:disabled {
+  opacity: 1;
+  cursor: default;
+}

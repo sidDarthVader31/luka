@@ -1,5 +1,5 @@
 import type {
-  ComponentArchetype,
+  Catalog,
   CreateDesignRequest,
   Design,
   DuplicateDesignRequest,
@@ -9,7 +9,7 @@ import type {
 } from "./api-types.gen";
 
 export type * from "./api-types.gen";
-// Aliased because React Flow and the DOM already define `Node` and `Edge`.
+// Aliased because the DOM already defines `Node`.
 export type { Edge as GraphEdge, Node as GraphNode } from "./api-types.gen";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
@@ -31,10 +31,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function listComponentArchetypes() {
-  const response = await request<{ items: ComponentArchetype[] }>("/component-archetypes");
-
-  return response.items;
+export function getCatalog() {
+  return request<Catalog>("/catalog");
 }
 
 export function getDesign(designId: string) {

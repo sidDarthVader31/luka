@@ -1,16 +1,13 @@
 import type { GraphEdge, RequestClass } from "../../../lib/api";
-import { createRequestClass } from "../../../lib/design-draft";
 
-export const RPS_CHIPS = [1_000, 10_000, 100_000, 1_000_000] as const;
+// Request-class "traffic paths". Phase 3 replaces these with read/write traffic.
 
-export function formatRpsChip(value: number): string {
-  if (value >= 1_000_000) {
-    return "1M";
-  }
-  if (value >= 1_000) {
-    return `${value / 1_000}k`;
-  }
-  return String(value);
+export function createRequestClass(
+  name: string,
+  trafficShare: number,
+  index: number,
+): RequestClass {
+  return { id: `flow-${index}`, name, traffic_share: trafficShare };
 }
 
 /** Display percents that sum to ~100 from raw traffic_share values. */
@@ -99,8 +96,12 @@ export function removePath(paths: RequestClass[], id: string): RequestClass[] {
 }
 
 export function addCustomPath(paths: RequestClass[]): RequestClass[] {
-  const nextIndex = paths.length + 1;
-  const next = [...paths, createRequestClass(`Path ${nextIndex}`, 10, nextIndex)];
+  const used = new Set(paths.map((path) => path.id));
+  let nextIndex = paths.length + 1;
+  while (used.has(`flow-${nextIndex}`)) {
+    nextIndex += 1;
+  }
+  const next = [...paths, createRequestClass(`Path ${paths.length + 1}`, 10, nextIndex)];
   return normalizeSharesTo100(next);
 }
 
