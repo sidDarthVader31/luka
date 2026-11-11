@@ -1,3 +1,5 @@
+> **Note:** This document describes the pre-rebuild API and will be replaced as the rebuild lands.
+
 # Luka API Design
 
 ## Purpose

@@ -1,19 +1,10 @@
 import type { Edge, Node } from "@xyflow/react";
 
-import type {
-  EdgeInteractionType,
-  GraphEdge,
-  GraphNode,
-  RoutingRuleType,
-} from "../../../lib/api";
+import type { EdgeInteractionType, GraphEdge, GraphNode, RoutingRuleType } from "../../../lib/api";
 import type { SystemNodeData } from "../nodes/SystemNode";
 import { shortInteractionLabel } from "./edge-defaults";
-import {
-  DEFAULT_NODE_HEIGHT,
-  DEFAULT_NODE_WIDTH,
-  pickHandlesForNodes,
-} from "./handle-geometry";
-import { formatCompactNumber } from "./run-comparison";
+import { DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH, pickHandlesForNodes } from "./handle-geometry";
+import { formatCompactNumber } from "../../../lib/format";
 
 export type FlowEdgeData = {
   interactionType: EdgeInteractionType;
@@ -108,15 +99,10 @@ export function flowEdgeToGraphEdge(edge: Edge<FlowEdgeData>): GraphEdge {
       edge.data?.fanoutMultiplier && edge.data.fanoutMultiplier > 1
         ? edge.data.fanoutMultiplier
         : undefined,
-    timeout_ms:
-      edge.data?.timeoutMS && edge.data.timeoutMS > 0 ? edge.data.timeoutMS : undefined,
+    timeout_ms: edge.data?.timeoutMS && edge.data.timeoutMS > 0 ? edge.data.timeoutMS : undefined,
     retry_attempts:
-      edge.data?.retryAttempts && edge.data.retryAttempts > 0
-        ? edge.data.retryAttempts
-        : undefined,
-    request_class_ids: edge.data?.requestClassIDs?.length
-      ? edge.data.requestClassIDs
-      : undefined,
+      edge.data?.retryAttempts && edge.data.retryAttempts > 0 ? edge.data.retryAttempts : undefined,
+    request_class_ids: edge.data?.requestClassIDs?.length ? edge.data.requestClassIDs : undefined,
     routing_rule: {
       rule_type: edge.data?.ruleType ?? "always",
       value:
@@ -127,17 +113,13 @@ export function flowEdgeToGraphEdge(edge: Edge<FlowEdgeData>): GraphEdge {
   };
 }
 
-export function buildEdgeLabel(
-  edge: Edge<FlowEdgeData>,
-  routedRps?: number,
-): string {
+export function buildEdgeLabel(edge: Edge<FlowEdgeData>, routedRps?: number): string {
   const semantic =
     edge.data?.interactionType === "fallback"
       ? "fallback"
       : edge.data?.ruleType && edge.data.ruleType !== "always"
         ? edge.data.ruleType
         : shortInteractionLabel(edge.data?.interactionType ?? "sync_request");
-  const throughput =
-    routedRps !== undefined ? ` · ${formatCompactNumber(routedRps)} rps` : "";
+  const throughput = routedRps !== undefined ? ` · ${formatCompactNumber(routedRps)} rps` : "";
   return `${semantic}${throughput}`;
 }

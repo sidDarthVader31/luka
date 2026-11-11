@@ -44,9 +44,7 @@ export function createNodeFromArchetype(
   position?: { x: number; y: number },
 ): GraphNode {
   const nextIndex = nextAvailableIndex(
-    existingNodes
-      .filter((node) => node.archetype === archetype.archetype)
-      .map((node) => node.id),
+    existingNodes.filter((node) => node.archetype === archetype.archetype).map((node) => node.id),
     `${archetype.archetype}-`,
   );
 
@@ -55,11 +53,10 @@ export function createNodeFromArchetype(
     label: `${archetype.display_name} ${nextIndex}`,
     archetype: archetype.archetype,
     color: archetype.default_color,
-    position:
-      position ?? {
-        x: 160 + ((nextIndex - 1) % 3) * 240,
-        y: 120 + Math.floor((nextIndex - 1) / 3) * 180,
-      },
+    position: position ?? {
+      x: 160 + ((nextIndex - 1) % 3) * 240,
+      y: 120 + Math.floor((nextIndex - 1) / 3) * 180,
+    },
     properties: { ...archetype.default_properties },
   };
 }
@@ -94,18 +91,11 @@ export function buildEdge(input: {
     retry_attempts:
       input.retryAttempts && input.retryAttempts > 0 ? input.retryAttempts : undefined,
     fanout_multiplier:
-      input.fanoutMultiplier && input.fanoutMultiplier > 1
-        ? input.fanoutMultiplier
-        : undefined,
-    request_class_ids: input.requestClassIDs?.length
-      ? input.requestClassIDs
-      : undefined,
+      input.fanoutMultiplier && input.fanoutMultiplier > 1 ? input.fanoutMultiplier : undefined,
+    request_class_ids: input.requestClassIDs?.length ? input.requestClassIDs : undefined,
     routing_rule: {
       rule_type: input.ruleType,
-      value:
-        input.routingWeight && input.routingWeight > 1
-          ? input.routingWeight
-          : undefined,
+      value: input.routingWeight && input.routingWeight > 1 ? input.routingWeight : undefined,
     },
   };
 }
@@ -123,16 +113,11 @@ export function getSupportedEdgeOptions(input: {
     };
   }
 
-  const archetype = input.archetypes.find(
-    (item) => item.archetype === sourceNode.archetype,
-  );
+  const archetype = input.archetypes.find((item) => item.archetype === sourceNode.archetype);
 
   return {
-    interactions:
-      archetype?.supported_interactions ??
-      (["sync_request"] as EdgeInteractionType[]),
-    routingRules:
-      archetype?.supported_routing_rules ?? (["always"] as RoutingRuleType[]),
+    interactions: archetype?.supported_interactions ?? (["sync_request"] as EdgeInteractionType[]),
+    routingRules: archetype?.supported_routing_rules ?? (["always"] as RoutingRuleType[]),
   };
 }
 
@@ -146,9 +131,7 @@ export function cloneDesignIntoDraft(design: Design) {
     nodes: structuredClone(design.graph.nodes),
     edges: structuredClone(design.graph.edges),
     requestClasses:
-      requestClasses.length > 0
-        ? requestClasses
-        : [createRequestClass("All traffic", 100, 1)],
+      requestClasses.length > 0 ? requestClasses : [createRequestClass("All traffic", 100, 1)],
   };
 }
 

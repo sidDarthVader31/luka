@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   Background,
@@ -29,28 +22,24 @@ import {
 import type {
   ComponentArchetype,
   Design,
-  DesignVersion,
   EdgeInteractionType,
   GraphEdge,
   GraphNode,
   RequestClass,
   RoutingRuleType,
-  Run,
   RunEdgeResult,
   RunNodeResult,
+  SimulationResult,
   Workload,
 } from "../../lib/api";
 import {
   createDesign,
-  createRun,
-  duplicateDesign,
   getDesign,
-  getStatus,
   listComponentArchetypes,
-  listDesignVersions,
-  listRunsForDesign,
+  simulate,
   updateDesign,
 } from "../../lib/api";
+import { formatCompactNumber } from "../../lib/format";
 import {
   buildDraftDesign,
   buildEdge,
@@ -76,17 +65,9 @@ import {
 } from "./lib/flow-mappers";
 import { pickHandlesForNodes } from "./lib/handle-geometry";
 import { validateGraphForRun } from "./lib/graph-validation";
-import {
-  buildExportMarkdown,
-  buildRunComparison,
-  formatCompactNumber,
-} from "./lib/run-comparison";
 import { pathCoverageWarnings } from "./lib/traffic-paths";
 import { nodeTypes } from "./nodes/nodeTypes";
 import type { SystemNodeData } from "./nodes/SystemNode";
-
-const SAMPLE_CHAT = "sample-cache-aside";
-const SAMPLE_QUEUE = "sample-queue-workflow";
 
 type DockTab = "load" | "results";
 
@@ -100,12 +81,9 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
   const blank = createBlankDraft();
 
   const [archetypes, setArchetypes] = useState<ComponentArchetype[]>([]);
-  const [apiStatus, setApiStatus] = useState("…");
   const [draftName, setDraftName] = useState(blank.name);
   const [draftDescription, setDraftDescription] = useState(blank.description);
-  const [requestClasses, setRequestClasses] = useState<RequestClass[]>(
-    blank.requestClasses,
-  );
+  const [requestClasses, setRequestClasses] = useState<RequestClass[]>(blank.requestClasses);
   const [savedDesign, setSavedDesign] = useState<Design | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [autosaveState, setAutosaveState] = useState<
@@ -123,13 +101,10 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
   const [concurrentUsers, setConcurrentUsers] = useState("50000");
   const [payloadKB, setPayloadKB] = useState("8");
   const [fanoutCount, setFanoutCount] = useState("1");
-  /** Harmless default — not shown in Load UI; engine uses as soft write-pressure. */
+  // Not exposed in the Load panel yet; sent as a fixed default.
   const readWriteRatio = "4";
 
-  const [lastRun, setLastRun] = useState<Run | null>(null);
-  const [baselineRun, setBaselineRun] = useState<Run | null>(null);
-  const [designRuns, setDesignRuns] = useState<Run[]>([]);
-  const [designVersions, setDesignVersions] = useState<DesignVersion[]>([]);
+  const [lastResult, setLastResult] = useState<SimulationResult | null>(null);
   const [activeFlowResultID, setActiveFlowResultID] = useState("overall");
   const [showPreflight, setShowPreflight] = useState(false);
 
@@ -179,8 +154,8 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
 
   const activeResult =
     activeFlowResultID === "overall"
-      ? lastRun?.result
-      : lastRun?.result?.flows?.find((flow) => flow.request_class_id === activeFlowResultID);
+      ? lastResult
+      : lastResult?.flows?.find((flow) => flow.request_class_id === activeFlowResultID);
 
   const nodeResultsByID = useMemo(() => {
     return new Map<string, RunNodeResult>(
@@ -194,9 +169,6 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     );
   }, [activeResult]);
 
-  const runComparison =
-    baselineRun && lastRun ? buildRunComparison(baselineRun, lastRun) : null;
-
   const displayNodes = useMemo(
     () =>
       nodes.map((node) => {
@@ -207,13 +179,9 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
             ...node.data,
             utilization: result?.utilization,
             utilizationLabel:
-              result !== undefined
-                ? `${Math.round(result.utilization * 100)}%`
-                : undefined,
+              result !== undefined ? `${Math.round(result.utilization * 100)}%` : undefined,
             trafficLabel:
-              result !== undefined
-                ? `${formatCompactNumber(result.incoming_rps)} in`
-                : undefined,
+              result !== undefined ? `${formatCompactNumber(result.incoming_rps)} in` : undefined,
             isBottleneck: activeResult?.bottleneck?.node_id === node.id,
             hasError: errorNodeIDs.has(node.id),
             connectSource: connectSourceID === node.id,
@@ -234,14 +202,14 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
           label: buildEdgeLabel(resolved, result?.routed_rps),
           animated: Boolean(result && result.routed_rps > 0 && (result.timed_out_rps ?? 0) > 0),
           style: {
-            stroke: selected ? "var(--accent)" : "#7a8a9c",
+            stroke: selected ? "var(--accent)" : "var(--edge)",
             strokeWidth: selected ? 1.75 : 1.25,
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
             width: 14,
             height: 14,
-            color: selected ? "#2f5bff" : "#5b6b7c",
+            color: selected ? "var(--accent)" : "var(--edge-marker)",
           },
         };
       }),
@@ -298,7 +266,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
       setAutosaveState(design ? "saved" : "idle");
       setSelectedNodeID(null);
       setSelectedEdgeID(null);
-      setLastRun(null);
+      setLastResult(null);
       setConnectSourceID(null);
       undoStack.current = [];
     },
@@ -308,14 +276,8 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
   useEffect(() => {
     void (async () => {
       try {
-        const [status, items] = await Promise.all([
-          getStatus(),
-          listComponentArchetypes(),
-        ]);
-        setApiStatus(`${status.name} ${status.version}`);
-        setArchetypes(items);
+        setArchetypes(await listComponentArchetypes());
       } catch (error) {
-        setApiStatus("offline");
         showToast(error instanceof Error ? error.message : "Failed to reach API");
       }
     })();
@@ -328,12 +290,6 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
         try {
           const design = await getDesign(designId);
           applyDraft(cloneDesignIntoDraft(design), design);
-          const [runs, versions] = await Promise.all([
-            listRunsForDesign(design.id),
-            listDesignVersions(design.id),
-          ]);
-          setDesignRuns(runs);
-          setDesignVersions(versions);
         } catch (error) {
           showToast(error instanceof Error ? error.message : "Failed to load design");
           navigate("/");
@@ -369,22 +325,13 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
           setSavedDesign(design);
           setIsDirty(false);
           setAutosaveState("saved");
-          setDesignVersions(await listDesignVersions(design.id));
         } catch {
           setAutosaveState("error");
         }
       })();
     }, 900);
     return () => window.clearTimeout(handle);
-  }, [
-    savedDesign,
-    isDirty,
-    draftName,
-    draftDescription,
-    graphNodes,
-    graphEdges,
-    requestClasses,
-  ]);
+  }, [savedDesign, isDirty, draftName, draftDescription, graphNodes, graphEdges, requestClasses]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -444,15 +391,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    flowInstance,
-    selectedEdgeID,
-    selectedNodeID,
-    setEdges,
-    setNodes,
-    pushUndo,
-    markDirty,
-  ]);
+  }, [flowInstance, selectedEdgeID, selectedNodeID, setEdges, setNodes, pushUndo, markDirty]);
 
   function onNodesChange(changes: NodeChange<Node<SystemNodeData>>[]) {
     for (const change of changes) {
@@ -496,8 +435,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     }
     const sourceNode = nodes.find((node) => node.id === sourceID);
     const targetNode = nodes.find((node) => node.id === targetID);
-    const picked =
-      sourceNode && targetNode ? pickHandlesForNodes(sourceNode, targetNode) : null;
+    const picked = sourceNode && targetNode ? pickHandlesForNodes(sourceNode, targetNode) : null;
     const resolvedSourceHandle = sourceHandleID || picked?.sourceHandle;
     const resolvedTargetHandle = targetHandleID || picked?.targetHandle;
 
@@ -563,10 +501,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     setSelectedEdgeID(null);
   }
 
-  function placeArchetype(
-    archetype: ComponentArchetype,
-    position?: { x: number; y: number },
-  ) {
+  function placeArchetype(archetype: ComponentArchetype, position?: { x: number; y: number }) {
     if (archetype.archetype === "client" && hasClient) {
       showToast("Only one Client node is supported.");
       return;
@@ -582,8 +517,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     event.preventDefault();
     const archetypeKey = event.dataTransfer.getData("application/luka-archetype");
     const archetype =
-      archetypes.find((item) => item.archetype === archetypeKey) ??
-      dragArchetype.current;
+      archetypes.find((item) => item.archetype === archetypeKey) ?? dragArchetype.current;
     if (!archetype || !flowInstance) {
       return;
     }
@@ -612,48 +546,12 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
       setSavedDesign(design);
       setIsDirty(false);
       setAutosaveState("saved");
-      setDesignVersions(await listDesignVersions(design.id));
       showToast(`Saved ${design.name}`);
       if (!designId || designId !== design.id) {
         navigate(`/designs/${design.id}`, { replace: true });
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Save failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleDuplicate() {
-    if (!savedDesign) {
-      showToast("Save the design before creating a variant.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const design = await duplicateDesign(savedDesign.id, {
-        name: `${draftName} Variant`,
-      });
-      showToast(`Created ${design.name}`);
-      navigate(`/designs/${design.id}`);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Duplicate failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleLoadSample(sampleID: string) {
-    setBusy(true);
-    try {
-      const design = await getDesign(sampleID);
-      applyDraft(cloneDesignIntoDraft(design), design);
-      setDesignRuns(await listRunsForDesign(design.id));
-      setDesignVersions(await listDesignVersions(design.id));
-      showToast(`Loaded ${design.name}`);
-      navigate(`/designs/${design.id}`, { replace: true });
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Failed to load sample");
     } finally {
       setBusy(false);
     }
@@ -707,68 +605,22 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
         edges: graphEdges,
         requestClasses,
       });
-      const run = await createRun(
+      const result = await simulate(
         isDirty || !savedDesign
-          ? {
-              design: designPayload,
-              workload,
-              simulation_config: { mode: "analytical" },
-            }
-          : {
-              design_id: savedDesign.id,
-              workload,
-              simulation_config: { mode: "analytical" },
-            },
+          ? { design: designPayload, workload }
+          : { design_id: savedDesign.id, workload },
       );
-      setLastRun(run);
+      setLastResult(result);
       setActiveFlowResultID("overall");
       setSelectedNodeID(null);
       setSelectedEdgeID(null);
       setDockTab("results");
-      if (savedDesign && run.design_id === savedDesign.id) {
-        setDesignRuns(await listRunsForDesign(savedDesign.id));
-      }
-      showToast(run.result?.summary ?? "Simulation complete");
+      showToast(result.summary || "Simulation complete");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Run failed");
     } finally {
       setBusy(false);
     }
-  }
-
-  function exportJSON() {
-    const design = buildDraftDesign({
-      id: savedDesign?.id,
-      name: draftName,
-      description: draftDescription,
-      nodes: graphNodes,
-      edges: graphEdges,
-      requestClasses,
-    });
-    downloadBlob(
-      `${draftName.replace(/\s+/g, "-").toLowerCase() || "design"}.json`,
-      JSON.stringify(design, null, 2),
-      "application/json",
-    );
-  }
-
-  function exportMarkdown() {
-    const workload = buildWorkload() ?? {
-      requests_per_second: Number(requestsPerSecond) || 0,
-    };
-    const markdown = buildExportMarkdown({
-      designName: draftName,
-      workload,
-      summary: lastRun?.result?.summary,
-      bottleneckLabel: lastRun?.result?.bottleneck?.label,
-      nodes: lastRun?.result?.nodes ?? [],
-      pathSummary: lastRun?.result?.paths?.[0]?.summary,
-    });
-    downloadBlob(
-      `${draftName.replace(/\s+/g, "-").toLowerCase() || "run"}-summary.md`,
-      markdown,
-      "text/markdown",
-    );
   }
 
   function updateSelectedNode(
@@ -805,9 +657,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
     pushUndo();
     setEdges((current) =>
       current.map((edge) =>
-        edge.id === selectedEdgeID
-          ? { ...edge, data: { ...edge.data!, ...patch } }
-          : edge,
+        edge.id === selectedEdgeID ? { ...edge, data: { ...edge.data!, ...patch } } : edge,
       ),
     );
     markDirty();
@@ -851,32 +701,13 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
           />
         </div>
         <div className="editor-topbar__status">
-          <span>{apiStatus}</span>
           <span>{autosaveState}</span>
         </div>
         <div className="editor-topbar__actions">
           <button className="btn btn--ghost" type="button" onClick={() => navigate("/")}>
             Library
           </button>
-          {savedDesign ? (
-            <Link className="btn btn--ghost" to={`/designs/${savedDesign.id}/present`}>
-              Present
-            </Link>
-          ) : null}
-          <button
-            className="btn btn--ghost"
-            type="button"
-            disabled={busy}
-            onClick={() => void handleDuplicate()}
-          >
-            Variant
-          </button>
-          <button
-            className="btn"
-            type="button"
-            disabled={busy}
-            onClick={() => void handleSave()}
-          >
+          <button className="btn" type="button" disabled={busy} onClick={() => void handleSave()}>
             Save
           </button>
           <button
@@ -933,20 +764,6 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
             >
               Fit
             </button>
-            <button
-              className="btn btn--ghost"
-              type="button"
-              onClick={() => void handleLoadSample(SAMPLE_CHAT)}
-            >
-              Chat sample
-            </button>
-            <button
-              className="btn btn--ghost"
-              type="button"
-              onClick={() => void handleLoadSample(SAMPLE_QUEUE)}
-            >
-              Queue sample
-            </button>
           </div>
 
           {nodes.length === 0 ? (
@@ -954,24 +771,12 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
               <h2>Drop a Client to start</h2>
               <p>
                 Drag from a node&apos;s <strong>edge</strong> to connect; drag the{" "}
-                <strong>center</strong> to move. Optional: Click connect (C) for
-                two-click linking.
+                <strong>center</strong> to move. Optional: Click connect (C) for two-click linking.
               </p>
               <div className="editor-canvas__empty-actions">
-                <button
-                  className="btn btn--primary"
-                  type="button"
-                  onClick={() => void handleLoadSample(SAMPLE_CHAT)}
-                >
-                  Load chat sample
-                </button>
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => void handleLoadSample(SAMPLE_QUEUE)}
-                >
-                  Load queue sample
-                </button>
+                <Link className="btn" to="/">
+                  Browse samples in the library
+                </Link>
               </div>
             </div>
           ) : null}
@@ -1009,15 +814,15 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
             connectionMode={ConnectionMode.Loose}
             connectionRadius={96}
             connectionLineType={ConnectionLineType.SmoothStep}
-            connectionLineStyle={{ stroke: "#2f5bff", strokeWidth: 1.5 }}
+            connectionLineStyle={{ stroke: "var(--accent)", strokeWidth: 1.5 }}
             defaultEdgeOptions={{
               type: "smoothstep",
-              style: { strokeWidth: 1.25, stroke: "#7a8a9c" },
+              style: { strokeWidth: 1.25, stroke: "var(--edge)" },
               markerEnd: {
                 type: MarkerType.ArrowClosed,
                 width: 14,
                 height: 14,
-                color: "#5b6b7c",
+                color: "var(--edge-marker)",
               },
             }}
             onNodeClick={(_, node) => handleNodeClick(node.id)}
@@ -1038,7 +843,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
               id="grid"
               gap={24}
               size={1}
-              color="rgba(26,35,50,0.08)"
+              color="var(--grid)"
               variant={BackgroundVariant.Lines}
             />
             <Controls showInteractive={false} />
@@ -1052,9 +857,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
                 key={tab}
                 className="editor-dock__tab"
                 type="button"
-                data-active={
-                  !selectedNode && !selectedEdge && dockTab === tab
-                }
+                data-active={!selectedNode && !selectedEdge && dockTab === tab}
                 onClick={() => {
                   setSelectedNodeID(null);
                   setSelectedEdgeID(null);
@@ -1088,14 +891,10 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
                     return;
                   }
                   pushUndo();
-                  setNodes((current) =>
-                    current.filter((node) => node.id !== selectedNode.id),
-                  );
+                  setNodes((current) => current.filter((node) => node.id !== selectedNode.id));
                   setEdges((current) =>
                     current.filter(
-                      (edge) =>
-                        edge.source !== selectedNode.id &&
-                        edge.target !== selectedNode.id,
+                      (edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id,
                     ),
                   );
                   setSelectedNodeID(null);
@@ -1106,9 +905,7 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
                     return;
                   }
                   pushUndo();
-                  setEdges((current) =>
-                    current.filter((edge) => edge.id !== selectedEdge.id),
-                  );
+                  setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id));
                   setSelectedEdgeID(null);
                   markDirty();
                 }}
@@ -1146,17 +943,10 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
               />
             ) : (
               <ResultsPanel
-                lastRun={lastRun}
+                result={lastResult}
                 activeFlowResultID={activeFlowResultID}
                 activeResult={activeResult}
-                runComparison={runComparison}
-                savedDesign={savedDesign}
-                designRuns={designRuns}
-                designVersions={designVersions}
                 onActiveFlowChange={setActiveFlowResultID}
-                onExportJSON={exportJSON}
-                onExportMarkdown={exportMarkdown}
-                onSetBaseline={() => setBaselineRun(lastRun)}
               />
             )}
           </div>
@@ -1164,14 +954,4 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
       </div>
     </div>
   );
-}
-
-function downloadBlob(filename: string, contents: string, type: string) {
-  const blob = new Blob([contents], { type });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
 }

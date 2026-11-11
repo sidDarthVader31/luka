@@ -39,11 +39,7 @@ export function sumPercents(paths: RequestClass[]): number {
 }
 
 /** Set one path's percent; redistribute the rest so values sum to 100. */
-export function setPathPercent(
-  paths: RequestClass[],
-  id: string,
-  percent: number,
-): RequestClass[] {
+export function setPathPercent(paths: RequestClass[], id: string, percent: number): RequestClass[] {
   if (paths.length === 0) {
     return paths;
   }
@@ -54,8 +50,7 @@ export function setPathPercent(
   const clamped = Math.max(1, Math.min(99, percent));
   const others = paths.filter((path) => path.id !== id);
   const otherTotal =
-    others.reduce((sum, path) => sum + Math.max(path.traffic_share ?? 0, 0), 0) ||
-    others.length;
+    others.reduce((sum, path) => sum + Math.max(path.traffic_share ?? 0, 0), 0) || others.length;
 
   const next = paths.map((path) => {
     if (path.id === id) {
@@ -82,8 +77,7 @@ function normalizeSharesTo100(paths: RequestClass[]): RequestClass[] {
     ...path,
     traffic_share: Math.round((path.traffic_share ?? 0) * 10) / 10,
   }));
-  const drift =
-    100 - rounded.reduce((sum, path) => sum + (path.traffic_share ?? 0), 0);
+  const drift = 100 - rounded.reduce((sum, path) => sum + (path.traffic_share ?? 0), 0);
   if (rounded[0] && Math.abs(drift) > 0.01) {
     rounded[0] = {
       ...rounded[0],
@@ -93,11 +87,7 @@ function normalizeSharesTo100(paths: RequestClass[]): RequestClass[] {
   return rounded;
 }
 
-export function renamePath(
-  paths: RequestClass[],
-  id: string,
-  name: string,
-): RequestClass[] {
+export function renamePath(paths: RequestClass[], id: string, name: string): RequestClass[] {
   return paths.map((path) => (path.id === id ? { ...path, name } : path));
 }
 
@@ -110,10 +100,7 @@ export function removePath(paths: RequestClass[], id: string): RequestClass[] {
 
 export function addCustomPath(paths: RequestClass[]): RequestClass[] {
   const nextIndex = paths.length + 1;
-  const next = [
-    ...paths,
-    createRequestClass(`Path ${nextIndex}`, 10, nextIndex),
-  ];
+  const next = [...paths, createRequestClass(`Path ${nextIndex}`, 10, nextIndex)];
   return normalizeSharesTo100(next);
 }
 
@@ -148,9 +135,7 @@ export function pathCoverageWarnings(
 
   const warnings: PathCoverageWarning[] = [];
   for (const path of paths) {
-    const tagged = edges.filter((edge) =>
-      (edge.request_class_ids ?? []).includes(path.id),
-    );
+    const tagged = edges.filter((edge) => (edge.request_class_ids ?? []).includes(path.id));
     if (tagged.length === 0) {
       warnings.push({
         pathId: path.id,

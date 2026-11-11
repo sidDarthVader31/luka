@@ -1,35 +1,43 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
-import { getDesign, listDesigns, type Design } from "../../lib/api";
-
-const SAMPLES = [
-  {
-    id: "sample-cache-aside",
-    title: "Cache-aside read path",
-    body: "Client → service → cache → DB on miss. Great first demo.",
-  },
-  {
-    id: "sample-queue-workflow",
-    title: "Queue write path",
-    body: "Gateway → service → queue → worker → DB with fanout.",
-  },
-];
+import {
+  duplicateDesign,
+  listDesigns,
+  listTemplates,
+  type Design,
+  type Template,
+} from "../../lib/api";
 
 export function DesignLibraryPage() {
+  const navigate = useNavigate();
   const [designs, setDesigns] = useState<Design[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [openingID, setOpeningID] = useState<string | null>(null);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const items = await listDesigns();
-        setDesigns(items.filter((item) => !item.id.startsWith("sample-")));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to list designs");
-      }
-    })();
+    void listDesigns()
+      .then(setDesigns)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to list designs"));
+    void listTemplates()
+      .then(setTemplates)
+      .catch((err) =>
+        setTemplateError(err instanceof Error ? err.message : "Failed to list samples"),
+      );
   }, []);
+
+  async function openTemplate(template: Template) {
+    setOpeningID(template.id);
+    try {
+      const copy = await duplicateDesign(template.id, { name: template.name });
+      navigate(`/designs/${copy.id}`);
+    } catch (err) {
+      setTemplateError(err instanceof Error ? err.message : "Failed to open sample");
+      setOpeningID(null);
+    }
+  }
 
   return (
     <main className="library-page">
@@ -38,12 +46,12 @@ export function DesignLibraryPage() {
           <p className="brand">Luka</p>
           <h1>Design library</h1>
           <p className="lead">
-            Open a blank canvas, load a sample architecture, or continue a saved design.
-            Built for interview practice and architecture review what-ifs.
+            Open a blank canvas, start from a sample architecture, or continue a saved design. Built
+            for system design interview practice.
           </p>
         </header>
 
-        <section className="library-grid" style={{ marginBottom: "1.5rem" }}>
+        <section className="library-grid library-grid--spaced-sm">
           <Link className="library-card" to="/designs/new">
             <h2>Blank design</h2>
             <p>Start fresh and drag components onto the blueprint canvas.</p>
@@ -54,15 +62,30 @@ export function DesignLibraryPage() {
           </Link>
         </section>
 
-        <h2 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>Samples</h2>
-        <section className="library-grid" style={{ marginBottom: "1.75rem" }}>
-          {SAMPLES.map((sample) => (
-            <SampleCard key={sample.id} {...sample} />
+        <h2 className="library-section-title">Samples</h2>
+        {templateError ? <p className="library-error">{templateError}</p> : null}
+        <section className="library-grid library-grid--spaced-lg">
+          {templates.map((template) => (
+            <button
+              className="library-card"
+              key={template.id}
+              type="button"
+              disabled={openingID !== null}
+              onClick={() => void openTemplate(template)}
+            >
+              <h2>{template.name}</h2>
+              <p>{template.description || `${template.graph.nodes.length} nodes`}</p>
+            </button>
           ))}
+          {templates.length === 0 && !templateError ? (
+            <div className="library-card">
+              <h2>No samples available</h2>
+            </div>
+          ) : null}
         </section>
 
-        <h2 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>Saved designs</h2>
-        {error ? <p style={{ color: "var(--danger)" }}>{error}</p> : null}
+        <h2 className="library-section-title">Saved designs</h2>
+        {error ? <p className="library-error">{error}</p> : null}
         <section className="library-grid">
           {designs.map((design) => (
             <Link className="library-card" key={design.id} to={`/designs/${design.id}`}>
@@ -79,31 +102,5 @@ export function DesignLibraryPage() {
         </section>
       </div>
     </main>
-  );
-}
-
-function SampleCard(props: { id: string; title: string; body: string }) {
-  const [available, setAvailable] = useState(true);
-
-  useEffect(() => {
-    void getDesign(props.id)
-      .then(() => setAvailable(true))
-      .catch(() => setAvailable(false));
-  }, [props.id]);
-
-  if (!available) {
-    return (
-      <div className="library-card">
-        <h2>{props.title}</h2>
-        <p>Sample unavailable from API.</p>
-      </div>
-    );
-  }
-
-  return (
-    <Link className="library-card" to={`/designs/${props.id}`}>
-      <h2>{props.title}</h2>
-      <p>{props.body}</p>
-    </Link>
   );
 }

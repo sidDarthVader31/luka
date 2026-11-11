@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "biome check .",
-    "test": "vitest"
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@xyflow/react": "^12.8.5",
