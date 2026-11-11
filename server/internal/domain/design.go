@@ -17,19 +17,19 @@ const (
 type EdgeInteractionType string
 
 const (
-	EdgeInteractionSyncRequest     EdgeInteractionType = "sync_request"
-	EdgeInteractionAsyncEnqueue    EdgeInteractionType = "async_enqueue"
-	EdgeInteractionConsume         EdgeInteractionType = "consume"
-	EdgeInteractionConditionalPath EdgeInteractionType = "conditional_branch"
-	EdgeInteractionFallback        EdgeInteractionType = "fallback"
+	EdgeInteractionTypeSyncRequest     EdgeInteractionType = "sync_request"
+	EdgeInteractionTypeAsyncEnqueue    EdgeInteractionType = "async_enqueue"
+	EdgeInteractionTypeConsume         EdgeInteractionType = "consume"
+	EdgeInteractionTypeConditionalPath EdgeInteractionType = "conditional_branch"
+	EdgeInteractionTypeFallback        EdgeInteractionType = "fallback"
 )
 
 type RoutingRuleType string
 
 const (
-	RoutingRuleAlways    RoutingRuleType = "always"
-	RoutingRuleCacheHit  RoutingRuleType = "cache_hit"
-	RoutingRuleCacheMiss RoutingRuleType = "cache_miss"
+	RoutingRuleTypeAlways    RoutingRuleType = "always"
+	RoutingRuleTypeCacheHit  RoutingRuleType = "cache_hit"
+	RoutingRuleTypeCacheMiss RoutingRuleType = "cache_miss"
 )
 
 type Graph struct {

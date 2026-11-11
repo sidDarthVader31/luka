@@ -301,19 +301,19 @@ func applyRoutingRule(
 ) (float64, error) {
 	var routed float64
 
-	if edge.InteractionType == domain.EdgeInteractionFallback {
+	if edge.InteractionType == domain.EdgeInteractionTypeFallback {
 		routed = sourceResult.DroppedRPS
 	} else {
 		switch edge.RoutingRule.RuleType {
-		case domain.RoutingRuleAlways:
+		case domain.RoutingRuleTypeAlways:
 			routed = sourceResult.ProcessedRPS
-		case domain.RoutingRuleCacheHit:
+		case domain.RoutingRuleTypeCacheHit:
 			if sourceNode.Archetype != domain.NodeArchetypeCache {
 				return 0, fmt.Errorf("edge %q uses cache_hit but source node %q is not a cache", edge.ID, sourceNode.ID)
 			}
 
 			routed = sourceResult.ProcessedRPS * normalizedHitRate(sourceNode)
-		case domain.RoutingRuleCacheMiss:
+		case domain.RoutingRuleTypeCacheMiss:
 			if sourceNode.Archetype != domain.NodeArchetypeCache {
 				return 0, fmt.Errorf("edge %q uses cache_miss but source node %q is not a cache", edge.ID, sourceNode.ID)
 			}
@@ -324,7 +324,7 @@ func applyRoutingRule(
 		}
 	}
 
-	if edge.InteractionType == domain.EdgeInteractionAsyncEnqueue && workload.FanoutCount > 1 {
+	if edge.InteractionType == domain.EdgeInteractionTypeAsyncEnqueue && workload.FanoutCount > 1 {
 		routed *= workload.FanoutCount
 	}
 
@@ -363,11 +363,11 @@ func routeShare(edge domain.Edge, siblingEdges []domain.Edge) float64 {
 
 func shouldSplitOutgoingLoad(edge domain.Edge) bool {
 	switch edge.InteractionType {
-	case domain.EdgeInteractionSyncRequest,
-		domain.EdgeInteractionAsyncEnqueue,
-		domain.EdgeInteractionConsume,
-		domain.EdgeInteractionConditionalPath,
-		domain.EdgeInteractionFallback:
+	case domain.EdgeInteractionTypeSyncRequest,
+		domain.EdgeInteractionTypeAsyncEnqueue,
+		domain.EdgeInteractionTypeConsume,
+		domain.EdgeInteractionTypeConditionalPath,
+		domain.EdgeInteractionTypeFallback:
 		// Peers are matched by interaction type + routing rule.
 		// Sync + async from the same node are different interaction types, so both
 		// still receive full processed load (side-effect enqueue). Multiple async

@@ -83,9 +83,9 @@ func TestCreateRejectsInvalidGraph(t *testing.T) {
 					ID:              "edge-1",
 					SourceNodeID:    "service-1",
 					TargetNodeID:    "missing-db",
-					InteractionType: domain.EdgeInteractionSyncRequest,
+					InteractionType: domain.EdgeInteractionTypeSyncRequest,
 					RoutingRule: domain.RoutingRule{
-						RuleType: domain.RoutingRuleAlways,
+						RuleType: domain.RoutingRuleTypeAlways,
 					},
 				},
 			},

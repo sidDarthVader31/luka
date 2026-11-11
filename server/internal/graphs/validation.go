@@ -225,14 +225,14 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 				)
 			}
 
-			if edge.RoutingRule.RuleType == domain.RoutingRuleCacheHit || edge.RoutingRule.RuleType == domain.RoutingRuleCacheMiss {
+			if edge.RoutingRule.RuleType == domain.RoutingRuleTypeCacheHit || edge.RoutingRule.RuleType == domain.RoutingRuleTypeCacheMiss {
 				if sourceNode.Archetype != domain.NodeArchetypeCache {
 					issues = append(issues, fmt.Sprintf("%s uses %q but source node %q is not a cache", prefix, edge.RoutingRule.RuleType, edge.SourceNodeID))
 				}
 			}
 
-			if edge.InteractionType == domain.EdgeInteractionFallback && edge.RoutingRule.RuleType != domain.RoutingRuleAlways {
-				issues = append(issues, fmt.Sprintf("%s fallback edges must use routing rule %q", prefix, domain.RoutingRuleAlways))
+			if edge.InteractionType == domain.EdgeInteractionTypeFallback && edge.RoutingRule.RuleType != domain.RoutingRuleTypeAlways {
+				issues = append(issues, fmt.Sprintf("%s fallback edges must use routing rule %q", prefix, domain.RoutingRuleTypeAlways))
 			}
 		}
 

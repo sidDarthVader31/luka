@@ -400,6 +400,8 @@
 }
 
 .btn--primary:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent);
   filter: brightness(1.05);
 }
 

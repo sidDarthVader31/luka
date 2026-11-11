@@ -1,18 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import {
-  duplicateDesign,
-  listDesigns,
-  listTemplates,
-  type Design,
-  type Template,
-} from "../../lib/api";
+import { duplicateDesign, listDesigns, listTemplates, type Design } from "../../lib/api";
 
 export function DesignLibraryPage() {
   const navigate = useNavigate();
   const [designs, setDesigns] = useState<Design[]>([]);
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templates, setTemplates] = useState<Design[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
   const [openingID, setOpeningID] = useState<string | null>(null);
@@ -28,7 +22,7 @@ export function DesignLibraryPage() {
       );
   }, []);
 
-  async function openTemplate(template: Template) {
+  async function openTemplate(template: Design) {
     setOpeningID(template.id);
     try {
       const copy = await duplicateDesign(template.id, { name: template.name });

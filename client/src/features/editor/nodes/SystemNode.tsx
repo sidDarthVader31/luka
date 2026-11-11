@@ -1,12 +1,12 @@
 import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
 
-import type { NodeArchetype, NodeColor } from "../../../lib/api";
+import type { NodeArchetype, NodeProperties } from "../../../lib/api";
 
 export type SystemNodeData = {
   label: string;
   archetype: NodeArchetype;
-  color: NodeColor;
-  properties: Record<string, number | undefined>;
+  color?: string;
+  properties: NodeProperties;
   utilization?: number;
   utilizationLabel?: string;
   trafficLabel?: string;

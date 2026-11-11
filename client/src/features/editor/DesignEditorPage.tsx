@@ -27,8 +27,8 @@ import type {
   GraphNode,
   RequestClass,
   RoutingRuleType,
-  RunEdgeResult,
-  RunNodeResult,
+  EdgeSimulationResult,
+  NodeSimulationResult,
   SimulationResult,
   Workload,
 } from "../../lib/api";
@@ -158,13 +158,13 @@ export function DesignEditorPage({ mode }: DesignEditorPageProps) {
       : lastResult?.flows?.find((flow) => flow.request_class_id === activeFlowResultID);
 
   const nodeResultsByID = useMemo(() => {
-    return new Map<string, RunNodeResult>(
+    return new Map<string, NodeSimulationResult>(
       (activeResult?.nodes ?? []).map((node) => [node.node_id, node]),
     );
   }, [activeResult]);
 
   const edgeResultsByID = useMemo(() => {
-    return new Map<string, RunEdgeResult>(
+    return new Map<string, EdgeSimulationResult>(
       (activeResult?.edges ?? []).map((edge) => [edge.edge_id, edge]),
     );
   }, [activeResult]);

@@ -12,11 +12,11 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 				BaseLatencyMS: 0,
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
-				domain.EdgeInteractionSyncRequest,
-				domain.EdgeInteractionFallback,
+				domain.EdgeInteractionTypeSyncRequest,
+				domain.EdgeInteractionTypeFallback,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
-				domain.RoutingRuleAlways,
+				domain.RoutingRuleTypeAlways,
 			},
 		},
 		{
@@ -29,10 +29,10 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 				BaseLatencyMS: 8,
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
-				domain.EdgeInteractionSyncRequest,
+				domain.EdgeInteractionTypeSyncRequest,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
-				domain.RoutingRuleAlways,
+				domain.RoutingRuleTypeAlways,
 			},
 		},
 		{
@@ -45,12 +45,12 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 				BaseLatencyMS: 20,
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
-				domain.EdgeInteractionSyncRequest,
-				domain.EdgeInteractionAsyncEnqueue,
-				domain.EdgeInteractionFallback,
+				domain.EdgeInteractionTypeSyncRequest,
+				domain.EdgeInteractionTypeAsyncEnqueue,
+				domain.EdgeInteractionTypeFallback,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
-				domain.RoutingRuleAlways,
+				domain.RoutingRuleTypeAlways,
 			},
 		},
 		{
@@ -64,14 +64,14 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 				CacheHitRate:  0.8,
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
-				domain.EdgeInteractionSyncRequest,
-				domain.EdgeInteractionConditionalPath,
-				domain.EdgeInteractionFallback,
+				domain.EdgeInteractionTypeSyncRequest,
+				domain.EdgeInteractionTypeConditionalPath,
+				domain.EdgeInteractionTypeFallback,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
-				domain.RoutingRuleAlways,
-				domain.RoutingRuleCacheHit,
-				domain.RoutingRuleCacheMiss,
+				domain.RoutingRuleTypeAlways,
+				domain.RoutingRuleTypeCacheHit,
+				domain.RoutingRuleTypeCacheMiss,
 			},
 		},
 		{
@@ -84,11 +84,11 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 				BaseLatencyMS: 25,
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
-				domain.EdgeInteractionSyncRequest,
-				domain.EdgeInteractionFallback,
+				domain.EdgeInteractionTypeSyncRequest,
+				domain.EdgeInteractionTypeFallback,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
-				domain.RoutingRuleAlways,
+				domain.RoutingRuleTypeAlways,
 			},
 		},
 		{
@@ -101,10 +101,10 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 				BaseLatencyMS: 4,
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
-				domain.EdgeInteractionConsume,
+				domain.EdgeInteractionTypeConsume,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
-				domain.RoutingRuleAlways,
+				domain.RoutingRuleTypeAlways,
 			},
 		},
 		{
@@ -117,12 +117,12 @@ func DefaultComponentArchetypes() []domain.ComponentArchetype {
 				BaseLatencyMS: 30,
 			},
 			SupportedInteractions: []domain.EdgeInteractionType{
-				domain.EdgeInteractionSyncRequest,
-				domain.EdgeInteractionAsyncEnqueue,
-				domain.EdgeInteractionFallback,
+				domain.EdgeInteractionTypeSyncRequest,
+				domain.EdgeInteractionTypeAsyncEnqueue,
+				domain.EdgeInteractionTypeFallback,
 			},
 			SupportedRoutingRules: []domain.RoutingRuleType{
-				domain.RoutingRuleAlways,
+				domain.RoutingRuleTypeAlways,
 			},
 		},
 	}
