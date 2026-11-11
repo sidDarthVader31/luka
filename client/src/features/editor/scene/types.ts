@@ -70,7 +70,8 @@ export function migrateConnection(raw: Record<string, unknown>): Omit<Connection
     mode = raw.mode;
   } else {
     const interaction = raw.interactionType ?? raw.interaction_type;
-    mode = typeof interaction === "string" && ASYNC_INTERACTIONS.has(interaction) ? "async" : "sync";
+    mode =
+      typeof interaction === "string" && ASYNC_INTERACTIONS.has(interaction) ? "async" : "sync";
   }
   const weight = typeof raw.weight === "number" && raw.weight > 0 ? raw.weight : undefined;
   return weight === undefined ? { traffic, mode } : { traffic, mode, weight };

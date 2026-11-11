@@ -4,12 +4,16 @@ import { Link, useNavigate } from "react-router-dom";
 
 import {
   type Design,
+  type Problem,
   createDesign,
   duplicateDesign,
   listDesigns,
   listTemplates,
 } from "../../lib/api";
-import { allTrafficTemplate } from "../editor/lib/traffic-paths";
+import { useCatalog } from "../catalog/useCatalog";
+import { STATUS_LABELS, problemProgress } from "../problems/problem-status";
+import { starterDesign } from "../problems/starter";
+import { useProblems } from "../problems/useProblems";
 import "./HomePage.css";
 
 function errorMessage(error: unknown, fallback: string) {
@@ -27,6 +31,9 @@ export function HomePage() {
   const [templates, setTemplates] = useState<Design[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const problems = useProblems();
+  const catalogState = useCatalog();
+  const catalog = catalogState.status === "ready" ? catalogState.catalog : null;
 
   useEffect(() => {
     listDesigns()
@@ -70,7 +77,7 @@ export function HomePage() {
           void open(() =>
             createDesign({
               name: "Untitled design",
-              graph: { nodes: [], edges: [], request_classes: allTrafficTemplate() },
+              graph: { nodes: [], edges: [] },
             }),
           )
         }
@@ -78,6 +85,31 @@ export function HomePage() {
         <IconPlus size={18} aria-hidden />
         Blank sandbox
       </button>
+
+      <section className="home__section">
+        <h2>Practice problems</h2>
+        {problems.status === "error" ? (
+          <p className="home__error">Couldn't load problems: {problems.message}</p>
+        ) : null}
+        <div className="home__grid">
+          {problems.status === "ready"
+            ? problems.problems.map((problem) => (
+                <ProblemCard
+                  key={problem.id}
+                  problem={problem}
+                  designs={designs ?? []}
+                  disabled={busy || !catalog || designs === null}
+                  onStart={() =>
+                    catalog && void open(() => createDesign(starterDesign(problem, catalog.items)))
+                  }
+                />
+              ))
+            : null}
+          {problems.status === "ready" && problems.problems.length === 0 ? (
+            <p className="home__empty">No problems yet.</p>
+          ) : null}
+        </div>
+      </section>
 
       <section className="home__section">
         <h2>Templates</h2>
@@ -113,5 +145,57 @@ export function HomePage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function ProblemCard(props: {
+  problem: Problem;
+  designs: Design[];
+  disabled: boolean;
+  onStart: () => void;
+}) {
+  const { problem } = props;
+  const progress = problemProgress(problem.id, props.designs);
+  const targets = problem.targets.length;
+  return (
+    <article className="home__card home__problem">
+      <div className="home__problem-meta">
+        <span className="home__chip">{problem.difficulty}</span>
+        <span className="home__status" data-status={progress.status}>
+          {STATUS_LABELS[progress.status]}
+        </span>
+      </div>
+      <h3>{problem.title}</h3>
+      <p>{problem.summary}</p>
+      <p className="home__targets">
+        {targets} target{targets === 1 ? "" : "s"}
+      </p>
+      <div className="home__problem-actions">
+        {progress.latest ? (
+          <>
+            <Link className="btn btn--primary btn--small" to={`/designs/${progress.latest.id}`}>
+              Continue
+            </Link>
+            <button
+              type="button"
+              className="btn btn--small"
+              disabled={props.disabled}
+              onClick={props.onStart}
+            >
+              Start over
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="btn btn--primary btn--small"
+            disabled={props.disabled}
+            onClick={props.onStart}
+          >
+            Start
+          </button>
+        )}
+      </div>
+    </article>
   );
 }

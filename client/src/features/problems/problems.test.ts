@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Design, Problem } from "../../lib/api";
 import { catalogFixture } from "../../test/fixtures/catalog";
-import { parseMarkdown } from "./markdown";
+import { parseMarkdown } from "./parse-markdown";
 import { problemProgress, readLastRunPassed, writeLastRunPassed } from "./problem-status";
 import { starterDesign } from "./starter";
 
@@ -89,7 +89,9 @@ describe("starterDesign", () => {
 describe("parseMarkdown", () => {
   it("parses headings, paragraphs, lists and inline marks", () => {
     expect(
-      parseMarkdown("# Title\n\nServe **10k** reads\nper second.\n\n- one `a`\n- *two*\n\n1. first"),
+      parseMarkdown(
+        "# Title\n\nServe **10k** reads\nper second.\n\n- one `a`\n- *two*\n\n1. first",
+      ),
     ).toEqual([
       { type: "heading", level: 1, content: [{ type: "text", text: "Title" }] },
       {

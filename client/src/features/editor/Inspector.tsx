@@ -4,12 +4,7 @@ import { useState } from "react";
 import type { Catalog, CatalogItem, EdgeMode, EdgeTraffic, NodeProperties } from "../../lib/api";
 import { ComponentIcon } from "../../shared/icons/ComponentIcon";
 import { NumberField } from "../../shared/ui/NumberField";
-import {
-  MODE_LABELS,
-  TRAFFIC_LABELS,
-  isAlwaysAsync,
-  usesWeight,
-} from "./scene/connection-rules";
+import { MODE_LABELS, TRAFFIC_LABELS, isAlwaysAsync, usesWeight } from "./scene/connection-rules";
 import type { SelectionTarget } from "./scene/selection";
 import type { ConnectionData } from "./scene/types";
 import "./Inspector.css";
@@ -238,7 +233,8 @@ function SelectField(props: {
       <select
         value={props.value}
         disabled={props.disabled}
-        onChange={(event) => props.onChange(event.target.value)}>
+        onChange={(event) => props.onChange(event.target.value)}
+      >
         {props.options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

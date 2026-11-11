@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { type Inline, parseMarkdown } from "./markdown";
+import { type Inline, parseMarkdown } from "./parse-markdown";
 
 function renderInline(content: Inline[]): ReactNode[] {
   return content.map((part, index) => {
@@ -19,7 +19,7 @@ function renderInline(content: Inline[]): ReactNode[] {
 }
 
 /** Renders a problem brief. Text is always rendered as React text nodes, never as HTML. */
-export function Markdown({ source }: { source: string }) {
+export function BriefMarkdown({ source }: { source: string }) {
   return (
     <>
       {parseMarkdown(source).map((block, index) => {

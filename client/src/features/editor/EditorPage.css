@@ -39,6 +39,17 @@
   pointer-events: none;
 }
 
+.editor__brief {
+  position: absolute;
+  top: 64px;
+  left: 12px;
+  bottom: 80px;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
 .editor__traffic {
   position: absolute;
   bottom: 14px;

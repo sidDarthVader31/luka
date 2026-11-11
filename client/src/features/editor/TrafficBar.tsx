@@ -94,7 +94,11 @@ function InlineNumber(props: {
   useEffect(() => setDraft(String(props.value)), [props.value]);
   const commit = () => {
     const parsed = Number(draft);
-    if (Number.isFinite(parsed) && parsed >= props.min && parsed <= (props.max ?? Infinity)) {
+    if (
+      Number.isFinite(parsed) &&
+      parsed >= props.min &&
+      parsed <= (props.max ?? Number.POSITIVE_INFINITY)
+    ) {
       props.onCommit(parsed);
     } else {
       setDraft(String(props.value));

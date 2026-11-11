@@ -109,10 +109,7 @@ export function useDesignDocument(designId: string, catalog: Catalog | null): De
     [markDirty],
   );
 
-  const derived = useMemo(
-    () => sceneToGraph(elements, catalog?.items ?? []),
-    [elements, catalog],
-  );
+  const derived = useMemo(() => sceneToGraph(elements, catalog?.items ?? []), [elements, catalog]);
 
   // Debounced autosave of name, scene and derived graph.
   const latest = useRef({ name, derived, elements });

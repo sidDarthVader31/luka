@@ -69,7 +69,11 @@ export function updateLukaData(
   }
   const luka = { ...(element.customData?.luka ?? {}), ...patch };
   replaceElements(api, [
-    { ...element, ...elementPatch, customData: { ...element.customData, luka } } as ExcalidrawElement,
+    {
+      ...element,
+      ...elementPatch,
+      customData: { ...element.customData, luka },
+    } as ExcalidrawElement,
   ]);
 }
 

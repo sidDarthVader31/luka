@@ -152,8 +152,8 @@ function ResultsTabView({ result, onSelectNodes }: ResultsPanelProps) {
             {worst.label} · {formatPercent(worst.utilization)}
           </strong>
           <span>
-            {formatCompactNumber(worst.demand.reads + worst.demand.writes)} req/s against a
-            capacity of {formatRps(worst.capacity_rps)}.
+            {formatCompactNumber(worst.demand.reads + worst.demand.writes)} req/s against a capacity
+            of {formatRps(worst.capacity_rps)}.
           </span>
         </button>
       ) : null}
