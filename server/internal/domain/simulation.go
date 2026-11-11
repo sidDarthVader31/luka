@@ -1,19 +1,5 @@
 package domain
 
-import "time"
-
-type SimulationMode string
-
-const (
-	SimulationModeAnalytical SimulationMode = "analytical"
-)
-
-type RunStatus string
-
-const (
-	RunStatusCompleted RunStatus = "completed"
-)
-
 type Workload struct {
 	RequestsPerSecond float64 `json:"requests_per_second"`
 	ConcurrentUsers   int     `json:"concurrent_users,omitempty"`
@@ -22,28 +8,14 @@ type Workload struct {
 	FanoutCount       int     `json:"fanout_count,omitempty"`
 }
 
-type SimulationConfig struct {
-	Mode SimulationMode `json:"mode"`
+type SimulateRequest struct {
+	DesignID string   `json:"design_id,omitempty"`
+	Design   *Design  `json:"design,omitempty"`
+	Workload Workload `json:"workload"`
 }
 
-type CreateRunRequest struct {
-	DesignID         string           `json:"design_id,omitempty"`
-	Design           *Design          `json:"design,omitempty"`
-	Workload         Workload         `json:"workload"`
-	SimulationConfig SimulationConfig `json:"simulation_config"`
-}
-
-type Run struct {
-	ID               string            `json:"id"`
-	DesignID         string            `json:"design_id,omitempty"`
-	DesignSnapshot   Design            `json:"design_snapshot"`
-	Workload         Workload          `json:"workload"`
-	SimulationConfig SimulationConfig  `json:"simulation_config"`
-	Status           RunStatus         `json:"status"`
-	Result           *SimulationResult `json:"result,omitempty"`
-	Error            *string           `json:"error,omitempty"`
-	CreatedAt        time.Time         `json:"created_at"`
-	CompletedAt      *time.Time        `json:"completed_at,omitempty"`
+type SimulateResponse struct {
+	Result *SimulationResult `json:"result"`
 }
 
 type SimulationResult struct {

@@ -1,7 +1,7 @@
 package designs
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -12,23 +12,22 @@ import (
 )
 
 type Service struct {
-	repo        store.DesignRepository
-	versionRepo store.DesignVersionRepository
+	repo store.DesignRepository
 }
 
-func NewService(repo store.DesignRepository, versionRepo store.DesignVersionRepository) *Service {
-	return &Service{repo: repo, versionRepo: versionRepo}
+func NewService(repo store.DesignRepository) *Service {
+	return &Service{repo: repo}
 }
 
-func (s *Service) Create(req domain.CreateDesignRequest) (*domain.Design, error) {
+func (s *Service) Create(ctx context.Context, req domain.CreateDesignRequest) (*domain.Design, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, errors.New("name is required")
+		return nil, domain.Invalid("name is required")
 	}
 
 	now := time.Now().UTC()
 	design := domain.Design{
-		ID:          fmt.Sprintf("des_%d", now.UnixNano()),
+		ID:          domain.NewID("des"),
 		Name:        name,
 		Description: strings.TrimSpace(req.Description),
 		Graph:       req.Graph,
@@ -40,19 +39,15 @@ func (s *Service) Create(req domain.CreateDesignRequest) (*domain.Design, error)
 		return nil, err
 	}
 
-	if err := s.repo.Create(design); err != nil {
-		return nil, err
-	}
-
-	if err := s.saveVersion(design); err != nil {
+	if err := s.repo.Create(ctx, design); err != nil {
 		return nil, err
 	}
 
 	return &design, nil
 }
 
-func (s *Service) Get(id string) (*domain.Design, error) {
-	design, err := s.repo.GetByID(id)
+func (s *Service) Get(ctx context.Context, id string) (*domain.Design, error) {
+	design, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -60,12 +55,43 @@ func (s *Service) Get(id string) (*domain.Design, error) {
 	return &design, nil
 }
 
-func (s *Service) List() ([]domain.Design, error) {
-	return s.repo.List()
+// List returns user designs; built-in samples are served by Templates.
+func (s *Service) List(ctx context.Context) ([]domain.Design, error) {
+	all, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]domain.Design, 0, len(all))
+	for _, design := range all {
+		if !store.IsSampleID(design.ID) {
+			items = append(items, design)
+		}
+	}
+
+	return items, nil
 }
 
-func (s *Service) Update(id string, req domain.UpdateDesignRequest) (*domain.Design, error) {
-	existing, err := s.repo.GetByID(id)
+// Templates returns the built-in read-only sample designs.
+func (s *Service) Templates(ctx context.Context) ([]domain.Design, error) {
+	items := make([]domain.Design, 0)
+	for _, sample := range store.SampleDesigns() {
+		design, err := s.repo.GetByID(ctx, sample.ID)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, design)
+	}
+
+	return items, nil
+}
+
+func (s *Service) Update(ctx context.Context, id string, req domain.UpdateDesignRequest) (*domain.Design, error) {
+	if store.IsSampleID(id) {
+		return nil, domain.Invalid("sample designs are read-only; duplicate it to make an editable copy")
+	}
+
+	existing, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +99,7 @@ func (s *Service) Update(id string, req domain.UpdateDesignRequest) (*domain.Des
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
-			return nil, errors.New("name cannot be empty")
+			return nil, domain.Invalid("name cannot be empty")
 		}
 		existing.Name = name
 	}
@@ -92,26 +118,23 @@ func (s *Service) Update(id string, req domain.UpdateDesignRequest) (*domain.Des
 	now := time.Now().UTC()
 	existing.UpdatedAt = &now
 
-	if err := s.repo.Update(existing); err != nil {
-		return nil, err
-	}
-
-	if err := s.saveVersion(existing); err != nil {
+	if err := s.repo.Update(ctx, existing); err != nil {
 		return nil, err
 	}
 
 	return &existing, nil
 }
 
-func (s *Service) Duplicate(id string, req domain.DuplicateDesignRequest) (*domain.Design, error) {
-	source, err := s.repo.GetByID(id)
+// Duplicate copies any design, including samples, into a new editable design.
+func (s *Service) Duplicate(ctx context.Context, id string, req domain.DuplicateDesignRequest) (*domain.Design, error) {
+	source, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		name = fmt.Sprintf("%s Variant", source.Name)
+		name = fmt.Sprintf("%s Copy", source.Name)
 	}
 
 	description := strings.TrimSpace(req.Description)
@@ -119,38 +142,9 @@ func (s *Service) Duplicate(id string, req domain.DuplicateDesignRequest) (*doma
 		description = source.Description
 	}
 
-	return s.Create(domain.CreateDesignRequest{
+	return s.Create(ctx, domain.CreateDesignRequest{
 		Name:        name,
 		Description: description,
 		Graph:       source.Graph,
-	})
-}
-
-func (s *Service) ListVersions(id string) ([]domain.DesignVersion, error) {
-	if _, err := s.repo.GetByID(id); err != nil {
-		return nil, err
-	}
-
-	return s.versionRepo.ListByDesignID(id)
-}
-
-func (s *Service) saveVersion(design domain.Design) error {
-	nextVersion, err := s.versionRepo.NextVersionNumber(design.ID)
-	if err != nil {
-		return err
-	}
-
-	createdAt := time.Now().UTC()
-	if design.UpdatedAt != nil {
-		createdAt = *design.UpdatedAt
-	} else if design.CreatedAt != nil {
-		createdAt = *design.CreatedAt
-	}
-
-	return s.versionRepo.Save(domain.DesignVersion{
-		DesignID:       design.ID,
-		Version:        nextVersion,
-		DesignSnapshot: design,
-		CreatedAt:      createdAt,
 	})
 }

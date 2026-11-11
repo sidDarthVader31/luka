@@ -1,11 +1,11 @@
 package graphs
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
 	"github.com/sidDarthVader31/luka/server/internal/platform"
@@ -30,8 +30,8 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("graph validation failed: %s", strings.Join(e.Issues, "; "))
 }
 
-func (e *ValidationError) Unwrap() error {
-	return errors.New("graph validation failed")
+func (e *ValidationError) Is(target error) bool {
+	return target == domain.ErrInvalid
 }
 
 func ValidateGraph(graph domain.Graph, mode Mode) error {
@@ -261,7 +261,7 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 	return nil
 }
 
-func archetypeCatalog() map[domain.NodeArchetype]domain.ComponentArchetype {
+var archetypeCatalogOnce = sync.OnceValue(func() map[domain.NodeArchetype]domain.ComponentArchetype {
 	items := platform.DefaultComponentArchetypes()
 	catalog := make(map[domain.NodeArchetype]domain.ComponentArchetype, len(items))
 	for _, item := range items {
@@ -269,6 +269,11 @@ func archetypeCatalog() map[domain.NodeArchetype]domain.ComponentArchetype {
 	}
 
 	return catalog
+})
+
+// archetypeCatalog returns the cached catalog; callers must not mutate it.
+func archetypeCatalog() map[domain.NodeArchetype]domain.ComponentArchetype {
+	return archetypeCatalogOnce()
 }
 
 func isSupportedArchetype(value domain.NodeArchetype) bool {

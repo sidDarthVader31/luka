@@ -1,14 +1,12 @@
 package http
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/sidDarthVader31/luka/server/internal/designs"
 	"github.com/sidDarthVader31/luka/server/internal/domain"
-	"github.com/sidDarthVader31/luka/server/internal/store"
 )
 
 type DesignHandler struct {
@@ -22,19 +20,13 @@ func NewDesignHandler(service *designs.Service) *DesignHandler {
 func (h *DesignHandler) Create(c *gin.Context) {
 	var request domain.CreateDesignRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "invalid design request",
-			"details": err.Error(),
-		})
+		respondBadRequest(c, "invalid design request: "+err.Error())
 		return
 	}
 
-	design, err := h.service.Create(request)
+	design, err := h.service.Create(c.Request.Context(), request)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "design creation failed",
-			"details": err.Error(),
-		})
+		respondError(c, err)
 		return
 	}
 
@@ -42,17 +34,9 @@ func (h *DesignHandler) Create(c *gin.Context) {
 }
 
 func (h *DesignHandler) Get(c *gin.Context) {
-	design, err := h.service.Get(c.Param("designId"))
+	design, err := h.service.Get(c.Request.Context(), c.Param("designId"))
 	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, store.ErrDesignNotFound) {
-			status = http.StatusNotFound
-		}
-
-		c.JSON(status, gin.H{
-			"error":   "design lookup failed",
-			"details": err.Error(),
-		})
+		respondError(c, err)
 		return
 	}
 
@@ -60,41 +44,35 @@ func (h *DesignHandler) Get(c *gin.Context) {
 }
 
 func (h *DesignHandler) List(c *gin.Context) {
-	items, err := h.service.List()
+	items, err := h.service.List(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "design list failed",
-			"details": err.Error(),
-		})
+		respondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"items": items,
-	})
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func (h *DesignHandler) Templates(c *gin.Context) {
+	items, err := h.service.Templates(c.Request.Context())
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
 func (h *DesignHandler) Update(c *gin.Context) {
 	var request domain.UpdateDesignRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "invalid design update request",
-			"details": err.Error(),
-		})
+		respondBadRequest(c, "invalid design update request: "+err.Error())
 		return
 	}
 
-	design, err := h.service.Update(c.Param("designId"), request)
+	design, err := h.service.Update(c.Request.Context(), c.Param("designId"), request)
 	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, store.ErrDesignNotFound) {
-			status = http.StatusNotFound
-		}
-
-		c.JSON(status, gin.H{
-			"error":   "design update failed",
-			"details": err.Error(),
-		})
+		respondError(c, err)
 		return
 	}
 
@@ -104,46 +82,15 @@ func (h *DesignHandler) Update(c *gin.Context) {
 func (h *DesignHandler) Duplicate(c *gin.Context) {
 	var request domain.DuplicateDesignRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "invalid design duplicate request",
-			"details": err.Error(),
-		})
+		respondBadRequest(c, "invalid design duplicate request: "+err.Error())
 		return
 	}
 
-	design, err := h.service.Duplicate(c.Param("designId"), request)
+	design, err := h.service.Duplicate(c.Request.Context(), c.Param("designId"), request)
 	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, store.ErrDesignNotFound) {
-			status = http.StatusNotFound
-		}
-
-		c.JSON(status, gin.H{
-			"error":   "design duplicate failed",
-			"details": err.Error(),
-		})
+		respondError(c, err)
 		return
 	}
 
 	c.JSON(http.StatusCreated, design)
-}
-
-func (h *DesignHandler) ListVersions(c *gin.Context) {
-	versions, err := h.service.ListVersions(c.Param("designId"))
-	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, store.ErrDesignNotFound) {
-			status = http.StatusNotFound
-		}
-
-		c.JSON(status, gin.H{
-			"error":   "design version lookup failed",
-			"details": err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"items": versions,
-	})
 }
