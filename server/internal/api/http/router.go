@@ -11,6 +11,7 @@ type Router struct {
 	engine          *gin.Engine
 	catalogHandler  *CatalogHandler
 	designHandler   *DesignHandler
+	problemHandler  *ProblemHandler
 	simulateHandler *SimulateHandler
 }
 
@@ -22,6 +23,7 @@ func NewRouter(designService *designs.Service, simulationService *simulation.Ser
 		engine:          engine,
 		catalogHandler:  NewCatalogHandler(),
 		designHandler:   NewDesignHandler(designService),
+		problemHandler:  NewProblemHandler(),
 		simulateHandler: NewSimulateHandler(simulationService),
 	}
 	router.registerRoutes()
@@ -58,6 +60,8 @@ func (r *Router) registerRoutes() {
 		v1.PATCH("/designs/:designId", r.designHandler.Update)
 		v1.POST("/designs/:designId/duplicate", r.designHandler.Duplicate)
 		v1.GET("/templates", r.designHandler.Templates)
+		v1.GET("/problems", r.problemHandler.List)
+		v1.GET("/problems/:problemId", r.problemHandler.Get)
 		v1.POST("/simulate", r.simulateHandler.Simulate)
 	}
 }

@@ -72,6 +72,7 @@ func TestSimulateErrors(t *testing.T) {
 		{"zero rps", domain.SimulateRequest{DesignID: store.SampleCacheAsideID, Workload: &domain.Workload{}}, domain.ErrInvalid, "requests_per_second"},
 		{"bad read share", domain.SimulateRequest{DesignID: store.SampleCacheAsideID, Workload: &domain.Workload{RequestsPerSecond: 1, ReadShare: 1.5}}, domain.ErrInvalid, "read_share"},
 		{"no client", domain.SimulateRequest{Design: inlineNoClient, Workload: &domain.Workload{RequestsPerSecond: 1}}, domain.ErrInvalid, "client"},
+		{"unknown problem", domain.SimulateRequest{Design: &domain.Design{ProblemID: "nope"}}, domain.ErrInvalid, "unknown problem"},
 		{"unknown design", domain.SimulateRequest{DesignID: "missing", Workload: &domain.Workload{RequestsPerSecond: 1}}, domain.ErrNotFound, ""},
 	}
 	for _, tc := range cases {

@@ -7,6 +7,7 @@ import (
 	"github.com/sidDarthVader31/luka/server/internal/catalog"
 	"github.com/sidDarthVader31/luka/server/internal/domain"
 	"github.com/sidDarthVader31/luka/server/internal/graphs"
+	"github.com/sidDarthVader31/luka/server/internal/problems"
 	"github.com/sidDarthVader31/luka/server/internal/review"
 	"github.com/sidDarthVader31/luka/server/internal/simulator"
 	"github.com/sidDarthVader31/luka/server/internal/store"
@@ -28,7 +29,16 @@ func (s *Service) Simulate(ctx context.Context, req domain.SimulateRequest) (*do
 		return nil, err
 	}
 
-	workload, err := resolveWorkload(design, req.Workload)
+	var problem *domain.Problem
+	if design.ProblemID != "" {
+		p, err := problems.Get(design.ProblemID)
+		if err != nil {
+			return nil, domain.Invalid("design references unknown problem %q", design.ProblemID)
+		}
+		problem = &p
+	}
+
+	workload, err := resolveWorkload(problem, req.Workload)
 	if err != nil {
 		return nil, err
 	}
@@ -45,6 +55,9 @@ func (s *Service) Simulate(ctx context.Context, req domain.SimulateRequest) (*do
 	}
 	result.Warnings = graphs.Warnings(design.Graph)
 	result.Findings = review.Analyze(design.Graph, result)
+	if problem != nil {
+		result.Targets = problems.Evaluate(*problem, result)
+	}
 
 	return &result, nil
 }
@@ -62,8 +75,12 @@ func (s *Service) resolveDesign(ctx context.Context, req domain.SimulateRequest)
 	}
 }
 
-// resolveWorkload picks the workload: the request's (required) for now.
-func resolveWorkload(_ domain.Design, w *domain.Workload) (domain.Workload, error) {
+// resolveWorkload picks the workload: a linked problem's wins; otherwise the
+// request's, which is then required.
+func resolveWorkload(problem *domain.Problem, w *domain.Workload) (domain.Workload, error) {
+	if problem != nil {
+		return problem.Workload, nil
+	}
 	if w == nil {
 		return domain.Workload{}, domain.Invalid("workload is required")
 	}

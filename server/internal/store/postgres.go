@@ -28,11 +28,12 @@ func (r *PostgresDesignRepository) Create(ctx context.Context, design domain.Des
 
 	_, err = r.pool.Exec(
 		ctx,
-		`insert into designs (id, name, description, graph, scene, created_at, updated_at)
-		 values ($1, $2, $3, $4, $5, $6, $7)`,
+		`insert into designs (id, name, description, problem_id, graph, scene, created_at, updated_at)
+		 values ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		design.ID,
 		design.Name,
 		design.Description,
+		design.ProblemID,
 		graphJSON,
 		sceneArg(design.Scene),
 		design.CreatedAt,
@@ -48,7 +49,7 @@ func (r *PostgresDesignRepository) Create(ctx context.Context, design domain.Des
 func (r *PostgresDesignRepository) GetByID(ctx context.Context, id string) (domain.Design, error) {
 	row := r.pool.QueryRow(
 		ctx,
-		`select id, name, description, graph, scene, created_at, updated_at
+		`select id, name, description, problem_id, graph, scene, created_at, updated_at
 		 from designs
 		 where id = $1`,
 		id,
@@ -60,6 +61,7 @@ func (r *PostgresDesignRepository) GetByID(ctx context.Context, id string) (doma
 		&design.ID,
 		&design.Name,
 		&design.Description,
+		&design.ProblemID,
 		&graphJSON,
 		&sceneJSON,
 		&design.CreatedAt,
@@ -83,7 +85,7 @@ func (r *PostgresDesignRepository) GetByID(ctx context.Context, id string) (doma
 func (r *PostgresDesignRepository) List(ctx context.Context) ([]domain.Design, error) {
 	rows, err := r.pool.Query(
 		ctx,
-		`select id, name, description, graph, scene, created_at, updated_at
+		`select id, name, description, problem_id, graph, scene, created_at, updated_at
 		 from designs
 		 order by updated_at desc, name asc`,
 	)
@@ -100,6 +102,7 @@ func (r *PostgresDesignRepository) List(ctx context.Context) ([]domain.Design, e
 			&design.ID,
 			&design.Name,
 			&design.Description,
+			&design.ProblemID,
 			&graphJSON,
 			&sceneJSON,
 			&design.CreatedAt,
@@ -129,11 +132,12 @@ func (r *PostgresDesignRepository) Update(ctx context.Context, design domain.Des
 	commandTag, err := r.pool.Exec(
 		ctx,
 		`update designs
-		 set name = $2, description = $3, graph = $4, scene = $5, updated_at = $6
+		 set name = $2, description = $3, problem_id = $4, graph = $5, scene = $6, updated_at = $7
 		 where id = $1`,
 		design.ID,
 		design.Name,
 		design.Description,
+		design.ProblemID,
 		graphJSON,
 		sceneArg(design.Scene),
 		design.UpdatedAt,

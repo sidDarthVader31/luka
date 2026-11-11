@@ -250,3 +250,88 @@ func TestCatalogEndpoint(t *testing.T) {
 		t.Fatalf("component-archetypes status = %d, want 404", rec.Code)
 	}
 }
+
+func TestProblemsEndpoints(t *testing.T) {
+	engine := newTestRouter(t, store.NewMemoryDesignRepository())
+
+	rec := do(t, engine, http.MethodGet, "/api/v1/problems", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var list struct {
+		Items []domain.Problem `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 6 || list.Items[0].Brief == "" {
+		t.Fatalf("problems = %d, brief %q", len(list.Items), list.Items[0].Brief)
+	}
+
+	rec = do(t, engine, http.MethodGet, "/api/v1/problems/url-shortener", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get status = %d", rec.Code)
+	}
+	if rec := do(t, engine, http.MethodGet, "/api/v1/problems/nope", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("missing problem status = %d", rec.Code)
+	}
+}
+
+func TestSimulateWithProblem(t *testing.T) {
+	engine := newTestRouter(t, store.NewMemoryDesignRepository())
+
+	// A saved design linked to a problem runs with the problem's workload, no workload needed.
+	rec := do(t, engine, http.MethodPost, "/api/v1/designs/"+store.SampleCacheAsideID+"/duplicate", domain.DuplicateDesignRequest{})
+	var sample domain.Design
+	if err := json.Unmarshal(rec.Body.Bytes(), &sample); err != nil {
+		t.Fatal(err)
+	}
+	rec = do(t, engine, http.MethodPost, "/api/v1/designs", domain.CreateDesignRequest{
+		Name: "Shortener", ProblemID: "url-shortener", Graph: sample.Graph,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var created domain.Design
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ProblemID != "url-shortener" {
+		t.Fatalf("problem_id = %q", created.ProblemID)
+	}
+
+	rec = do(t, engine, http.MethodPost, "/api/v1/simulate", domain.SimulateRequest{
+		DesignID: created.ID,
+		Workload: &domain.Workload{RequestsPerSecond: 1}, // ignored: the problem's workload wins
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("simulate status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var response domain.SimulateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	r := response.Result
+	if r.Workload.RequestsPerSecond != 20000 || len(r.Targets) != 4 {
+		t.Fatalf("workload = %+v, targets = %d", r.Workload, len(r.Targets))
+	}
+	if r.Findings == nil {
+		t.Fatal("findings must be present")
+	}
+
+	// Duplicate keeps the problem.
+	rec = do(t, engine, http.MethodPost, "/api/v1/designs/"+created.ID+"/duplicate", domain.DuplicateDesignRequest{})
+	var dup domain.Design
+	if err := json.Unmarshal(rec.Body.Bytes(), &dup); err != nil {
+		t.Fatal(err)
+	}
+	if dup.ProblemID != "url-shortener" {
+		t.Fatalf("duplicate problem_id = %q", dup.ProblemID)
+	}
+
+	// Unknown problem ids are rejected on create.
+	rec = do(t, engine, http.MethodPost, "/api/v1/designs", domain.CreateDesignRequest{Name: "x", ProblemID: "nope"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown problem status = %d", rec.Code)
+	}
+}
