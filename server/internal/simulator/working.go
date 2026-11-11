@@ -42,7 +42,7 @@ func dec(x float64, d int) string {
 func pct(x float64) string { return dec(x*100, 1) + "%" }
 
 // availPct formats an availability with enough decimals to show the nines.
-func availPct(x float64) string { return dec(x*100, 4) + "%" }
+func availPct(x float64) string { return dec(x*100, 6) + "%" }
 
 func ms(x float64) string { return num(x) + " ms" }
 
