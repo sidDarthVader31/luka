@@ -1,0 +1,62 @@
+{
+  "name": "URL shortener (failing)",
+  "problem_id": "url-shortener",
+  "graph": {
+    "nodes": [
+      {
+        "id": "client",
+        "label": "Client",
+        "archetype": "client",
+        "component_id": "client",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "api",
+        "label": "Shortener API",
+        "archetype": "stateless_service",
+        "component_id": "service",
+        "position": {
+          "x": 200,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 2
+        }
+      },
+      {
+        "id": "db",
+        "label": "Postgres",
+        "archetype": "database",
+        "component_id": "postgres",
+        "position": {
+          "x": 400,
+          "y": 0
+        },
+        "properties": {
+          "shards": 1,
+          "read_replicas": 0
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source_node_id": "client",
+        "target_node_id": "api",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e2",
+        "source_node_id": "api",
+        "target_node_id": "db",
+        "traffic": "all",
+        "mode": "sync"
+      }
+    ]
+  }
+}

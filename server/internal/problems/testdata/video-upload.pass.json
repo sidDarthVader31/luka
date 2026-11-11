@@ -1,0 +1,164 @@
+{
+  "name": "Video upload (passing)",
+  "problem_id": "video-upload",
+  "graph": {
+    "nodes": [
+      {
+        "id": "client",
+        "label": "Client",
+        "archetype": "client",
+        "component_id": "client",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "cdn",
+        "label": "CDN",
+        "archetype": "cdn",
+        "component_id": "cdn",
+        "position": {
+          "x": 200,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "lb",
+        "label": "Load balancer",
+        "archetype": "gateway",
+        "component_id": "load-balancer",
+        "position": {
+          "x": 400,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 2
+        }
+      },
+      {
+        "id": "up",
+        "label": "Upload service",
+        "archetype": "stateless_service",
+        "component_id": "service",
+        "position": {
+          "x": 600,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 3
+        }
+      },
+      {
+        "id": "store",
+        "label": "Raw + encoded video",
+        "archetype": "object_store",
+        "component_id": "s3",
+        "position": {
+          "x": 800,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "q",
+        "label": "Transcode jobs",
+        "archetype": "queue",
+        "component_id": "sqs",
+        "position": {
+          "x": 1000,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "tx",
+        "label": "Transcoder",
+        "archetype": "worker",
+        "component_id": "worker",
+        "position": {
+          "x": 1200,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 4,
+          "base_latency_ms": 200
+        }
+      },
+      {
+        "id": "meta",
+        "label": "Video metadata",
+        "archetype": "database",
+        "component_id": "postgres",
+        "position": {
+          "x": 1400,
+          "y": 0
+        },
+        "properties": {
+          "shards": 1,
+          "read_replicas": 1
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source_node_id": "client",
+        "target_node_id": "cdn",
+        "traffic": "reads",
+        "mode": "sync"
+      },
+      {
+        "id": "e2",
+        "source_node_id": "cdn",
+        "target_node_id": "store",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e3",
+        "source_node_id": "client",
+        "target_node_id": "lb",
+        "traffic": "writes",
+        "mode": "sync"
+      },
+      {
+        "id": "e4",
+        "source_node_id": "lb",
+        "target_node_id": "up",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e5",
+        "source_node_id": "up",
+        "target_node_id": "store",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e6",
+        "source_node_id": "up",
+        "target_node_id": "q",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e7",
+        "source_node_id": "q",
+        "target_node_id": "tx",
+        "traffic": "all",
+        "mode": "async"
+      },
+      {
+        "id": "e8",
+        "source_node_id": "tx",
+        "target_node_id": "meta",
+        "traffic": "all",
+        "mode": "sync"
+      }
+    ]
+  }
+}

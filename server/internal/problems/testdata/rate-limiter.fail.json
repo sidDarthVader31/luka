@@ -1,0 +1,82 @@
+{
+  "name": "Rate limiter (failing)",
+  "problem_id": "rate-limiter",
+  "graph": {
+    "nodes": [
+      {
+        "id": "client",
+        "label": "Client",
+        "archetype": "client",
+        "component_id": "client",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "gw",
+        "label": "API gateway",
+        "archetype": "gateway",
+        "component_id": "api-gateway",
+        "position": {
+          "x": 200,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 7
+        }
+      },
+      {
+        "id": "lim",
+        "label": "Limiter",
+        "archetype": "stateless_service",
+        "component_id": "service",
+        "position": {
+          "x": 400,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 30
+        }
+      },
+      {
+        "id": "db",
+        "label": "Counters (Postgres)",
+        "archetype": "database",
+        "component_id": "postgres",
+        "position": {
+          "x": 600,
+          "y": 0
+        },
+        "properties": {
+          "shards": 1,
+          "read_replicas": 2
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source_node_id": "client",
+        "target_node_id": "gw",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e2",
+        "source_node_id": "gw",
+        "target_node_id": "lim",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e3",
+        "source_node_id": "lim",
+        "target_node_id": "db",
+        "traffic": "all",
+        "mode": "sync"
+      }
+    ]
+  }
+}

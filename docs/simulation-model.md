@@ -112,6 +112,6 @@ Rule-based, from the graph and the results:
 A problem fixes the workload and lists targets on end-to-end metrics:
 - `read_throughput` / `write_throughput`: served RPS
 - `read_p99_ms` / `write_p99_ms`: p99, which fails when undefined
-- `availability`: the lower of reads and writes
+- `availability`: the lower of reads and writes, ignoring a class with zero demand
 
 A design linked to a problem runs with the problem's workload.

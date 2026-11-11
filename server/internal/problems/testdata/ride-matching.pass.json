@@ -1,0 +1,148 @@
+{
+  "name": "Ride matching (passing)",
+  "problem_id": "ride-matching",
+  "graph": {
+    "nodes": [
+      {
+        "id": "client",
+        "label": "Client",
+        "archetype": "client",
+        "component_id": "client",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "lb",
+        "label": "Load balancer",
+        "archetype": "gateway",
+        "component_id": "load-balancer",
+        "position": {
+          "x": 200,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 2
+        }
+      },
+      {
+        "id": "loc",
+        "label": "Location service",
+        "archetype": "stateless_service",
+        "component_id": "service",
+        "position": {
+          "x": 400,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 8
+        }
+      },
+      {
+        "id": "match",
+        "label": "Matching service",
+        "archetype": "stateless_service",
+        "component_id": "service",
+        "position": {
+          "x": 600,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 2
+        }
+      },
+      {
+        "id": "q",
+        "label": "Location stream",
+        "archetype": "queue",
+        "component_id": "kafka",
+        "position": {
+          "x": 800,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 3
+        }
+      },
+      {
+        "id": "idx",
+        "label": "Indexer",
+        "archetype": "worker",
+        "component_id": "worker",
+        "position": {
+          "x": 1000,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 15
+        }
+      },
+      {
+        "id": "geo",
+        "label": "Geo index",
+        "archetype": "search",
+        "component_id": "elasticsearch",
+        "position": {
+          "x": 1200,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 10
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source_node_id": "client",
+        "target_node_id": "lb",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e2",
+        "source_node_id": "lb",
+        "target_node_id": "loc",
+        "traffic": "writes",
+        "mode": "sync"
+      },
+      {
+        "id": "e3",
+        "source_node_id": "lb",
+        "target_node_id": "match",
+        "traffic": "reads",
+        "mode": "sync"
+      },
+      {
+        "id": "e4",
+        "source_node_id": "loc",
+        "target_node_id": "q",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e5",
+        "source_node_id": "q",
+        "target_node_id": "idx",
+        "traffic": "all",
+        "mode": "async"
+      },
+      {
+        "id": "e6",
+        "source_node_id": "idx",
+        "target_node_id": "geo",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e7",
+        "source_node_id": "match",
+        "target_node_id": "geo",
+        "traffic": "all",
+        "mode": "sync"
+      }
+    ]
+  }
+}
