@@ -7,7 +7,7 @@ import (
 )
 
 // num formats a number for Working lines: thousands separators, at most two
-// decimals, trailing zeros dropped. 4000 -> "4,000", 0.125 -> "0.13".
+// decimals, trailing zeros dropped. 4000 -> "4,000", 0.126 -> "0.13".
 func num(x float64) string { return dec(x, 2) }
 
 // dec formats x with at most d decimals and thousands separators.
