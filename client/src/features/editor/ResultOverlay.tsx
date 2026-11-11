@@ -1,10 +1,9 @@
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 
-import type { CatalogItem } from "../../lib/api";
-import { formatCompactNumber } from "../../lib/format";
+import type { CatalogItem, SimulationResult } from "../../lib/api";
 import { ComponentIcon } from "../../shared/icons/ComponentIcon";
 import type { CanvasView } from "./Canvas";
-import { type ResultView, formatPercent, loadLevel } from "./lib/result-view";
+import { edgeLabel, formatPercent, formatSplit, hasDemand, loadLevel } from "./lib/results";
 import type { DerivedGraph } from "./scene/scene-to-graph";
 import { componentData, connectionData } from "./scene/types";
 import "./ResultOverlay.css";
@@ -14,11 +13,12 @@ type ResultOverlayProps = {
   view: CanvasView;
   derived: DerivedGraph;
   catalog: CatalogItem[];
-  result: ResultView | null;
+  result: SimulationResult | null;
 };
 
 /**
- * Draws component icons and, after a run, load badges and arrow rates on top of the canvas.
+ * Draws component icons, disallowed-arrow markers and, after a run, load badges and arrow rates
+ * on top of the canvas.
  * Positions come from scene coordinates and the viewport; the document is never modified.
  */
 export function ResultOverlay({ elements, view, derived, catalog, result }: ResultOverlayProps) {
@@ -32,7 +32,7 @@ export function ResultOverlay({ elements, view, derived, catalog, result }: Resu
   const iconSize = Math.max(12, Math.min(20, 16 * view.zoom));
 
   return (
-    <div className="overlay" aria-hidden>
+    <div className="overlay">
       {elements.map((element) => {
         if (element.isDeleted) {
           return null;
@@ -43,7 +43,7 @@ export function ResultOverlay({ elements, view, derived, catalog, result }: Resu
           const nodeResult = nodeResults.get(component.nodeId);
           const topLeft = toScreen(element.x, element.y);
           const topRight = toScreen(element.x + element.width, element.y);
-          const showBadge = nodeResult && item?.kind !== "client";
+          const showBadge = nodeResult && item?.kind !== "client" && hasDemand(nodeResult);
           return (
             <div key={element.id}>
               {item ? (
@@ -57,34 +57,53 @@ export function ResultOverlay({ elements, view, derived, catalog, result }: Resu
               {showBadge ? (
                 <span
                   className="overlay__badge"
-                  data-level={loadLevel(nodeResult.utilization)}
+                  data-level={loadLevel(nodeResult)}
+                  data-overloaded={nodeResult.overloaded}
                   style={{ left: topRight.left, top: topRight.top }}
-                  title={nodeResult.explanation}
+                  title={formatSplit(nodeResult.demand)}
                 >
                   {formatPercent(nodeResult.utilization)}
+                  {nodeResult.overloaded ? " overloaded" : ""}
                 </span>
               ) : null}
             </div>
           );
         }
-        if (element.type === "arrow" && result) {
+        if (element.type !== "arrow") {
+          return null;
+        }
+        const { points } = element;
+        const mid =
+          points.length % 2 === 1
+            ? points[(points.length - 1) / 2]!
+            : ([
+                (points[points.length / 2 - 1]![0] + points[points.length / 2]![0]) / 2,
+                (points[points.length / 2 - 1]![1] + points[points.length / 2]![1]) / 2,
+              ] as const);
+        const position = toScreen(element.x + mid[0], element.y + mid[1]);
+        const disallowed = derived.disallowedArrows.get(element.id);
+        if (disallowed) {
+          return (
+            <span
+              key={element.id}
+              className="overlay__rate overlay__rate--blocked"
+              style={position}
+              title={disallowed}
+            >
+              Not allowed
+            </span>
+          );
+        }
+        if (result) {
           const edgeId = connectionData(element)?.edgeId ?? element.id;
           const edgeResult = edgeResults.get(edgeId);
           if (!edgeResult || derived.elementIdByEdgeId.get(edgeId) !== element.id) {
             return null;
           }
-          const { points } = element;
-          const mid =
-            points.length % 2 === 1
-              ? points[(points.length - 1) / 2]!
-              : ([
-                  (points[points.length / 2 - 1]![0] + points[points.length / 2]![0]) / 2,
-                  (points[points.length / 2 - 1]![1] + points[points.length / 2]![1]) / 2,
-                ] as const);
-          const position = toScreen(element.x + mid[0], element.y + mid[1]);
+          const label = edgeLabel(edgeResult);
           return (
-            <span key={element.id} className="overlay__rate" style={position}>
-              {formatCompactNumber(edgeResult.routed_rps)} req/s
+            <span key={element.id} className="overlay__rate" style={position} title={label.title}>
+              {label.text}
             </span>
           );
         }
