@@ -3,8 +3,8 @@ import type { ExcalidrawElementSkeleton } from "@excalidraw/excalidraw/data/tran
 
 import type { CatalogItem, Graph, GraphNode } from "../../../lib/api";
 import { componentSkeleton } from "./insert-component";
-import { COMPONENT_SIZE } from "./style";
-import type { ConnectionData, LukaScene } from "./types";
+import { COMPONENT_SIZE, strokeStyleFor } from "./style";
+import { type ConnectionData, type LukaScene, migrateConnection } from "./types";
 
 export function componentElementId(nodeId: string): string {
   return `node:${nodeId}`;
@@ -43,8 +43,6 @@ export function graphToScene(graph: Graph, catalog: CatalogItem[]): LukaScene {
         label: node.label,
         x: node.position.x,
         y: node.position.y,
-        width: node.width || COMPONENT_SIZE.width,
-        height: node.height || COMPONENT_SIZE.height,
         properties: node.properties,
       }),
     );
@@ -57,14 +55,10 @@ export function graphToScene(graph: Graph, catalog: CatalogItem[]): LukaScene {
       continue;
     }
     const { start, end } = arrowEnds(source, target);
+    // Old graphs may still carry Phase 2 fields (interaction_type) instead of traffic and mode.
     const data: ConnectionData = {
       edgeId: edge.id,
-      interactionType: edge.interaction_type,
-      ruleType: edge.routing_rule.rule_type,
-      fanoutMultiplier: edge.fanout_multiplier,
-      timeoutMs: edge.timeout_ms,
-      retryAttempts: edge.retry_attempts,
-      requestClassIds: edge.request_class_ids,
+      ...migrateConnection(edge as unknown as Record<string, unknown>),
     };
     skeletons.push({
       type: "arrow",
@@ -79,9 +73,10 @@ export function graphToScene(graph: Graph, catalog: CatalogItem[]): LukaScene {
       ],
       strokeColor: "#1e1e1e",
       strokeWidth: 2,
+      strokeStyle: strokeStyleFor(data.mode),
       start: { id: componentElementId(source.id) },
       end: { id: componentElementId(target.id) },
-      customData: { luka: stripUndefined(data) },
+      customData: { luka: data },
     });
   }
 
@@ -99,8 +94,7 @@ function box(node: GraphNode): Box {
   return {
     x: node.position.x,
     y: node.position.y,
-    width: node.width || COMPONENT_SIZE.width,
-    height: node.height || COMPONENT_SIZE.height,
+    ...COMPONENT_SIZE,
   };
 }
 
@@ -122,8 +116,4 @@ function arrowEnds(sourceNode: GraphNode, targetNode: GraphNode) {
     start: { x: source.x + source.width / 2, y: down ? source.y + source.height : source.y },
     end: { x: target.x + target.width / 2, y: down ? target.y : target.y + target.height },
   };
-}
-
-function stripUndefined<T extends object>(value: T): T {
-  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
 }

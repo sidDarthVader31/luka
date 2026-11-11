@@ -1,7 +1,7 @@
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 
-import type { CatalogItem, Graph, GraphEdge, GraphNode, RequestClass } from "../../../lib/api";
-import { edgeOptions, isAllowedConnection } from "./connection-rules";
+import type { CatalogItem, Graph, GraphEdge, GraphNode } from "../../../lib/api";
+import { disallowedReason, isAllowedTarget, isAlwaysAsync, usesWeight } from "./connection-rules";
 import {
   type SceneWarning,
   boundLabel,
@@ -11,16 +11,17 @@ import {
   isComponent,
 } from "./types";
 
-// The server rejects explicit sizes below these.
-const MIN_NODE_WIDTH = 80;
-const MIN_NODE_HEIGHT = 48;
-
 export type DerivedGraph = {
   graph: Graph;
   warnings: SceneWarning[];
   /** Excalidraw element id for each node id and edge id, for selection and the result overlay. */
   elementIdByNodeId: Map<string, string>;
   elementIdByEdgeId: Map<string, string>;
+  /**
+   * Arrows bound to two components that may not connect (by catalog `allowed_targets`), keyed by
+   * element id, with the reason. They are left out of the graph and highlighted on the canvas.
+   */
+  disallowedArrows: Map<string, string>;
 };
 
 /**
@@ -31,7 +32,6 @@ export type DerivedGraph = {
 export function sceneToGraph(
   elements: readonly ExcalidrawElement[],
   catalog: CatalogItem[],
-  requestClasses: RequestClass[],
 ): DerivedGraph {
   const live = elements.filter((element) => !element.isDeleted);
   const byId = new Map(live.map((element) => [element.id, element]));
@@ -39,7 +39,7 @@ export function sceneToGraph(
   const warnings: SceneWarning[] = [];
 
   const nodes: GraphNode[] = [];
-  const nodeByElementId = new Map<string, GraphNode>();
+  const nodeByElementId = new Map<string, { node: GraphNode; item: CatalogItem }>();
   const elementIdByNodeId = new Map<string, string>();
 
   for (const element of live) {
@@ -71,21 +71,14 @@ export function sceneToGraph(
       position: { x: Math.round(element.x), y: Math.round(element.y) },
       properties: { ...data.properties },
     };
-    if (element.width >= MIN_NODE_WIDTH) {
-      node.width = Math.round(element.width);
-    }
-    if (element.height >= MIN_NODE_HEIGHT) {
-      node.height = Math.round(element.height);
-    }
     nodes.push(node);
-    nodeByElementId.set(element.id, node);
+    nodeByElementId.set(element.id, { node, item });
     elementIdByNodeId.set(node.id, element.id);
   }
 
   const edges: GraphEdge[] = [];
   const elementIdByEdgeId = new Map<string, string>();
-  const defaultRequestClassIds = requestClasses[0] ? [requestClasses[0].id] : [];
-  const knownRequestClassIds = new Set(requestClasses.map((item) => item.id));
+  const disallowedArrows = new Map<string, string>();
 
   for (const element of live) {
     if (!isArrow(element)) {
@@ -102,48 +95,34 @@ export function sceneToGraph(
     if (!source || !target) {
       // A plain arrow between annotations is fine. Warn only when it looks like a connection.
       if (source || target || data) {
+        const end = source ?? target;
         warnings.push({
           elementIds: [element.id],
-          message: `An arrow from ${source?.label ?? target?.label ?? "a component"} is not attached to a component at both ends.`,
+          message: `An arrow from ${end?.node.label ?? "a component"} is not attached to a component at both ends.`,
         });
       }
       continue;
     }
-    if (source.id === target.id) {
+    if (source.node.id === target.node.id) {
       warnings.push({
         elementIds: [element.id],
-        message: `${source.label} cannot connect to itself.`,
+        message: `${source.node.label} cannot connect to itself.`,
       });
       continue;
     }
-    if (!isAllowedConnection(source.archetype, target.archetype)) {
+    if (!isAllowedTarget(source.item, target.item.kind)) {
+      const reason = disallowedReason(
+        { label: source.node.label, item: source.item },
+        { label: target.node.label, item: target.item },
+      );
+      disallowedArrows.set(element.id, reason);
       warnings.push({
         elementIds: [element.id],
-        message: `${source.label} → ${target.label} is not a supported connection; it is ignored.`,
+        message: `${source.node.label} → ${target.node.label} is not allowed; it is ignored.`,
       });
       continue;
     }
 
-    const options = edgeOptions(itemById.get(source.component_id ?? ""));
-    let interactionType = data?.interactionType ?? options.interactions[0]!;
-    if (!options.interactions.includes(interactionType)) {
-      warnings.push({
-        elementIds: [element.id],
-        message: `${source.label} → ${target.label}: "${interactionType}" is not allowed from ${source.label}; using "${options.interactions[0]}".`,
-      });
-      interactionType = options.interactions[0]!;
-    }
-    let ruleType = data?.ruleType ?? options.routingRules[0]!;
-    if (
-      !options.routingRules.includes(ruleType) ||
-      (interactionType === "fallback" && ruleType !== "always")
-    ) {
-      ruleType = "always";
-    }
-
-    const requestClassIds = (data?.requestClassIds ?? []).filter((id) =>
-      knownRequestClassIds.has(id),
-    );
     const edgeId = data?.edgeId ?? element.id;
     if (elementIdByEdgeId.has(edgeId)) {
       warnings.push({
@@ -155,29 +134,23 @@ export function sceneToGraph(
 
     const edge: GraphEdge = {
       id: edgeId,
-      source_node_id: source.id,
-      target_node_id: target.id,
-      interaction_type: interactionType,
-      routing_rule: { rule_type: ruleType },
-      request_class_ids: requestClassIds.length > 0 ? requestClassIds : defaultRequestClassIds,
+      source_node_id: source.node.id,
+      target_node_id: target.node.id,
+      traffic: data?.traffic ?? "all",
+      mode: isAlwaysAsync(source.item) ? "async" : (data?.mode ?? "sync"),
     };
-    if (data?.fanoutMultiplier && data.fanoutMultiplier > 0) {
-      edge.fanout_multiplier = data.fanoutMultiplier;
-    }
-    if (data?.timeoutMs && data.timeoutMs > 0) {
-      edge.timeout_ms = data.timeoutMs;
-    }
-    if (data?.retryAttempts && data.retryAttempts > 0) {
-      edge.retry_attempts = data.retryAttempts;
+    if (usesWeight(source.item) && data?.weight && data.weight > 0) {
+      edge.weight = data.weight;
     }
     edges.push(edge);
     elementIdByEdgeId.set(edgeId, element.id);
   }
 
   return {
-    graph: { nodes, edges, request_classes: requestClasses },
+    graph: { nodes, edges },
     warnings,
     elementIdByNodeId,
     elementIdByEdgeId,
+    disallowedArrows,
   };
 }

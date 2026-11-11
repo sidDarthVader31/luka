@@ -2,13 +2,11 @@ import type {
   Catalog,
   CatalogField,
   CatalogItem,
-  EdgeInteractionType,
   NodeArchetype,
   NodeProperties,
-  RoutingRuleType,
 } from "../../lib/api";
 
-// Test fixture mirroring server/internal/catalog/catalog.go.
+// Test fixture shaped like the Phase 3 catalog (server/internal/catalog). Values are illustrative.
 
 const baseFields: CatalogField[] = [
   {
@@ -54,25 +52,31 @@ const cacheFields: CatalogField[] = [
   },
 ];
 
-function interactions(kind: NodeArchetype): EdgeInteractionType[] {
-  switch (kind) {
-    case "client":
-    case "database":
-      return ["sync_request", "fallback"];
-    case "gateway":
-      return ["sync_request"];
-    case "cache":
-      return ["sync_request", "conditional_branch", "fallback"];
-    case "queue":
-      return ["consume"];
-    default:
-      return ["sync_request", "async_enqueue", "fallback"];
-  }
-}
+const ALLOWED_TARGETS: Record<NodeArchetype, NodeArchetype[]> = {
+  client: ["cdn", "gateway", "stateless_service"],
+  cdn: ["gateway", "stateless_service", "object_store"],
+  gateway: ["gateway", "stateless_service"],
+  stateless_service: [
+    "stateless_service",
+    "cache",
+    "database",
+    "object_store",
+    "search",
+    "queue",
+  ],
+  worker: ["stateless_service", "cache", "database", "object_store", "search", "queue"],
+  cache: ["database", "search"],
+  queue: ["worker", "stateless_service"],
+  database: [],
+  object_store: [],
+  search: [],
+};
 
-function routingRules(kind: NodeArchetype): RoutingRuleType[] {
-  return kind === "cache" ? ["always", "cache_hit", "cache_miss"] : ["always"];
-}
+const databaseFields: CatalogField[] = [
+  ...baseFields,
+  { key: "shards", label: "Shards", min: 1, max: 1024, step: 1 },
+  { key: "read_replicas", label: "Read replicas per shard", min: 0, max: 15, step: 1 },
+];
 
 function props(replicas: number, capacity: number, latency: number, hit?: number): NodeProperties {
   return {
@@ -92,7 +96,14 @@ function item(
   kind: NodeArchetype,
   defaults: NodeProperties,
 ): CatalogItem {
-  const fields = kind === "client" ? [] : kind === "cache" ? cacheFields : baseFields;
+  const fields =
+    kind === "client"
+      ? []
+      : kind === "cache" || kind === "cdn"
+        ? cacheFields
+        : kind === "database"
+          ? databaseFields
+          : baseFields;
   return {
     id,
     name,
@@ -102,8 +113,7 @@ function item(
     kind,
     default_properties: defaults,
     fields,
-    supported_interactions: interactions(kind),
-    supported_routing_rules: routingRules(kind),
+    allowed_targets: ALLOWED_TARGETS[kind],
   };
 }
 
@@ -117,6 +127,15 @@ export const catalogFixture: Catalog = {
   ],
   items: [
     item("client", "Client", "clients", "users", "Where traffic comes from.", "client", {}),
+    item(
+      "cdn",
+      "CDN",
+      "edge",
+      "world",
+      "Edge cache for static and cacheable content.",
+      "cdn",
+      props(10, 100000, 5, 0.9),
+    ),
     item(
       "load-balancer",
       "Load balancer",
@@ -198,6 +217,24 @@ export const catalogFixture: Catalog = {
       "Wide-column store.",
       "database",
       props(1, 15000, 15),
+    ),
+    item(
+      "s3",
+      "S3",
+      "data",
+      "bucket",
+      "Object storage.",
+      "object_store",
+      props(1, 5500, 30),
+    ),
+    item(
+      "elasticsearch",
+      "Elasticsearch",
+      "data",
+      "search",
+      "Full-text search.",
+      "search",
+      props(1, 5000, 20),
     ),
     item("kafka", "Kafka", "messaging", "stack-2", "Distributed log.", "queue", props(1, 40000, 4)),
     item(

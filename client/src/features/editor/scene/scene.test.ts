@@ -2,7 +2,7 @@ import { convertToExcalidrawElements } from "@excalidraw/excalidraw";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { describe, expect, it } from "vitest";
 
-import type { Graph, RequestClass } from "../../../lib/api";
+import type { Graph } from "../../../lib/api";
 import { catalogFixture } from "../../../test/fixtures/catalog";
 import { componentElementId, connectionElementId, graphToScene } from "./graph-to-scene";
 import {
@@ -12,18 +12,17 @@ import {
   nextNodeId,
   reassignDuplicatedIds,
 } from "./insert-component";
+import { migrateSceneElements } from "./migrate";
 import { sceneToGraph } from "./scene-to-graph";
-import { componentData } from "./types";
+import { componentData, connectionData } from "./types";
 
 const catalog = catalogFixture.items;
-const allTraffic: RequestClass[] = [{ id: "flow-1", name: "All traffic", traffic_share: 100 }];
 
 function item(id: string) {
   return catalog.find((entry) => entry.id === id)!;
 }
 
 const sampleGraph: Graph = {
-  request_classes: allTraffic,
   nodes: [
     node("client-1", "Client", "client", "client", 0, 0, {}),
     node("lb-1", "LB", "gateway", "load-balancer", 300, 0, {
@@ -52,12 +51,8 @@ const sampleGraph: Graph = {
     edge("e1", "client-1", "lb-1"),
     edge("e2", "lb-1", "svc-1"),
     edge("e3", "svc-1", "cache-1"),
-    {
-      ...edge("e4", "cache-1", "db-1"),
-      routing_rule: { rule_type: "cache_miss" },
-      interaction_type: "conditional_branch",
-    },
-    { ...edge("e5", "svc-1", "db-1"), timeout_ms: 500, retry_attempts: 2 },
+    { ...edge("e4", "cache-1", "db-1"), traffic: "reads" },
+    { ...edge("e5", "svc-1", "db-1"), traffic: "writes" },
   ],
 };
 
@@ -76,8 +71,6 @@ function node(
     archetype,
     component_id: componentId,
     position: { x, y },
-    width: 180,
-    height: 80,
     properties,
   };
 }
@@ -92,16 +85,15 @@ function edge(id: string, source: string, target: string): Graph["edges"][number
     id,
     source_node_id: source,
     target_node_id: target,
-    interaction_type: "sync_request",
-    routing_rule: { rule_type: "always" },
-    request_class_ids: ["flow-1"],
+    traffic: "all",
+    mode: "sync",
   };
 }
 
 describe("graphToScene / sceneToGraph", () => {
   it("round-trips a graph through a scene", () => {
     const scene = graphToScene(sampleGraph, catalog);
-    const derived = sceneToGraph(scene.elements, catalog, allTraffic);
+    const derived = sceneToGraph(scene.elements, catalog);
 
     expect(derived.warnings).toEqual([]);
     expect(derived.graph.nodes).toEqual(sampleGraph.nodes);
@@ -128,7 +120,7 @@ describe("graphToScene / sceneToGraph", () => {
       ],
       edges: [],
     };
-    const derived = sceneToGraph(graphToScene(old, catalog).elements, catalog, []);
+    const derived = sceneToGraph(graphToScene(old, catalog).elements, catalog);
     expect(derived.graph.nodes[0]).toMatchObject({
       component_id: "postgres",
       archetype: "database",
@@ -157,26 +149,26 @@ describe("sceneToGraph", () => {
       ],
       { regenerateIds: false },
     );
-    const derived = sceneToGraph(elements, catalog, allTraffic);
+    const derived = sceneToGraph(elements, catalog);
 
     expect(derived.warnings).toEqual([]);
     expect(derived.graph.nodes.map((entry) => entry.id)).toEqual(["client-1", "service-1"]);
     expect(derived.graph.edges).toHaveLength(1);
-    expect(derived.graph.edges[0]).toMatchObject({
+    expect(derived.graph.edges[0]).toEqual({
+      id: derived.graph.edges[0]!.id,
       source_node_id: "client-1",
       target_node_id: "service-1",
-      interaction_type: "sync_request",
-      routing_rule: { rule_type: "always" },
-      request_class_ids: ["flow-1"],
+      traffic: "all",
+      mode: "sync",
     });
   });
 
-  it("warns about half-attached and unsupported arrows and leaves them out", () => {
+  it("warns about half-attached and disallowed arrows and leaves them out", () => {
     const elements = convertToExcalidrawElements(
       [
         box("client", "a", 0),
         box("postgres", "b", 400),
-        { type: "arrow", x: 180, y: 40, start: { id: "a" }, end: { id: "b" } },
+        { type: "arrow", id: "bad", x: 180, y: 40, start: { id: "a" }, end: { id: "b" } },
         {
           type: "arrow",
           x: 180,
@@ -190,22 +182,66 @@ describe("sceneToGraph", () => {
       ],
       { regenerateIds: false },
     );
-    const derived = sceneToGraph(elements, catalog, allTraffic);
+    const derived = sceneToGraph(elements, catalog);
     expect(derived.graph.edges).toEqual([]);
     expect(derived.warnings.map((warning) => warning.message)).toEqual([
-      "Client → Postgres is not a supported connection; it is ignored.",
+      "Client → Postgres is not allowed; it is ignored.",
       "An arrow from Client is not attached to a component at both ends.",
     ]);
+    expect(derived.disallowedArrows.get("bad")).toMatch(
+      /A Client can't send traffic to a database \(Postgres\)\. It can connect to: CDN, Gateway, Service\./,
+    );
   });
 
-  it("falls back to an allowed interaction when the stored one is not supported", () => {
+  it("explains that terminal components cannot connect onward", () => {
+    const elements = convertToExcalidrawElements(
+      [
+        box("postgres", "a", 0),
+        box("service", "b", 400),
+        { type: "arrow", id: "bad", x: 180, y: 40, start: { id: "a" }, end: { id: "b" } },
+      ],
+      { regenerateIds: false },
+    );
+    expect(sceneToGraph(elements, catalog).disallowedArrows.get("bad")).toMatch(/terminal/);
+  });
+
+  it("keeps a gateway's weight and drops weight from other sources", () => {
     const graph: Graph = {
-      nodes: sampleGraph.nodes.slice(0, 2),
-      edges: [{ ...edge("e1", "client-1", "lb-1"), interaction_type: "async_enqueue" }],
+      nodes: sampleGraph.nodes.slice(0, 3),
+      edges: [
+        { ...edge("e1", "client-1", "lb-1"), weight: 3 },
+        { ...edge("e2", "lb-1", "svc-1"), weight: 2 },
+      ],
     };
-    const derived = sceneToGraph(graphToScene(graph, catalog).elements, catalog, allTraffic);
-    expect(derived.graph.edges[0]!.interaction_type).toBe("sync_request");
-    expect(derived.warnings).toHaveLength(1);
+    const derived = sceneToGraph(graphToScene(graph, catalog).elements, catalog);
+    expect(derived.graph.edges.map((entry) => entry.weight)).toEqual([undefined, 2]);
+  });
+
+  it("treats edges out of a queue as async", () => {
+    const elements = convertToExcalidrawElements(
+      [
+        box("kafka", "a", 0),
+        box("worker", "b", 400),
+        { type: "arrow", x: 180, y: 40, start: { id: "a" }, end: { id: "b" } },
+      ],
+      { regenerateIds: false },
+    );
+    expect(sceneToGraph(elements, catalog).graph.edges[0]).toMatchObject({
+      traffic: "all",
+      mode: "async",
+    });
+  });
+
+  it("draws async connections dashed", () => {
+    const graph: Graph = {
+      nodes: [sampleGraph.nodes[2]!, node("q-1", "Kafka", "queue", "kafka", 900, 0, {})],
+      edges: [{ ...edge("e1", "svc-1", "q-1"), mode: "async" }],
+    };
+    const arrow = graphToScene(graph, catalog).elements.find((element) => element.type === "arrow");
+    expect(arrow).toMatchObject({
+      strokeStyle: "dashed",
+      customData: { luka: { edgeId: "e1", traffic: "all", mode: "async" } },
+    });
   });
 
   it("skips deleted elements", () => {
@@ -213,9 +249,93 @@ describe("sceneToGraph", () => {
     const elements = scene.elements.map((element) =>
       element.id === componentElementId("db-1") ? { ...element, isDeleted: true } : element,
     );
-    const derived = sceneToGraph(elements, catalog, allTraffic);
+    const derived = sceneToGraph(elements, catalog);
     expect(derived.graph.nodes.map((entry) => entry.id)).not.toContain("db-1");
     expect(derived.graph.edges.map((entry) => entry.id)).toEqual(["e1", "e2", "e3"]);
+  });
+});
+
+describe("Phase 2 migration", () => {
+  const legacyGraph = {
+    nodes: [
+      sampleGraph.nodes[2]!,
+      node("q-1", "Kafka", "queue", "kafka", 900, 0, {}),
+      node("w-1", "Worker", "worker", "worker", 1200, 0, {}),
+      sampleGraph.nodes[4]!,
+    ],
+    edges: [
+      {
+        id: "e1",
+        source_node_id: "svc-1",
+        target_node_id: "q-1",
+        interaction_type: "async_enqueue",
+        routing_rule: { rule_type: "always" },
+      },
+      {
+        id: "e2",
+        source_node_id: "q-1",
+        target_node_id: "w-1",
+        interaction_type: "consume",
+        routing_rule: { rule_type: "always" },
+      },
+      {
+        id: "e3",
+        source_node_id: "svc-1",
+        target_node_id: "db-1",
+        interaction_type: "fallback",
+        timeout_ms: 500,
+      },
+    ],
+  } as unknown as Graph;
+
+  it("maps old graph edges: enqueue and consume become async, the rest sync, traffic all", () => {
+    const derived = sceneToGraph(graphToScene(legacyGraph, catalog).elements, catalog);
+    expect(derived.graph.edges).toEqual([
+      { id: "e1", source_node_id: "svc-1", target_node_id: "q-1", traffic: "all", mode: "async" },
+      { id: "e2", source_node_id: "q-1", target_node_id: "w-1", traffic: "all", mode: "async" },
+      { id: "e3", source_node_id: "svc-1", target_node_id: "db-1", traffic: "all", mode: "sync" },
+    ]);
+  });
+
+  it("rewrites old arrow data in saved scenes and dashes async arrows", () => {
+    const fresh = graphToScene(legacyGraph, catalog).elements;
+    const old = fresh.map((element) => {
+      if (element.type !== "arrow") {
+        return element;
+      }
+      const edgeId = element.customData!.luka.edgeId as string;
+      const interactionType = edgeId === "e1" ? "async_enqueue" : "sync_request";
+      return {
+        ...element,
+        strokeStyle: "solid" as const,
+        customData: {
+          luka: { edgeId, interactionType, ruleType: "always", requestClassIds: ["flow-1"] },
+        },
+      };
+    });
+    const migrated = migrateSceneElements(old);
+    const arrows = migrated.filter((element) => element.type === "arrow");
+    expect(arrows.map((element) => [element.strokeStyle, element.customData?.luka])).toEqual([
+      ["dashed", { edgeId: "e1", traffic: "all", mode: "async" }],
+      ["solid", { edgeId: "e2", traffic: "all", mode: "sync" }],
+      ["solid", { edgeId: "e3", traffic: "all", mode: "sync" }],
+    ]);
+    expect(migrateSceneElements(migrated)).toBe(migrated);
+  });
+
+  it("reads old arrow data even before migration", () => {
+    const [arrow] = convertToExcalidrawElements(
+      [
+        {
+          type: "arrow",
+          x: 0,
+          y: 0,
+          customData: { luka: { edgeId: "x", interactionType: "consume", fanoutMultiplier: 2 } },
+        },
+      ],
+      { regenerateIds: false },
+    );
+    expect(connectionData(arrow!)).toEqual({ edgeId: "x", traffic: "all", mode: "async" });
   });
 });
 
@@ -237,7 +357,7 @@ describe("insert-component", () => {
   it("numbers repeated components", () => {
     const first = insertComponent(item("service"), [], { x: 0, y: 0 });
     const second = insertComponent(item("service"), first, { x: 0, y: 200 });
-    const derived = sceneToGraph([...first, ...second], catalog, []);
+    const derived = sceneToGraph([...first, ...second], catalog);
     expect(derived.graph.nodes.map((entry) => [entry.id, entry.label])).toEqual([
       ["service-1", "Service"],
       ["service-2", "Service 2"],

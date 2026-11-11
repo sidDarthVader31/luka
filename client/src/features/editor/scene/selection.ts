@@ -2,7 +2,13 @@ import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 
 import type { CatalogItem, GraphEdge, GraphNode } from "../../../lib/api";
 import type { DerivedGraph } from "./scene-to-graph";
-import { COMPONENT_SHAPES, type ComponentData, componentData, connectionData } from "./types";
+import {
+  COMPONENT_SHAPES,
+  type ComponentData,
+  type ConnectionData,
+  componentData,
+  connectionData,
+} from "./types";
 
 export type SelectionTarget =
   | {
@@ -15,8 +21,15 @@ export type SelectionTarget =
   | {
       kind: "connection";
       element: ExcalidrawElement;
+      data: ConnectionData;
       edge: GraphEdge;
       sourceItem: CatalogItem | undefined;
+    }
+  | {
+      /** An arrow between two components that may not connect. */
+      kind: "disallowed-connection";
+      element: ExcalidrawElement;
+      reason: string;
     }
   | { kind: "shape"; element: ExcalidrawElement }
   | null;
@@ -57,14 +70,24 @@ export function resolveSelection(
   }
 
   if (element.type === "arrow") {
-    const edgeId = connectionData(element)?.edgeId ?? element.id;
+    const reason = derived.disallowedArrows.get(element.id);
+    if (reason) {
+      return { kind: "disallowed-connection", element, reason };
+    }
+    const stored = connectionData(element);
+    const edgeId = stored?.edgeId ?? element.id;
     const edge = derived.graph.edges.find((entry) => entry.id === edgeId);
     if (!edge || derived.elementIdByEdgeId.get(edgeId) !== element.id) {
       return null;
     }
     const source = derived.graph.nodes.find((entry) => entry.id === edge.source_node_id);
     const sourceItem = catalog.find((entry) => entry.id === source?.component_id);
-    return { kind: "connection", element, edge, sourceItem };
+    const data: ConnectionData = stored ?? {
+      edgeId,
+      traffic: edge.traffic,
+      mode: edge.mode,
+    };
+    return { kind: "connection", element, data, edge, sourceItem };
   }
 
   if (COMPONENT_SHAPES.has(element.type)) {
