@@ -8,8 +8,7 @@ import type {
   RoutingRuleType,
 } from "../../lib/api";
 
-// Mirrors server/internal/catalog/catalog.go. Used by unit tests and, until the server
-// branch with GET /catalog is merged, by the dev-only fallback in features/catalog.
+// Test fixture mirroring server/internal/catalog/catalog.go.
 
 const baseFields: CatalogField[] = [
   {

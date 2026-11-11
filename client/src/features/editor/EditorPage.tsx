@@ -1,6 +1,6 @@
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useCallback, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import type { Catalog, CatalogItem, Workload } from "../../lib/api";
 import { useCatalog } from "../catalog/useCatalog";
@@ -32,15 +32,38 @@ export function EditorPage() {
   const catalog = catalogState.status === "ready" ? catalogState.catalog : null;
   const doc = useDesignDocument(designId, catalog);
 
-  if (catalogState.status === "error" || doc.status === "error") {
-    const message =
-      catalogState.status === "error" ? catalogState.message : (doc as { message: string }).message;
-    return <p className="editor-status">Couldn't open this design: {message}</p>;
+  if (catalogState.status === "error") {
+    return (
+      <EditorError
+        title="Couldn't load the component catalog"
+        detail={`GET /catalog failed: ${catalogState.message}. The editor needs it to know what each component is.`}
+      />
+    );
+  }
+  if (doc.status === "error") {
+    return <EditorError title="Couldn't open this design" detail={doc.message} />;
   }
   if (!catalog || doc.status !== "ready") {
     return <p className="editor-status">Loading…</p>;
   }
   return <EditorWorkspace key={doc.design.id} doc={doc} catalog={catalog} />;
+}
+
+function EditorError(props: { title: string; detail: string }) {
+  return (
+    <div className="editor-status" role="alert">
+      <h1>{props.title}</h1>
+      <p>{props.detail}</p>
+      <div className="editor-status__actions">
+        <button type="button" className="btn btn--primary" onClick={() => window.location.reload()}>
+          Try again
+        </button>
+        <Link className="btn" to="/">
+          Back to home
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 const INITIAL_VIEW: CanvasView = { scrollX: 0, scrollY: 0, zoom: 1, selectedIds: [] };

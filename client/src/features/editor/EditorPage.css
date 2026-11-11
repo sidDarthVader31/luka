@@ -56,3 +56,19 @@
   padding: 40px;
   color: var(--muted);
 }
+
+.editor-status h1 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: var(--ink);
+}
+
+.editor-status p {
+  margin: 0 0 16px;
+  max-width: 60ch;
+}
+
+.editor-status__actions {
+  display: flex;
+  gap: 8px;
+}

@@ -108,3 +108,8 @@
   font-size: 11px;
   color: var(--muted);
 }
+
+.route-loading {
+  padding: 40px;
+  color: var(--muted);
+}
