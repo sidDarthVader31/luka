@@ -24,12 +24,12 @@ The simulator core should live here so the backend remains the source of truth.
 
 ## Database choice
 
-The backend uses PostgreSQL for persistence.
+Postgres is optional; the in-memory store is the default.
 
 Why PostgreSQL:
 
-- `designs` and `runs` are relational entities with clear lifecycle and ownership
-- the system graph, design snapshots, workload, and results fit well into `JSONB`
+- `designs` are relational entities with clear lifecycle and ownership
+- the system graph fits well into `JSONB`
 - it keeps the schema flexible while preserving strong queryability and transactional guarantees
 - it scales better for Luka's likely future than a purely local database like SQLite
 

@@ -827,4 +827,3 @@ func TestRunDesignKeepsSyncAndAsyncAsSideEffects(t *testing.T) {
 		t.Fatalf("queue incoming = %.0f, want full side-effect async load 5000", queueNode.IncomingRPS)
 	}
 }
-

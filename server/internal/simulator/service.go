@@ -970,11 +970,3 @@ func concurrencyPenalty(node domain.Node, workload normalizedWorkload) float64 {
 func round(value float64) float64 {
 	return math.Round(value*100) / 100
 }
-
-func min(a, b float64) float64 {
-	return math.Min(a, b)
-}
-
-func max(a, b float64) float64 {
-	return math.Max(a, b)
-}

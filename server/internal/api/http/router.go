@@ -4,17 +4,17 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/sidDarthVader31/luka/server/internal/designs"
-	"github.com/sidDarthVader31/luka/server/internal/runs"
+	"github.com/sidDarthVader31/luka/server/internal/simulation"
 )
 
 type Router struct {
 	engine           *gin.Engine
 	componentHandler *ComponentHandler
 	designHandler    *DesignHandler
-	runHandler       *RunHandler
+	simulateHandler  *SimulateHandler
 }
 
-func NewRouter(designService *designs.Service, runService *runs.Service) *Router {
+func NewRouter(designService *designs.Service, simulationService *simulation.Service) *Router {
 	engine := gin.New()
 	engine.Use(gin.Logger(), gin.Recovery())
 
@@ -22,7 +22,7 @@ func NewRouter(designService *designs.Service, runService *runs.Service) *Router
 		engine:           engine,
 		componentHandler: NewComponentHandler(),
 		designHandler:    NewDesignHandler(designService),
-		runHandler:       NewRunHandler(runService),
+		simulateHandler:  NewSimulateHandler(simulationService),
 	}
 	router.registerRoutes()
 
@@ -55,11 +55,9 @@ func (r *Router) registerRoutes() {
 		v1.POST("/designs", r.designHandler.Create)
 		v1.GET("/designs", r.designHandler.List)
 		v1.GET("/designs/:designId", r.designHandler.Get)
-		v1.GET("/designs/:designId/versions", r.designHandler.ListVersions)
 		v1.PATCH("/designs/:designId", r.designHandler.Update)
 		v1.POST("/designs/:designId/duplicate", r.designHandler.Duplicate)
-		v1.GET("/designs/:designId/runs", r.runHandler.ListByDesign)
-		v1.POST("/runs", r.runHandler.Create)
-		v1.GET("/runs/:runId", r.runHandler.Get)
+		v1.GET("/templates", r.designHandler.Templates)
+		v1.POST("/simulate", r.simulateHandler.Simulate)
 	}
 }

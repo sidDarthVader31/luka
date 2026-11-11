@@ -1,15 +1,27 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"log"
+	"slices"
 	"time"
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
 )
 
-const SampleDesignID = "sample-cache-aside"
-const SampleQueueDesignID = "sample-queue-workflow"
+// Ids of the built-in, read-only sample designs (exposed as templates).
+const (
+	SampleCacheAsideID    = "sample-cache-aside"
+	SampleQueueWorkflowID = "sample-queue-workflow"
+)
+
+var sampleIDs = []string{SampleCacheAsideID, SampleQueueWorkflowID}
+
+// IsSampleID reports whether id belongs to a built-in sample design.
+func IsSampleID(id string) bool {
+	return slices.Contains(sampleIDs, id)
+}
 
 // SampleDesigns returns the built-in demo designs used by the UI sample buttons.
 // These are available for both in-memory and Postgres-backed stores.
@@ -18,7 +30,7 @@ func SampleDesigns() []domain.Design {
 
 	return []domain.Design{
 		{
-			ID:          SampleDesignID,
+			ID:          SampleCacheAsideID,
 			Name:        "Sample Cache-Aside Read Path",
 			Description: "Seeded sample design for cache-aside read path exploration.",
 			Graph: domain.Graph{
@@ -124,7 +136,7 @@ func SampleDesigns() []domain.Design {
 			UpdatedAt: &now,
 		},
 		{
-			ID:          SampleQueueDesignID,
+			ID:          SampleQueueWorkflowID,
 			Name:        "Sample Queue-Based Write Path",
 			Description: "Seeded async workflow with a queue and workers consuming background jobs.",
 			Graph: domain.Graph{
@@ -284,11 +296,11 @@ func SampleDesigns() []domain.Design {
 	}
 }
 
-// SeedSampleDesigns inserts built-in samples when they are missing.
-// Existing rows are left unchanged so user edits are preserved.
-func SeedSampleDesigns(repo DesignRepository) error {
+// SeedSampleDesigns inserts built-in samples when they are missing. It is used
+// for every store implementation so memory and Postgres behave identically.
+func SeedSampleDesigns(ctx context.Context, repo DesignRepository) error {
 	for _, sample := range SampleDesigns() {
-		_, err := repo.GetByID(sample.ID)
+		_, err := repo.GetByID(ctx, sample.ID)
 		if err == nil {
 			continue
 		}
@@ -296,7 +308,7 @@ func SeedSampleDesigns(repo DesignRepository) error {
 			return err
 		}
 
-		if err := repo.Create(sample); err != nil {
+		if err := repo.Create(ctx, sample); err != nil {
 			return err
 		}
 		log.Printf("seeded sample design %s", sample.ID)
