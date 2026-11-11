@@ -56,28 +56,39 @@ export function replaceElements(api: ExcalidrawImperativeAPI, replacements: Exca
   });
 }
 
-/** Merges `patch` into an element's `customData.luka`. */
+/** Merges `patch` into an element's `customData.luka`, plus optional element fields (styling). */
 export function updateLukaData(
   api: ExcalidrawImperativeAPI,
   elementId: string,
   patch: Record<string, unknown>,
+  elementPatch: Partial<ExcalidrawElement> = {},
 ) {
   const element = api.getSceneElementsIncludingDeleted().find((entry) => entry.id === elementId);
   if (!element) {
     return;
   }
   const luka = { ...(element.customData?.luka ?? {}), ...patch };
-  replaceElements(api, [{ ...element, customData: { ...element.customData, luka } }]);
+  replaceElements(api, [
+    { ...element, ...elementPatch, customData: { ...element.customData, luka } } as ExcalidrawElement,
+  ]);
 }
 
 export function selectElement(api: ExcalidrawImperativeAPI, elementId: string) {
-  const element = api.getSceneElements().find((entry) => entry.id === elementId);
-  if (!element) {
+  selectElements(api, [elementId]);
+}
+
+/** Selects the given elements and scrolls them into view. */
+export function selectElements(api: ExcalidrawImperativeAPI, elementIds: string[]) {
+  const wanted = new Set(elementIds);
+  const elements = api.getSceneElements().filter((entry) => wanted.has(entry.id));
+  if (elements.length === 0) {
     return;
   }
   api.updateScene({
-    appState: { selectedElementIds: { [elementId]: true } },
+    appState: {
+      selectedElementIds: Object.fromEntries(elements.map((element) => [element.id, true])),
+    },
     captureUpdate: CaptureUpdateAction.NEVER,
   });
-  api.scrollToContent(element, { animate: true, duration: 300 });
+  api.scrollToContent(elements, { animate: true, duration: 300 });
 }

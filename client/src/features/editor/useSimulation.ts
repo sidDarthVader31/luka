@@ -1,32 +1,42 @@
 import { useCallback, useState } from "react";
 
-import { type Graph, type SimulationResult, type Workload, simulate } from "../../lib/api";
+import {
+  type Design,
+  type Graph,
+  type SimulationResult,
+  type Workload,
+  simulate,
+} from "../../lib/api";
+
+// Server defaults (docs/simulation-model.md).
+export const DEFAULT_READ_SHARE = 0.9;
+export const DEFAULT_PAYLOAD_KB = 1;
 
 export const DEFAULT_WORKLOAD: Workload = {
-  requests_per_second: 10_000,
-  payload_kb: 8,
-  concurrent_users: 50_000,
-  read_write_ratio: 4,
-  fanout_count: 1,
+  requests_per_second: 1_000,
+  read_share: DEFAULT_READ_SHARE,
+  payload_kb: DEFAULT_PAYLOAD_KB,
 };
 
 /** What affects the simulation; layout changes (moving a box) do not make results stale. */
-export function graphSignature(graph: Graph): string {
+export function runSignature(graph: Graph, workload: Workload | undefined): string {
   return JSON.stringify({
     nodes: graph.nodes.map((node) => [node.id, node.archetype, node.properties]),
     edges: graph.edges,
-    paths: graph.request_classes,
+    workload: workload ?? null,
   });
 }
+
+type RunDesign = Pick<Design, "id" | "name" | "graph" | "problem_id">;
 
 export type Simulation = {
   result: SimulationResult | null;
   error: string | null;
   running: boolean;
-  /** Signature of the graph the current result was computed for. */
+  /** Signature of the graph and workload the current result was computed for. */
   signature: string | null;
-  run: (design: { id: string; name: string; graph: Graph }, workload: Workload) => Promise<void>;
-  clear: () => void;
+  /** Pass no workload for a problem design: the server uses the problem's. */
+  run: (design: RunDesign, workload: Workload | undefined) => Promise<SimulationResult | null>;
 };
 
 export function useSimulation(): Simulation {
@@ -40,21 +50,17 @@ export function useSimulation(): Simulation {
     setError(null);
     try {
       // Always send the design inline so unsaved edits are simulated.
-      const next = await simulate({ design, workload });
+      const next = await simulate(workload ? { design, workload } : { design });
       setResult(next);
-      setSignature(graphSignature(design.graph));
+      setSignature(runSignature(design.graph, workload));
+      return next;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Simulation failed");
+      return null;
     } finally {
       setRunning(false);
     }
   }, []);
 
-  const clear = useCallback(() => {
-    setResult(null);
-    setSignature(null);
-    setError(null);
-  }, []);
-
-  return { result, error, running, signature, run, clear };
+  return { result, error, running, signature, run };
 }
