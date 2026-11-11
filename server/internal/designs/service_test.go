@@ -2,11 +2,13 @@ package designs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
+	"github.com/sidDarthVader31/luka/server/internal/graphs"
 	"github.com/sidDarthVader31/luka/server/internal/store"
 )
 
@@ -168,5 +170,83 @@ func TestNewIDIsRandom(t *testing.T) {
 	a, b := domain.NewID("des"), domain.NewID("des")
 	if a == b || !strings.HasPrefix(a, "des_") {
 		t.Fatalf("ids = %q, %q", a, b)
+	}
+}
+
+func TestSceneRoundTrip(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	scene := json.RawMessage(`{"elements":[{"id":"a"}],"appState":{}}`)
+
+	created, err := service.Create(ctx, domain.CreateDesignRequest{Name: "Scene", Scene: scene})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if string(created.Scene) != string(scene) {
+		t.Fatalf("created scene = %s", created.Scene)
+	}
+
+	// An update without a scene keeps the stored one.
+	name := "Renamed"
+	updated, err := service.Update(ctx, created.ID, domain.UpdateDesignRequest{Name: &name})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if string(updated.Scene) != string(scene) {
+		t.Fatalf("scene lost on update without scene: %s", updated.Scene)
+	}
+
+	// An update with a scene replaces it.
+	next := json.RawMessage(`{"elements":[]}`)
+	updated, err = service.Update(ctx, created.ID, domain.UpdateDesignRequest{Scene: next})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	got, err := service.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(updated.Scene) != string(next) || string(got.Scene) != string(next) {
+		t.Fatalf("scene not replaced: %s / %s", updated.Scene, got.Scene)
+	}
+
+	dup, err := service.Duplicate(ctx, created.ID, domain.DuplicateDesignRequest{})
+	if err != nil {
+		t.Fatalf("Duplicate() error = %v", err)
+	}
+	if string(dup.Scene) != string(next) {
+		t.Fatalf("duplicate scene = %s", dup.Scene)
+	}
+}
+
+func TestSceneTooLarge(t *testing.T) {
+	service := newTestService(t)
+	ctx := context.Background()
+	big := json.RawMessage(`"` + strings.Repeat("x", MaxSceneBytes) + `"`)
+
+	_, err := service.Create(ctx, domain.CreateDesignRequest{Name: "Big", Scene: big})
+	if !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("Create() error = %v, want ErrInvalid", err)
+	}
+
+	created, err := service.Create(ctx, domain.CreateDesignRequest{Name: "Small"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Update(ctx, created.ID, domain.UpdateDesignRequest{Scene: big}); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("Update() error = %v, want ErrInvalid", err)
+	}
+}
+
+func TestSamplesHaveComponentIDs(t *testing.T) {
+	for _, sample := range store.SampleDesigns() {
+		for _, n := range sample.Graph.Nodes {
+			if n.ComponentID == "" {
+				t.Errorf("%s/%s has no component_id", sample.ID, n.ID)
+			}
+		}
+		if err := graphs.ValidateGraph(sample.Graph, graphs.ModeSave); err != nil {
+			t.Errorf("%s: %v", sample.ID, err)
+		}
 	}
 }

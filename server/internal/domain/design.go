@@ -120,12 +120,3 @@ type RoutingRule struct {
 	RuleType RoutingRuleType `json:"rule_type"`
 	Value    float64         `json:"value,omitempty"`
 }
-
-type ComponentArchetype struct {
-	Archetype             NodeArchetype         `json:"archetype"`
-	DisplayName           string                `json:"display_name"`
-	DefaultColor          string                `json:"default_color"`
-	DefaultProperties     NodeProperties        `json:"default_properties"`
-	SupportedInteractions []EdgeInteractionType `json:"supported_interactions"`
-	SupportedRoutingRules []RoutingRuleType     `json:"supported_routing_rules"`
-}

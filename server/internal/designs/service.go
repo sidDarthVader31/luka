@@ -2,6 +2,7 @@ package designs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,19 @@ import (
 	"github.com/sidDarthVader31/luka/server/internal/graphs"
 	"github.com/sidDarthVader31/luka/server/internal/store"
 )
+
+// MaxSceneBytes caps the size of a stored scene.
+const MaxSceneBytes = 5 << 20
+
+func validateScene(scene json.RawMessage) error {
+	if len(scene) > MaxSceneBytes {
+		return domain.Invalid("scene is too large: %d bytes (max %d)", len(scene), MaxSceneBytes)
+	}
+	if len(scene) > 0 && !json.Valid(scene) {
+		return domain.Invalid("scene must be valid JSON")
+	}
+	return nil
+}
 
 type Service struct {
 	repo store.DesignRepository
@@ -25,12 +39,17 @@ func (s *Service) Create(ctx context.Context, req domain.CreateDesignRequest) (*
 		return nil, domain.Invalid("name is required")
 	}
 
+	if err := validateScene(req.Scene); err != nil {
+		return nil, err
+	}
+
 	now := time.Now().UTC()
 	design := domain.Design{
 		ID:          domain.NewID("des"),
 		Name:        name,
 		Description: strings.TrimSpace(req.Description),
 		Graph:       req.Graph,
+		Scene:       req.Scene,
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
@@ -115,6 +134,13 @@ func (s *Service) Update(ctx context.Context, id string, req domain.UpdateDesign
 		existing.Graph = *req.Graph
 	}
 
+	if len(req.Scene) > 0 {
+		if err := validateScene(req.Scene); err != nil {
+			return nil, err
+		}
+		existing.Scene = req.Scene
+	}
+
 	now := time.Now().UTC()
 	existing.UpdatedAt = &now
 
@@ -146,5 +172,6 @@ func (s *Service) Duplicate(ctx context.Context, id string, req domain.Duplicate
 		Name:        name,
 		Description: description,
 		Graph:       source.Graph,
+		Scene:       source.Scene,
 	})
 }
