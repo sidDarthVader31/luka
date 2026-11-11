@@ -8,10 +8,10 @@ import (
 )
 
 type Router struct {
-	engine           *gin.Engine
-	componentHandler *ComponentHandler
-	designHandler    *DesignHandler
-	simulateHandler  *SimulateHandler
+	engine          *gin.Engine
+	catalogHandler  *CatalogHandler
+	designHandler   *DesignHandler
+	simulateHandler *SimulateHandler
 }
 
 func NewRouter(designService *designs.Service, simulationService *simulation.Service) *Router {
@@ -19,10 +19,10 @@ func NewRouter(designService *designs.Service, simulationService *simulation.Ser
 	engine.Use(gin.Logger(), gin.Recovery())
 
 	router := &Router{
-		engine:           engine,
-		componentHandler: NewComponentHandler(),
-		designHandler:    NewDesignHandler(designService),
-		simulateHandler:  NewSimulateHandler(simulationService),
+		engine:          engine,
+		catalogHandler:  NewCatalogHandler(),
+		designHandler:   NewDesignHandler(designService),
+		simulateHandler: NewSimulateHandler(simulationService),
 	}
 	router.registerRoutes()
 
@@ -51,7 +51,7 @@ func (r *Router) registerRoutes() {
 			})
 		})
 
-		v1.GET("/component-archetypes", r.componentHandler.List)
+		v1.GET("/catalog", r.catalogHandler.Get)
 		v1.POST("/designs", r.designHandler.Create)
 		v1.GET("/designs", r.designHandler.List)
 		v1.GET("/designs/:designId", r.designHandler.Get)

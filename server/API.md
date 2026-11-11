@@ -20,18 +20,31 @@ Every error is `{ "error": "<message>" }`.
 | --- | --- | --- |
 | GET | `/health` | `{ status, service }` |
 | GET | `/api/v1/status` | `{ name, version, api }` |
-| GET | `/api/v1/component-archetypes` | `{ items: ComponentArchetype[] }` |
+| GET | `/api/v1/catalog` | `Catalog`: `{ categories: {id,name}[], items: CatalogItem[] }`, see below |
 | GET | `/api/v1/templates` | `{ items: Design[] }`, the built-in read-only samples |
-| POST | `/api/v1/designs` | Body `{ name, description?, graph }` -> 201 `Design` |
+| POST | `/api/v1/designs` | Body `{ name, description?, graph, scene? }` -> 201 `Design` |
 | GET | `/api/v1/designs` | `{ items: Design[] }`, user designs only (samples excluded, use `/templates`) |
 | GET | `/api/v1/designs/:designId` | `Design`. Also works for sample ids. |
-| PATCH | `/api/v1/designs/:designId` | Body `{ name?, description?, graph? }` -> `Design`. **400 for sample ids.** |
-| POST | `/api/v1/designs/:designId/duplicate` | Body `{ name?, description? }` -> 201 `Design` with a new random id (`des_<hex>`). Works on samples; use it to open a template as an editable copy. |
+| PATCH | `/api/v1/designs/:designId` | Body `{ name?, description?, graph?, scene? }` -> `Design`. `scene` replaces the stored scene only when non-empty. **400 for sample ids.** |
+| POST | `/api/v1/designs/:designId/duplicate` | Body `{ name?, description? }` -> 201 `Design` with a new random id (`des_<hex>`). Copies the scene too. Works on samples; use it to open a template as an editable copy. |
 | POST | `/api/v1/simulate` | Stateless simulation, see below. |
 
-Removed: `/designs/:id/versions`, `/designs/:id/runs`, `POST /runs`, `GET /runs/:id`.
+Removed: `/component-archetypes` (use `/catalog`), `/designs/:id/versions`, `/designs/:id/runs`, `POST /runs`, `GET /runs/:id`.
 
 Sample ids: `sample-cache-aside`, `sample-queue-workflow`.
+
+## Catalog
+
+`GET /api/v1/catalog` lists the components a design can use. Categories are ordered: `clients`, `edge`, `compute`, `data`, `messaging`.
+
+Each `CatalogItem` has `id`, `name`, `category_id`, `description`, `icon` (Tabler icon name), `kind` (the engine kind, a `NodeArchetype`), `default_properties`, `fields`, `supported_interactions` and `supported_routing_rules`. `fields` describe the editable properties (`key`, `label`, `unit?`, `min`, `max?`, `step?`, `primary?`); the client has none, and only caches have `cache_hit_rate`.
+
+Item ids: `client`, `load-balancer`, `api-gateway`, `service`, `worker`, `redis`, `memcached`, `postgres`, `mysql`, `dynamodb`, `cassandra`, `kafka`, `sqs`, `rabbitmq`.
+
+## Scene and `component_id`
+
+- `Design.scene` is the client's Excalidraw document, stored and returned as opaque JSON. It is optional; designs and samples without one are converted from `graph` by the client. Scenes over 5 MB are rejected with 400.
+- `Node.component_id` is a catalog item id. If set, it must exist in the catalog and its `kind` must equal the node's `archetype`, otherwise 400. An empty value is allowed (older designs).
 
 ## `POST /api/v1/simulate`
 

@@ -279,3 +279,37 @@ func TestValidateGraphAllowsQueueToWorkerConnection(t *testing.T) {
 		t.Fatalf("unexpected validation error = %v", err)
 	}
 }
+
+func nodeWithComponent(archetype domain.NodeArchetype, componentID string) domain.Graph {
+	return domain.Graph{Nodes: []domain.Node{{
+		ID: "n1", Label: "Node", Archetype: archetype, ComponentID: componentID,
+	}}}
+}
+
+func TestValidateGraphComponentID(t *testing.T) {
+	cases := []struct {
+		name      string
+		archetype domain.NodeArchetype
+		id        string
+		wantErr   string
+	}{
+		{"empty allowed", domain.NodeArchetypeCache, "", ""},
+		{"matching", domain.NodeArchetypeCache, "memcached", ""},
+		{"unknown", domain.NodeArchetypeCache, "valkey", `component_id "valkey" is not in the catalog`},
+		{"kind mismatch", domain.NodeArchetypeCache, "postgres", `component_id "postgres" is a "database", not a "cache"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateGraph(nodeWithComponent(tc.archetype, tc.id), ModeSave)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}

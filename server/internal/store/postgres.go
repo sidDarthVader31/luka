@@ -28,12 +28,13 @@ func (r *PostgresDesignRepository) Create(ctx context.Context, design domain.Des
 
 	_, err = r.pool.Exec(
 		ctx,
-		`insert into designs (id, name, description, graph, created_at, updated_at)
-		 values ($1, $2, $3, $4, $5, $6)`,
+		`insert into designs (id, name, description, graph, scene, created_at, updated_at)
+		 values ($1, $2, $3, $4, $5, $6, $7)`,
 		design.ID,
 		design.Name,
 		design.Description,
 		graphJSON,
+		sceneArg(design.Scene),
 		design.CreatedAt,
 		design.UpdatedAt,
 	)
@@ -47,19 +48,20 @@ func (r *PostgresDesignRepository) Create(ctx context.Context, design domain.Des
 func (r *PostgresDesignRepository) GetByID(ctx context.Context, id string) (domain.Design, error) {
 	row := r.pool.QueryRow(
 		ctx,
-		`select id, name, description, graph, created_at, updated_at
+		`select id, name, description, graph, scene, created_at, updated_at
 		 from designs
 		 where id = $1`,
 		id,
 	)
 
 	var design domain.Design
-	var graphJSON []byte
+	var graphJSON, sceneJSON []byte
 	if err := row.Scan(
 		&design.ID,
 		&design.Name,
 		&design.Description,
 		&graphJSON,
+		&sceneJSON,
 		&design.CreatedAt,
 		&design.UpdatedAt,
 	); err != nil {
@@ -73,13 +75,15 @@ func (r *PostgresDesignRepository) GetByID(ctx context.Context, id string) (doma
 		return domain.Design{}, fmt.Errorf("unmarshal design graph: %w", err)
 	}
 
+	design.Scene = sceneJSON
+
 	return design, nil
 }
 
 func (r *PostgresDesignRepository) List(ctx context.Context) ([]domain.Design, error) {
 	rows, err := r.pool.Query(
 		ctx,
-		`select id, name, description, graph, created_at, updated_at
+		`select id, name, description, graph, scene, created_at, updated_at
 		 from designs
 		 order by updated_at desc, name asc`,
 	)
@@ -91,12 +95,13 @@ func (r *PostgresDesignRepository) List(ctx context.Context) ([]domain.Design, e
 	designs := make([]domain.Design, 0)
 	for rows.Next() {
 		var design domain.Design
-		var graphJSON []byte
+		var graphJSON, sceneJSON []byte
 		if err := rows.Scan(
 			&design.ID,
 			&design.Name,
 			&design.Description,
 			&graphJSON,
+			&sceneJSON,
 			&design.CreatedAt,
 			&design.UpdatedAt,
 		); err != nil {
@@ -105,6 +110,7 @@ func (r *PostgresDesignRepository) List(ctx context.Context) ([]domain.Design, e
 		if err := json.Unmarshal(graphJSON, &design.Graph); err != nil {
 			return nil, fmt.Errorf("unmarshal design graph: %w", err)
 		}
+		design.Scene = sceneJSON
 		designs = append(designs, design)
 	}
 	if err := rows.Err(); err != nil {
@@ -123,12 +129,13 @@ func (r *PostgresDesignRepository) Update(ctx context.Context, design domain.Des
 	commandTag, err := r.pool.Exec(
 		ctx,
 		`update designs
-		 set name = $2, description = $3, graph = $4, updated_at = $5
+		 set name = $2, description = $3, graph = $4, scene = $5, updated_at = $6
 		 where id = $1`,
 		design.ID,
 		design.Name,
 		design.Description,
 		graphJSON,
+		sceneArg(design.Scene),
 		design.UpdatedAt,
 	)
 	if err != nil {
@@ -140,4 +147,12 @@ func (r *PostgresDesignRepository) Update(ctx context.Context, design domain.Des
 	}
 
 	return nil
+}
+
+// sceneArg maps an empty scene to SQL NULL.
+func sceneArg(scene json.RawMessage) any {
+	if len(scene) == 0 {
+		return nil
+	}
+	return []byte(scene)
 }

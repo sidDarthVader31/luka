@@ -155,14 +155,6 @@ export interface RoutingRule {
   rule_type: RoutingRuleType;
   value?: number /* float64 */;
 }
-export interface ComponentArchetype {
-  archetype: NodeArchetype;
-  display_name: string;
-  default_color: string;
-  default_properties: NodeProperties;
-  supported_interactions: EdgeInteractionType[];
-  supported_routing_rules: RoutingRuleType[];
-}
 
 //////////
 // source: errors.go

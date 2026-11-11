@@ -5,10 +5,9 @@ import (
 	"math"
 	"slices"
 	"strings"
-	"sync"
 
+	"github.com/sidDarthVader31/luka/server/internal/catalog"
 	"github.com/sidDarthVader31/luka/server/internal/domain"
-	"github.com/sidDarthVader31/luka/server/internal/platform"
 )
 
 type Mode string
@@ -89,6 +88,14 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 
 		if !isSupportedArchetype(node.Archetype) {
 			issues = append(issues, fmt.Sprintf("%s archetype %q is not supported", prefix, node.Archetype))
+		}
+
+		if node.ComponentID != "" {
+			if component, ok := catalog.ItemByID(node.ComponentID); !ok {
+				issues = append(issues, fmt.Sprintf("%s component_id %q is not in the catalog", prefix, node.ComponentID))
+			} else if component.Kind != node.Archetype {
+				issues = append(issues, fmt.Sprintf("%s component_id %q is a %q, not a %q", prefix, node.ComponentID, component.Kind, node.Archetype))
+			}
 		}
 
 		if node.Color != "" && !isSupportedColor(node.Color) {
@@ -201,7 +208,7 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 		}
 
 		if sourceExists {
-			catalogEntry, exists := archetypeCatalog()[sourceNode.Archetype]
+			catalogEntry, exists := catalog.KindDefaults(sourceNode.Archetype)
 			if exists {
 				if !slices.Contains(catalogEntry.SupportedInteractions, edge.InteractionType) {
 					issues = append(issues, fmt.Sprintf("%s interaction_type %q is not valid for source archetype %q", prefix, edge.InteractionType, sourceNode.Archetype))
@@ -261,28 +268,13 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 	return nil
 }
 
-var archetypeCatalogOnce = sync.OnceValue(func() map[domain.NodeArchetype]domain.ComponentArchetype {
-	items := platform.DefaultComponentArchetypes()
-	catalog := make(map[domain.NodeArchetype]domain.ComponentArchetype, len(items))
-	for _, item := range items {
-		catalog[item.Archetype] = item
-	}
-
-	return catalog
-})
-
-// archetypeCatalog returns the cached catalog; callers must not mutate it.
-func archetypeCatalog() map[domain.NodeArchetype]domain.ComponentArchetype {
-	return archetypeCatalogOnce()
-}
-
 func isSupportedArchetype(value domain.NodeArchetype) bool {
-	_, ok := archetypeCatalog()[value]
+	_, ok := catalog.KindDefaults(value)
 	return ok
 }
 
 func isSupportedInteraction(value domain.EdgeInteractionType) bool {
-	for _, item := range archetypeCatalog() {
+	for _, item := range catalog.Default().Items {
 		if slices.Contains(item.SupportedInteractions, value) {
 			return true
 		}
@@ -292,7 +284,7 @@ func isSupportedInteraction(value domain.EdgeInteractionType) bool {
 }
 
 func isSupportedRoutingRule(value domain.RoutingRuleType) bool {
-	for _, item := range archetypeCatalog() {
+	for _, item := range catalog.Default().Items {
 		if slices.Contains(item.SupportedRoutingRules, value) {
 			return true
 		}

@@ -231,3 +231,23 @@ func TestTemplatesAndDuplicateSample(t *testing.T) {
 		t.Fatalf("patch copy status = %d, body = %s", rec.Code, rec.Body)
 	}
 }
+
+func TestCatalogEndpoint(t *testing.T) {
+	engine := newTestRouter(t, store.NewMemoryDesignRepository())
+
+	rec := do(t, engine, http.MethodGet, "/api/v1/catalog", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var catalog domain.Catalog
+	if err := json.Unmarshal(rec.Body.Bytes(), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Items) != 14 || len(catalog.Categories) != 5 {
+		t.Fatalf("got %d items, %d categories", len(catalog.Items), len(catalog.Categories))
+	}
+
+	if rec := do(t, engine, http.MethodGet, "/api/v1/component-archetypes", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("component-archetypes status = %d, want 404", rec.Code)
+	}
+}
