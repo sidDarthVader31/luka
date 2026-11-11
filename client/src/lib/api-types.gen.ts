@@ -2,6 +2,60 @@
 // Source: server/internal/domain. Regenerate with `pnpm types:generate`.
 
 //////////
+// source: catalog.go
+
+/**
+ * PropertyKey names a field of NodeProperties by its JSON key.
+ */
+export const PropertyKeyReplicas = "replicas";
+export const PropertyKeyCapacityRPS = "capacity_rps";
+export const PropertyKeyBaseLatencyMS = "base_latency_ms";
+export const PropertyKeyCacheHitRate = "cache_hit_rate";
+export type PropertyKey = typeof PropertyKeyReplicas | typeof PropertyKeyCapacityRPS | typeof PropertyKeyBaseLatencyMS | typeof PropertyKeyCacheHitRate;
+/**
+ * CatalogField describes one editable property of a catalog item.
+ */
+export interface CatalogField {
+  key: PropertyKey;
+  label: string;
+  help?: string;
+  unit?: string;
+  min: number /* float64 */;
+  max?: number /* float64 */;
+  step?: number /* float64 */;
+  /**
+   * Primary fields are shown up front in the inspector; the rest sit under "More settings".
+   */
+  primary?: boolean;
+}
+export interface CatalogCategory {
+  id: string;
+  name: string;
+}
+/**
+ * CatalogItem is a named component (for example "Kafka") over an engine kind.
+ */
+export interface CatalogItem {
+  id: string;
+  name: string;
+  category_id: string;
+  description: string;
+  /**
+   * Icon is a Tabler icon name, for example "database".
+   */
+  icon: string;
+  kind: NodeArchetype;
+  default_properties: NodeProperties;
+  fields: CatalogField[];
+  supported_interactions: EdgeInteractionType[];
+  supported_routing_rules: RoutingRuleType[];
+}
+export interface Catalog {
+  categories: CatalogCategory[];
+  items: CatalogItem[];
+}
+
+//////////
 // source: design.go
 
 export const NodeArchetypeClient = "client";
@@ -32,6 +86,10 @@ export interface Design {
   name: string;
   description?: string;
   graph: Graph;
+  /**
+   * Scene is the client's Excalidraw document, stored as-is. Graph is derived from it.
+   */
+  scene?: unknown;
   created_at?: string /* RFC3339 */;
   updated_at?: string /* RFC3339 */;
 }
@@ -39,11 +97,13 @@ export interface CreateDesignRequest {
   name: string;
   description?: string;
   graph: Graph;
+  scene?: unknown;
 }
 export interface UpdateDesignRequest {
   name?: string;
   description?: string;
   graph?: Graph;
+  scene?: unknown;
 }
 export interface DuplicateDesignRequest {
   name?: string;
@@ -53,6 +113,10 @@ export interface Node {
   id: string;
   label: string;
   archetype: NodeArchetype;
+  /**
+   * ComponentID is the catalog item (for example "redis"). Archetype is its engine kind.
+   */
+  component_id?: string;
   color?: string;
   position: NodePosition;
   width?: number /* float64 */;

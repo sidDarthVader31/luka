@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type NodeArchetype string
 
@@ -39,24 +42,28 @@ type Graph struct {
 }
 
 type Design struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Description string     `json:"description,omitempty"`
-	Graph       Graph      `json:"graph"`
-	CreatedAt   *time.Time `json:"created_at,omitempty"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
-}
-
-type CreateDesignRequest struct {
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Graph       Graph  `json:"graph"`
+	// Scene is the client's Excalidraw document, stored as-is. Graph is derived from it.
+	Scene     json.RawMessage `json:"scene,omitempty"`
+	CreatedAt *time.Time      `json:"created_at,omitempty"`
+	UpdatedAt *time.Time      `json:"updated_at,omitempty"`
+}
+
+type CreateDesignRequest struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Graph       Graph           `json:"graph"`
+	Scene       json.RawMessage `json:"scene,omitempty"`
 }
 
 type UpdateDesignRequest struct {
-	Name        *string `json:"name,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Graph       *Graph  `json:"graph,omitempty"`
+	Name        *string         `json:"name,omitempty"`
+	Description *string         `json:"description,omitempty"`
+	Graph       *Graph          `json:"graph,omitempty"`
+	Scene       json.RawMessage `json:"scene,omitempty"`
 }
 
 type DuplicateDesignRequest struct {
@@ -65,14 +72,16 @@ type DuplicateDesignRequest struct {
 }
 
 type Node struct {
-	ID         string         `json:"id"`
-	Label      string         `json:"label"`
-	Archetype  NodeArchetype  `json:"archetype"`
-	Color      string         `json:"color,omitempty"`
-	Position   NodePosition   `json:"position"`
-	Width      float64        `json:"width,omitempty"`
-	Height     float64        `json:"height,omitempty"`
-	Properties NodeProperties `json:"properties"`
+	ID        string        `json:"id"`
+	Label     string        `json:"label"`
+	Archetype NodeArchetype `json:"archetype"`
+	// ComponentID is the catalog item (for example "redis"). Archetype is its engine kind.
+	ComponentID string         `json:"component_id,omitempty"`
+	Color       string         `json:"color,omitempty"`
+	Position    NodePosition   `json:"position"`
+	Width       float64        `json:"width,omitempty"`
+	Height      float64        `json:"height,omitempty"`
+	Properties  NodeProperties `json:"properties"`
 }
 
 type NodePosition struct {

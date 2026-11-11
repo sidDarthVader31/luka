@@ -6,3 +6,4 @@ packages:
       // Source: server/internal/domain. Regenerate with `pnpm types:generate`.
     type_mappings:
       time.Time: "string /* RFC3339 */"
+      json.RawMessage: "unknown"
