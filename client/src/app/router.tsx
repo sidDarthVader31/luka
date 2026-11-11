@@ -1,23 +1,15 @@
 import { createBrowserRouter } from "react-router-dom";
 
-import { DesignEditorPage } from "../features/editor/DesignEditorPage";
-import { DesignLibraryPage } from "../features/library/DesignLibraryPage";
+import { HomePage } from "../features/home/HomePage";
 
 export const router = createBrowserRouter([
-  {
-    path: "/",
-    element: <DesignLibraryPage />,
-  },
-  {
-    path: "/designs/new",
-    element: <DesignEditorPage mode="new" />,
-  },
-  {
-    path: "/draft",
-    element: <DesignEditorPage mode="draft" />,
-  },
+  { path: "/", element: <HomePage /> },
   {
     path: "/designs/:designId",
-    element: <DesignEditorPage mode="saved" />,
+    // Excalidraw is large; load it only when a design is opened.
+    lazy: () =>
+      import("../features/editor/EditorPage").then((module) => ({
+        Component: module.EditorPage,
+      })),
   },
 ]);

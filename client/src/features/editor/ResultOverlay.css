@@ -1,0 +1,51 @@
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  /* Above the canvas, below Excalidraw's menus and our floating panels. */
+  z-index: 2;
+}
+
+.overlay__icon {
+  position: absolute;
+  display: flex;
+  color: var(--muted);
+}
+
+.overlay__badge,
+.overlay__rate {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  border-radius: 999px;
+}
+
+.overlay__badge {
+  padding: 4px 8px;
+  color: var(--surface);
+  box-shadow: var(--shadow-small);
+}
+
+.overlay__badge[data-level="ok"] {
+  background: var(--ok);
+}
+
+.overlay__badge[data-level="warn"] {
+  background: var(--warn);
+}
+
+.overlay__badge[data-level="over"] {
+  background: var(--danger);
+}
+
+.overlay__rate {
+  padding: 3px 7px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}

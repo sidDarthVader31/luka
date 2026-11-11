@@ -14,7 +14,6 @@
   "dependencies": {
     "@excalidraw/excalidraw": "0.18.1",
     "@tabler/icons-react": "3.35.0",
-    "@xyflow/react": "^12.8.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0"
