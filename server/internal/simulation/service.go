@@ -7,6 +7,7 @@ import (
 	"github.com/sidDarthVader31/luka/server/internal/catalog"
 	"github.com/sidDarthVader31/luka/server/internal/domain"
 	"github.com/sidDarthVader31/luka/server/internal/graphs"
+	"github.com/sidDarthVader31/luka/server/internal/review"
 	"github.com/sidDarthVader31/luka/server/internal/simulator"
 	"github.com/sidDarthVader31/luka/server/internal/store"
 )
@@ -43,6 +44,7 @@ func (s *Service) Simulate(ctx context.Context, req domain.SimulateRequest) (*do
 		return nil, domain.Invalid("%s", err.Error())
 	}
 	result.Warnings = graphs.Warnings(design.Graph)
+	result.Findings = review.Analyze(design.Graph, result)
 
 	return &result, nil
 }
