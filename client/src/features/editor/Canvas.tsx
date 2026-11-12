@@ -41,6 +41,8 @@ type CanvasProps = {
   onElementsChange: (elements: readonly ExcalidrawElement[], appState: PersistedAppState) => void;
   onViewChange: (view: CanvasView) => void;
   onDropComponent: (componentId: string, scenePoint: { x: number; y: number }) => void;
+  /** Hide Excalidraw's stroke/fill panel, e.g. while our inspector shows the selection. */
+  hideStylePanel?: boolean;
   /** Rendered above the canvas, in the same coordinate space (overlay, floating panels). */
   children?: ReactNode;
 };
@@ -60,7 +62,8 @@ function sameView(a: CanvasView | null, b: CanvasView): boolean {
 export function Canvas(props: CanvasProps) {
   const api = useRef<ExcalidrawImperativeAPI | null>(null);
   const lastView = useRef<CanvasView | null>(null);
-  const fitted = useRef(false);
+  // A blank design has nothing to frame; otherwise wait for the loaded elements to arrive.
+  const fitted = useRef(!props.initialScene.elements.some((element) => !element.isDeleted));
   const callbacks = useRef(props);
   callbacks.current = props;
 
@@ -74,16 +77,16 @@ export function Canvas(props: CanvasProps) {
   );
 
   const handleChange = useCallback((elements: readonly ExcalidrawElement[], appState: AppState) => {
-    // Frame the design once it has loaded. (initialData's scrollToContent ignores our layout.)
-    if (!fitted.current && api.current) {
+    // Frame the design once its elements have loaded. Excalidraw's first change events can
+    // arrive before initialData is applied, with no elements yet.
+    // (initialData's scrollToContent ignores our layout.)
+    if (!fitted.current && api.current && elements.some((element) => !element.isDeleted)) {
       fitted.current = true;
-      if (elements.some((element) => !element.isDeleted)) {
-        api.current.scrollToContent(undefined, {
-          fitToViewport: true,
-          viewportZoomFactor: 0.7,
-          maxZoom: 1,
-        });
-      }
+      api.current.scrollToContent(undefined, {
+        fitToViewport: true,
+        viewportZoomFactor: 0.7,
+        maxZoom: 1,
+      });
     }
     callbacks.current.onElementsChange(elements, {
       viewBackgroundColor: appState.viewBackgroundColor,
@@ -136,7 +139,11 @@ export function Canvas(props: CanvasProps) {
   }
 
   return (
-    <div className="canvas" onDragOverCapture={handleDragOver} onDropCapture={handleDrop}>
+    <div
+      className={props.hideStylePanel ? "canvas canvas--no-style-panel" : "canvas"}
+      onDragOverCapture={handleDragOver}
+      onDropCapture={handleDrop}
+    >
       <Excalidraw
         initialData={initialData}
         excalidrawAPI={handleApi}

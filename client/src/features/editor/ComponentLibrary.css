@@ -93,3 +93,32 @@
 .library__hint {
   border-top: 1px solid var(--line);
 }
+
+/* Narrow windows: an icon rail, so the canvas keeps its room. Hover or focus shows the name. */
+@media (max-width: 1100px) {
+  .library {
+    width: 52px;
+  }
+
+  .library__search,
+  .library__group h3,
+  .library__item span,
+  .library__hint {
+    display: none;
+  }
+
+  .library__groups {
+    padding: 6px;
+  }
+
+  .library__group + .library__group {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--line);
+  }
+
+  .library__item {
+    justify-content: center;
+    padding: 8px 0;
+  }
+}

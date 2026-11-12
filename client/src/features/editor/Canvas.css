@@ -10,3 +10,8 @@
 .canvas .excalidraw .sidebar-trigger {
   display: none;
 }
+
+/* Components and connections are edited in our inspector; Excalidraw's style panel would crowd it. */
+.canvas--no-style-panel .excalidraw .selected-shape-actions {
+  display: none;
+}

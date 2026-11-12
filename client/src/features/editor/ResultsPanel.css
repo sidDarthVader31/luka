@@ -200,7 +200,9 @@
 
 .results__classes {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* Stacked: side by side, two cards in a 340px panel squeeze values like "Undefined (overloaded)"
+     until they push the second card out of the panel. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   margin-bottom: 12px;
 }
@@ -235,6 +237,8 @@
 .results__class dd,
 .results__detail dd,
 .results__estimates dd {
+  min-width: 0;
+  overflow-wrap: break-word;
   margin: 0;
   font-family: var(--font-mono);
   text-align: right;
