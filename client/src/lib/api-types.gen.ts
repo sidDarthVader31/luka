@@ -11,7 +11,10 @@ export const PropertyKeyReplicas = "replicas";
 export const PropertyKeyCapacityRPS = "capacity_rps";
 export const PropertyKeyBaseLatencyMS = "base_latency_ms";
 export const PropertyKeyCacheHitRate = "cache_hit_rate";
-export type PropertyKey = typeof PropertyKeyReplicas | typeof PropertyKeyCapacityRPS | typeof PropertyKeyBaseLatencyMS | typeof PropertyKeyCacheHitRate;
+export const PropertyKeyShards = "shards";
+export const PropertyKeyReadReplicas = "read_replicas";
+export const PropertyKeyAvailability = "availability";
+export type PropertyKey = typeof PropertyKeyReplicas | typeof PropertyKeyCapacityRPS | typeof PropertyKeyBaseLatencyMS | typeof PropertyKeyCacheHitRate | typeof PropertyKeyShards | typeof PropertyKeyReadReplicas | typeof PropertyKeyAvailability;
 /**
  * CatalogField describes one editable property of a catalog item.
  */
@@ -47,8 +50,11 @@ export interface CatalogItem {
   kind: NodeArchetype;
   default_properties: NodeProperties;
   fields: CatalogField[];
-  supported_interactions: EdgeInteractionType[];
-  supported_routing_rules: RoutingRuleType[];
+  /**
+   * AllowedTargets lists the kinds this item may connect to. The server validates the
+   * same rule; the client uses it for instant feedback.
+   */
+  allowed_targets: NodeArchetype[];
 }
 export interface Catalog {
   categories: CatalogCategory[];
@@ -58,33 +64,46 @@ export interface Catalog {
 //////////
 // source: design.go
 
+/**
+ * NodeArchetype is a component's engine kind. Catalog items (Redis, Kafka, ...) map onto one.
+ */
 export const NodeArchetypeClient = "client";
+export const NodeArchetypeCDN = "cdn";
 export const NodeArchetypeGateway = "gateway";
 export const NodeArchetypeStatelessService = "stateless_service";
+export const NodeArchetypeWorker = "worker";
 export const NodeArchetypeCache = "cache";
 export const NodeArchetypeDatabase = "database";
+export const NodeArchetypeObjectStore = "object_store";
+export const NodeArchetypeSearch = "search";
 export const NodeArchetypeQueue = "queue";
-export const NodeArchetypeWorker = "worker";
-export type NodeArchetype = typeof NodeArchetypeClient | typeof NodeArchetypeGateway | typeof NodeArchetypeStatelessService | typeof NodeArchetypeCache | typeof NodeArchetypeDatabase | typeof NodeArchetypeQueue | typeof NodeArchetypeWorker;
-export const EdgeInteractionTypeSyncRequest = "sync_request";
-export const EdgeInteractionTypeAsyncEnqueue = "async_enqueue";
-export const EdgeInteractionTypeConsume = "consume";
-export const EdgeInteractionTypeConditionalPath = "conditional_branch";
-export const EdgeInteractionTypeFallback = "fallback";
-export type EdgeInteractionType = typeof EdgeInteractionTypeSyncRequest | typeof EdgeInteractionTypeAsyncEnqueue | typeof EdgeInteractionTypeConsume | typeof EdgeInteractionTypeConditionalPath | typeof EdgeInteractionTypeFallback;
-export const RoutingRuleTypeAlways = "always";
-export const RoutingRuleTypeCacheHit = "cache_hit";
-export const RoutingRuleTypeCacheMiss = "cache_miss";
-export type RoutingRuleType = typeof RoutingRuleTypeAlways | typeof RoutingRuleTypeCacheHit | typeof RoutingRuleTypeCacheMiss;
+export type NodeArchetype = typeof NodeArchetypeClient | typeof NodeArchetypeCDN | typeof NodeArchetypeGateway | typeof NodeArchetypeStatelessService | typeof NodeArchetypeWorker | typeof NodeArchetypeCache | typeof NodeArchetypeDatabase | typeof NodeArchetypeObjectStore | typeof NodeArchetypeSearch | typeof NodeArchetypeQueue;
+/**
+ * EdgeTraffic says which requests an edge carries.
+ */
+export const EdgeTrafficAll = "all";
+export const EdgeTrafficReads = "reads";
+export const EdgeTrafficWrites = "writes";
+export type EdgeTraffic = typeof EdgeTrafficAll | typeof EdgeTrafficReads | typeof EdgeTrafficWrites;
+/**
+ * EdgeMode says whether the caller waits for the target.
+ * Async edges carry load but add no latency and cannot fail the caller's request.
+ */
+export const EdgeModeSync = "sync";
+export const EdgeModeAsync = "async";
+export type EdgeMode = typeof EdgeModeSync | typeof EdgeModeAsync;
 export interface Graph {
   nodes: Node[];
   edges: Edge[];
-  request_classes?: RequestClass[];
 }
 export interface Design {
   id: string;
   name: string;
   description?: string;
+  /**
+   * ProblemID links the design to a practice problem; empty for a sandbox design.
+   */
+  problem_id?: string;
   graph: Graph;
   /**
    * Scene is the client's Excalidraw document, stored as-is. Graph is derived from it.
@@ -96,6 +115,7 @@ export interface Design {
 export interface CreateDesignRequest {
   name: string;
   description?: string;
+  problem_id?: string;
   graph: Graph;
   scene?: unknown;
 }
@@ -117,43 +137,39 @@ export interface Node {
    * ComponentID is the catalog item (for example "redis"). Archetype is its engine kind.
    */
   component_id?: string;
-  color?: string;
   position: NodePosition;
-  width?: number /* float64 */;
-  height?: number /* float64 */;
   properties: NodeProperties;
 }
 export interface NodePosition {
   x: number /* float64 */;
   y: number /* float64 */;
 }
+/**
+ * NodeProperties are the knobs a user can set. Which ones apply depends on the kind;
+ * see docs/simulation-model.md.
+ */
 export interface NodeProperties {
   replicas?: number /* int */;
   capacity_rps?: number /* float64 */;
   base_latency_ms?: number /* float64 */;
   cache_hit_rate?: number /* float64 */;
-}
-export interface RequestClass {
-  id: string;
-  name: string;
-  traffic_share?: number /* float64 */;
+  shards?: number /* int */;
+  read_replicas?: number /* int */;
+  /**
+   * Availability of one instance, for example 0.999.
+   */
+  availability?: number /* float64 */;
 }
 export interface Edge {
   id: string;
   source_node_id: string;
   target_node_id: string;
-  source_handle_id?: string;
-  target_handle_id?: string;
-  interaction_type: EdgeInteractionType;
-  fanout_multiplier?: number /* float64 */;
-  timeout_ms?: number /* float64 */;
-  retry_attempts?: number /* int */;
-  request_class_ids?: string[];
-  routing_rule: RoutingRule;
-}
-export interface RoutingRule {
-  rule_type: RoutingRuleType;
-  value?: number /* float64 */;
+  traffic: EdgeTraffic;
+  mode: EdgeMode;
+  /**
+   * Weight is used only when the source splits load (gateway); 0 means 1.
+   */
+  weight?: number /* float64 */;
 }
 
 //////////
@@ -161,79 +177,189 @@ export interface RoutingRule {
 
 
 //////////
+// source: problem.go
+
+/**
+ * TargetMetric is the end-to-end number a problem target checks.
+ */
+export const TargetMetricReadThroughput = "read_throughput";
+export const TargetMetricWriteThroughput = "write_throughput";
+export const TargetMetricReadP99MS = "read_p99_ms";
+export const TargetMetricWriteP99MS = "write_p99_ms";
+export const TargetMetricAvailability = "availability";
+export type TargetMetric = typeof TargetMetricReadThroughput | typeof TargetMetricWriteThroughput | typeof TargetMetricReadP99MS | typeof TargetMetricWriteP99MS | typeof TargetMetricAvailability;
+export const TargetComparisonAtLeast = "at_least";
+export const TargetComparisonAtMost = "at_most";
+export type TargetComparison = typeof TargetComparisonAtLeast | typeof TargetComparisonAtMost;
+export interface Target {
+  id: string;
+  label: string;
+  metric: TargetMetric;
+  comparison: TargetComparison;
+  value: number /* float64 */;
+}
+/**
+ * Problem is a practice prompt with a fixed workload and pass/fail targets.
+ */
+export interface Problem {
+  id: string;
+  title: string;
+  summary: string;
+  difficulty: string;
+  /**
+   * Brief is the full prompt in Markdown.
+   */
+  brief: string;
+  workload: Workload;
+  targets: Target[];
+}
+export interface TargetResult {
+  target_id: string;
+  label: string;
+  passed: boolean;
+  /**
+   * Actual is nil when the metric is undefined, such as p99 latency through an overloaded node.
+   */
+  actual?: number /* float64 */;
+  expected: number /* float64 */;
+  metric: TargetMetric;
+}
+
+//////////
 // source: simulation.go
 
+/**
+ * Workload is the traffic the clients send. Model rules: docs/simulation-model.md.
+ */
 export interface Workload {
   requests_per_second: number /* float64 */;
-  concurrent_users?: number /* int */;
-  read_write_ratio?: number /* float64 */;
+  /**
+   * ReadShare is the fraction of requests that are reads, 0 to 1. Default 0.9.
+   */
+  read_share?: number /* float64 */;
+  /**
+   * PayloadKB is the average request or record size. Default 1.
+   */
   payload_kb?: number /* float64 */;
-  fanout_count?: number /* int */;
 }
 export interface SimulateRequest {
   design_id?: string;
   design?: Design;
-  workload: Workload;
+  /**
+   * Workload is required unless the design has a problem, whose workload then wins.
+   */
+  workload?: Workload;
 }
 export interface SimulateResponse {
   result?: SimulationResult;
 }
+/**
+ * Traffic is a rate split into reads and writes, in requests per second.
+ */
+export interface Traffic {
+  reads: number /* float64 */;
+  writes: number /* float64 */;
+}
 export interface SimulationResult {
-  summary: string;
-  bottleneck?: NodeSimulationResult;
-  nodes: NodeSimulationResult[];
-  edges: EdgeSimulationResult[];
-  paths?: PathExplanation[];
-  flows?: FlowSimulationResult[];
-}
-export interface FlowSimulationResult {
-  request_class_id: string;
-  name: string;
-  traffic_share: number /* float64 */;
+  /**
+   * Workload is the workload actually used (after defaults or the problem's workload).
+   */
   workload: Workload;
-  summary: string;
-  bottleneck?: NodeSimulationResult;
-  nodes: NodeSimulationResult[];
-  edges: EdgeSimulationResult[];
-  paths?: PathExplanation[];
+  nodes: NodeResult[];
+  edges: EdgeResult[];
+  end_to_end: EndToEnd;
+  /**
+   * BottleneckNodeID is the node with the highest utilisation; empty if no node has load.
+   */
+  bottleneck_node_id?: string;
+  estimates: Estimates;
+  findings: Finding[];
+  /**
+   * Targets is set only when the design is linked to a problem.
+   */
+  targets?: TargetResult[];
+  /**
+   * Warnings are graph problems that did not stop the run, such as an unconnected node.
+   */
+  warnings?: string[];
 }
-export interface NodeSimulationResult {
+export interface NodeResult {
   node_id: string;
   label: string;
   archetype: NodeArchetype;
-  incoming_rps: number /* float64 */;
-  processed_rps: number /* float64 */;
-  dropped_rps: number /* float64 */;
-  effective_capacity_rps: number /* float64 */;
+  component_id?: string;
+  /**
+   * Demand is what arrives; Served is what the node handles within capacity.
+   */
+  demand: Traffic;
+  served: Traffic;
+  /**
+   * CapacityRPS is the limit that Utilization is measured against
+   * (for a database: its primaries, which take every write).
+   */
+  capacity_rps: number /* float64 */;
   utilization: number /* float64 */;
-  estimated_latency_ms: number /* float64 */;
-  queue_depth_estimate?: number /* float64 */;
-  queue_lag_ms?: number /* float64 */;
-  saturated: boolean;
-  explanation: string;
+  overloaded: boolean;
+  /**
+   * Latency is omitted when the node is overloaded: queues grow without bound.
+   */
+  latency_p50_ms?: number /* float64 */;
+  latency_p99_ms?: number /* float64 */;
+  availability: number /* float64 */;
+  /**
+   * Working lists the calculation steps, one line each, for display.
+   */
+  working: string[];
 }
-export interface EdgeSimulationResult {
+export interface EdgeResult {
   edge_id: string;
   source_node_id: string;
   target_node_id: string;
-  interaction_type: EdgeInteractionType;
-  fanout_multiplier: number /* float64 */;
-  timeout_ms?: number /* float64 */;
-  retry_attempts?: number /* int */;
-  rule_type: RoutingRuleType;
-  routing_weight?: number /* float64 */;
-  attempted_rps?: number /* float64 */;
-  retried_rps?: number /* float64 */;
-  timed_out_rps?: number /* float64 */;
-  routed_rps: number /* float64 */;
+  mode: EdgeMode;
+  traffic: Traffic;
 }
-export interface PathExplanation {
-  kind: string;
-  summary: string;
-  node_ids: string[];
-  edge_ids: string[];
-  estimated_latency_ms?: number /* float64 */;
-  queue_lag_ms?: number /* float64 */;
-  retried_rps?: number /* float64 */;
-  timed_out_rps?: number /* float64 */;
+/**
+ * ClassResult is the end-to-end outcome for reads or for writes, as the client sees it.
+ */
+export interface ClassResult {
+  demand_rps: number /* float64 */;
+  served_rps: number /* float64 */;
+  /**
+   * SuccessRate is ServedRPS / DemandRPS, including failures caused by overloaded dependencies.
+   */
+  success_rate: number /* float64 */;
+  latency_p50_ms?: number /* float64 */;
+  latency_p99_ms?: number /* float64 */;
+  availability: number /* float64 */;
+  working: string[];
+}
+export interface EndToEnd {
+  reads: ClassResult;
+  writes: ClassResult;
+}
+export interface Estimates {
+  bandwidth_mb_per_sec: number /* float64 */;
+  storage_gb_per_day: number /* float64 */;
+  storage_tb_per_year: number /* float64 */;
+  working: string[];
+}
+export const FindingSeverityError = "error";
+export const FindingSeverityWarning = "warning";
+export const FindingSeverityInfo = "info";
+export type FindingSeverity = typeof FindingSeverityError | typeof FindingSeverityWarning | typeof FindingSeverityInfo;
+/**
+ * Finding is one rule-based review comment on the design.
+ */
+export interface Finding {
+  /**
+   * RuleID identifies the rule, for example "single_point_of_failure".
+   */
+  rule_id: string;
+  severity: FindingSeverity;
+  title: string;
+  /**
+   * Detail explains the problem and suggests a fix in one or two sentences.
+   */
+  detail: string;
+  node_ids?: string[];
 }

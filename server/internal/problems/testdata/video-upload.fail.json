@@ -1,0 +1,128 @@
+{
+  "name": "Video upload (failing)",
+  "problem_id": "video-upload",
+  "graph": {
+    "nodes": [
+      {
+        "id": "client",
+        "label": "Client",
+        "archetype": "client",
+        "component_id": "client",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "lb",
+        "label": "Load balancer",
+        "archetype": "gateway",
+        "component_id": "load-balancer",
+        "position": {
+          "x": 200,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 2
+        }
+      },
+      {
+        "id": "up",
+        "label": "Upload service",
+        "archetype": "stateless_service",
+        "component_id": "service",
+        "position": {
+          "x": 400,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 3
+        }
+      },
+      {
+        "id": "tx",
+        "label": "Transcoder (inline)",
+        "archetype": "stateless_service",
+        "component_id": "service",
+        "position": {
+          "x": 600,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 4,
+          "base_latency_ms": 200
+        }
+      },
+      {
+        "id": "store",
+        "label": "Video storage",
+        "archetype": "object_store",
+        "component_id": "s3",
+        "position": {
+          "x": 800,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "meta",
+        "label": "Video metadata",
+        "archetype": "database",
+        "component_id": "postgres",
+        "position": {
+          "x": 1000,
+          "y": 0
+        },
+        "properties": {
+          "shards": 1,
+          "read_replicas": 0
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source_node_id": "client",
+        "target_node_id": "lb",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e2",
+        "source_node_id": "lb",
+        "target_node_id": "up",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e3",
+        "source_node_id": "up",
+        "target_node_id": "tx",
+        "traffic": "writes",
+        "mode": "sync"
+      },
+      {
+        "id": "e4",
+        "source_node_id": "tx",
+        "target_node_id": "store",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e5",
+        "source_node_id": "up",
+        "target_node_id": "store",
+        "traffic": "reads",
+        "mode": "sync"
+      },
+      {
+        "id": "e6",
+        "source_node_id": "tx",
+        "target_node_id": "meta",
+        "traffic": "all",
+        "mode": "sync"
+      }
+    ]
+  }
+}

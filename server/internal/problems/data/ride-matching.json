@@ -1,0 +1,41 @@
+{
+  "id": "ride-matching",
+  "title": "Ride matching",
+  "difficulty": "hard",
+  "summary": "Track drivers in real time and match riders to the nearest one.",
+  "workload": {
+    "requests_per_second": 22000,
+    "read_share": 0.1,
+    "payload_kb": 0.2
+  },
+  "targets": [
+    {
+      "id": "writes",
+      "label": "Ingest every location update",
+      "metric": "write_throughput",
+      "comparison": "at_least",
+      "value": 19800
+    },
+    {
+      "id": "reads",
+      "label": "Answer every match request",
+      "metric": "read_throughput",
+      "comparison": "at_least",
+      "value": 2200
+    },
+    {
+      "id": "read-p99",
+      "label": "Match p99 under 400 ms",
+      "metric": "read_p99_ms",
+      "comparison": "at_most",
+      "value": 400
+    },
+    {
+      "id": "availability",
+      "label": "99.99% available",
+      "metric": "availability",
+      "comparison": "at_least",
+      "value": 0.9999
+    }
+  ]
+}

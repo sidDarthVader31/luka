@@ -1,0 +1,82 @@
+{
+  "name": "Rate limiter (passing)",
+  "problem_id": "rate-limiter",
+  "graph": {
+    "nodes": [
+      {
+        "id": "client",
+        "label": "Client",
+        "archetype": "client",
+        "component_id": "client",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "gw",
+        "label": "API gateway",
+        "archetype": "gateway",
+        "component_id": "api-gateway",
+        "position": {
+          "x": 200,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 7
+        }
+      },
+      {
+        "id": "lim",
+        "label": "Limiter",
+        "archetype": "stateless_service",
+        "component_id": "service",
+        "position": {
+          "x": 400,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 100
+        }
+      },
+      {
+        "id": "counters",
+        "label": "Counters (Redis)",
+        "archetype": "cache",
+        "component_id": "redis",
+        "position": {
+          "x": 600,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 4,
+          "cache_hit_rate": 1
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source_node_id": "client",
+        "target_node_id": "gw",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e2",
+        "source_node_id": "gw",
+        "target_node_id": "lim",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e3",
+        "source_node_id": "lim",
+        "target_node_id": "counters",
+        "traffic": "all",
+        "mode": "sync"
+      }
+    ]
+  }
+}

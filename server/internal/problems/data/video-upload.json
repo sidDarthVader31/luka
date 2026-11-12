@@ -1,0 +1,41 @@
+{
+  "id": "video-upload",
+  "title": "Video upload pipeline",
+  "difficulty": "hard",
+  "summary": "Accept video uploads, transcode them and serve them to viewers.",
+  "workload": {
+    "requests_per_second": 2000,
+    "read_share": 0.5,
+    "payload_kb": 2048
+  },
+  "targets": [
+    {
+      "id": "writes",
+      "label": "Accept every upload chunk",
+      "metric": "write_throughput",
+      "comparison": "at_least",
+      "value": 1000
+    },
+    {
+      "id": "write-p99",
+      "label": "Upload p99 under 300 ms",
+      "metric": "write_p99_ms",
+      "comparison": "at_most",
+      "value": 300
+    },
+    {
+      "id": "read-p99",
+      "label": "Playback p99 under 200 ms",
+      "metric": "read_p99_ms",
+      "comparison": "at_most",
+      "value": 200
+    },
+    {
+      "id": "availability",
+      "label": "99.9% available",
+      "metric": "availability",
+      "comparison": "at_least",
+      "value": 0.999
+    }
+  ]
+}

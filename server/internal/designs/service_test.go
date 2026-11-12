@@ -34,7 +34,6 @@ func TestCreateAndUpdateDesign(t *testing.T) {
 					ID:        "client-1",
 					Label:     "Client",
 					Archetype: domain.NodeArchetypeClient,
-					Color:     "blue",
 					Position: domain.NodePosition{
 						X: 80,
 						Y: 120,
@@ -76,19 +75,15 @@ func TestCreateRejectsInvalidGraph(t *testing.T) {
 					ID:        "service-1",
 					Label:     "Service",
 					Archetype: domain.NodeArchetypeStatelessService,
-					Color:     "green",
 					Position:  domain.NodePosition{X: 80, Y: 120},
 				},
 			},
 			Edges: []domain.Edge{
 				{
-					ID:              "edge-1",
-					SourceNodeID:    "service-1",
-					TargetNodeID:    "missing-db",
-					InteractionType: domain.EdgeInteractionTypeSyncRequest,
-					RoutingRule: domain.RoutingRule{
-						RuleType: domain.RoutingRuleTypeAlways,
-					},
+					ID:           "edge-1",
+					SourceNodeID: "service-1",
+					TargetNodeID: "missing-db",
+					Traffic:      domain.EdgeTrafficAll,
 				},
 			},
 		},

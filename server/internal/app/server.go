@@ -10,7 +10,6 @@ import (
 	designsvc "github.com/sidDarthVader31/luka/server/internal/designs"
 	"github.com/sidDarthVader31/luka/server/internal/platform"
 	"github.com/sidDarthVader31/luka/server/internal/simulation"
-	"github.com/sidDarthVader31/luka/server/internal/simulator"
 	"github.com/sidDarthVader31/luka/server/internal/store"
 )
 
@@ -31,7 +30,7 @@ func NewServer() (*Server, error) {
 	}
 
 	designService := designsvc.NewService(designRepo)
-	simulationService := simulation.NewService(designRepo, simulator.NewService())
+	simulationService := simulation.NewService(designRepo)
 
 	return &Server{
 		address: address,

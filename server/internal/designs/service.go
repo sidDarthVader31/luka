@@ -9,6 +9,7 @@ import (
 
 	"github.com/sidDarthVader31/luka/server/internal/domain"
 	"github.com/sidDarthVader31/luka/server/internal/graphs"
+	"github.com/sidDarthVader31/luka/server/internal/problems"
 	"github.com/sidDarthVader31/luka/server/internal/store"
 )
 
@@ -43,11 +44,17 @@ func (s *Service) Create(ctx context.Context, req domain.CreateDesignRequest) (*
 		return nil, err
 	}
 
+	problemID := strings.TrimSpace(req.ProblemID)
+	if problemID != "" && !problems.Exists(problemID) {
+		return nil, domain.Invalid("unknown problem_id %q", problemID)
+	}
+
 	now := time.Now().UTC()
 	design := domain.Design{
 		ID:          domain.NewID("des"),
 		Name:        name,
 		Description: strings.TrimSpace(req.Description),
+		ProblemID:   problemID,
 		Graph:       req.Graph,
 		Scene:       req.Scene,
 		CreatedAt:   &now,
@@ -171,6 +178,7 @@ func (s *Service) Duplicate(ctx context.Context, id string, req domain.Duplicate
 	return s.Create(ctx, domain.CreateDesignRequest{
 		Name:        name,
 		Description: description,
+		ProblemID:   source.ProblemID,
 		Graph:       source.Graph,
 		Scene:       source.Scene,
 	})

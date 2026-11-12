@@ -8,6 +8,9 @@ const (
 	PropertyKeyCapacityRPS   PropertyKey = "capacity_rps"
 	PropertyKeyBaseLatencyMS PropertyKey = "base_latency_ms"
 	PropertyKeyCacheHitRate  PropertyKey = "cache_hit_rate"
+	PropertyKeyShards        PropertyKey = "shards"
+	PropertyKeyReadReplicas  PropertyKey = "read_replicas"
+	PropertyKeyAvailability  PropertyKey = "availability"
 )
 
 // CatalogField describes one editable property of a catalog item.
@@ -35,12 +38,13 @@ type CatalogItem struct {
 	CategoryID  string `json:"category_id"`
 	Description string `json:"description"`
 	// Icon is a Tabler icon name, for example "database".
-	Icon                  string                `json:"icon"`
-	Kind                  NodeArchetype         `json:"kind"`
-	DefaultProperties     NodeProperties        `json:"default_properties"`
-	Fields                []CatalogField        `json:"fields"`
-	SupportedInteractions []EdgeInteractionType `json:"supported_interactions"`
-	SupportedRoutingRules []RoutingRuleType     `json:"supported_routing_rules"`
+	Icon              string         `json:"icon"`
+	Kind              NodeArchetype  `json:"kind"`
+	DefaultProperties NodeProperties `json:"default_properties"`
+	Fields            []CatalogField `json:"fields"`
+	// AllowedTargets lists the kinds this item may connect to. The server validates the
+	// same rule; the client uses it for instant feedback.
+	AllowedTargets []NodeArchetype `json:"allowed_targets"`
 }
 
 type Catalog struct {

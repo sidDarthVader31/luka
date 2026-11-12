@@ -1,0 +1,34 @@
+{
+  "id": "rate-limiter",
+  "title": "Rate limiter",
+  "difficulty": "easy",
+  "summary": "Check every API call against per-client quotas.",
+  "workload": {
+    "requests_per_second": 100000,
+    "read_share": 0.8,
+    "payload_kb": 0.2
+  },
+  "targets": [
+    {
+      "id": "reads",
+      "label": "Check every request",
+      "metric": "read_throughput",
+      "comparison": "at_least",
+      "value": 80000
+    },
+    {
+      "id": "read-p99",
+      "label": "Quota check p99 under 200 ms",
+      "metric": "read_p99_ms",
+      "comparison": "at_most",
+      "value": 200
+    },
+    {
+      "id": "availability",
+      "label": "99.99% available",
+      "metric": "availability",
+      "comparison": "at_least",
+      "value": 0.9999
+    }
+  ]
+}

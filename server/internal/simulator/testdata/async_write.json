@@ -1,0 +1,29 @@
+{
+  "design": {
+    "name": "Async write path",
+    "graph": {
+      "nodes": [
+        {"id": "client", "label": "Client", "archetype": "client", "component_id": "client", "position": {"x": 0, "y": 0}, "properties": {}},
+        {"id": "gw", "label": "API gateway", "archetype": "gateway", "component_id": "api-gateway", "position": {"x": 200, "y": 0},
+         "properties": {"replicas": 2, "capacity_rps": 20000, "base_latency_ms": 5, "availability": 0.999}},
+        {"id": "api", "label": "API", "archetype": "stateless_service", "component_id": "service", "position": {"x": 400, "y": 0},
+         "properties": {"replicas": 2, "capacity_rps": 5000, "base_latency_ms": 20, "availability": 0.999}},
+        {"id": "kafka", "label": "Kafka", "archetype": "queue", "component_id": "kafka", "position": {"x": 600, "y": -80},
+         "properties": {"replicas": 3, "capacity_rps": 50000, "base_latency_ms": 5, "availability": 0.999}},
+        {"id": "worker", "label": "Writer", "archetype": "worker", "component_id": "worker", "position": {"x": 800, "y": -80},
+         "properties": {"replicas": 2, "capacity_rps": 2000, "base_latency_ms": 50, "availability": 0.999}},
+        {"id": "db", "label": "Postgres", "archetype": "database", "component_id": "postgres", "position": {"x": 1000, "y": 0},
+         "properties": {"shards": 1, "read_replicas": 1, "capacity_rps": 5000, "base_latency_ms": 10, "availability": 0.999}}
+      ],
+      "edges": [
+        {"id": "e1", "source_node_id": "client", "target_node_id": "gw", "traffic": "all", "mode": "sync"},
+        {"id": "e2", "source_node_id": "gw", "target_node_id": "api", "traffic": "all", "mode": "sync"},
+        {"id": "e3", "source_node_id": "api", "target_node_id": "kafka", "traffic": "writes", "mode": "sync"},
+        {"id": "e4", "source_node_id": "api", "target_node_id": "db", "traffic": "reads", "mode": "sync"},
+        {"id": "e5", "source_node_id": "kafka", "target_node_id": "worker", "traffic": "all", "mode": "async"},
+        {"id": "e6", "source_node_id": "worker", "target_node_id": "db", "traffic": "all", "mode": "sync"}
+      ]
+    }
+  },
+  "workload": {"requests_per_second": 2000, "read_share": 0.5, "payload_kb": 1}
+}
