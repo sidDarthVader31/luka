@@ -4,19 +4,34 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 // Thin, undoable wrappers over the Excalidraw API. Each call is one history entry.
 
-export function viewportCenter(api: ExcalidrawImperativeAPI): { x: number; y: number } {
+/**
+ * Screen pixels on the right of the canvas covered by the floating inspector. New components are
+ * placed and kept clear of that strip, since selecting one opens the inspector over it.
+ */
+export const INSPECTOR_INSET = 290;
+
+/** Centre of the canvas area left of `rightInset` screen pixels, in scene coordinates. */
+export function viewportCenter(
+  api: ExcalidrawImperativeAPI,
+  rightInset = 0,
+): { x: number; y: number } {
   const { scrollX, scrollY, width, height, zoom } = api.getAppState();
-  return { x: -scrollX + width / 2 / zoom.value, y: -scrollY + height / 2 / zoom.value };
+  const visibleWidth = Math.max(width - rightInset, width / 2);
+  return { x: -scrollX + visibleWidth / 2 / zoom.value, y: -scrollY + height / 2 / zoom.value };
 }
 
-function isInView(api: ExcalidrawImperativeAPI, element: ExcalidrawElement): boolean {
+function isInView(
+  api: ExcalidrawImperativeAPI,
+  element: ExcalidrawElement,
+  rightInset: number,
+): boolean {
   const { scrollX, scrollY, width, height, zoom } = api.getAppState();
   const left = -scrollX;
   const top = -scrollY;
   return (
     element.x >= left &&
     element.y >= top &&
-    element.x + element.width <= left + width / zoom.value &&
+    element.x + element.width <= left + Math.max(width - rightInset, width / 2) / zoom.value &&
     element.y + element.height <= top + height / zoom.value
   );
 }
@@ -26,6 +41,7 @@ export function addElements(
   api: ExcalidrawImperativeAPI,
   elements: ExcalidrawElement[],
   selectId?: string,
+  rightInset = 0,
 ) {
   api.updateScene({
     elements: [...api.getSceneElementsIncludingDeleted(), ...elements],
@@ -33,8 +49,17 @@ export function addElements(
     captureUpdate: CaptureUpdateAction.IMMEDIATELY,
   });
   const selected = elements.find((element) => element.id === selectId);
-  if (selected && !isInView(api, selected)) {
-    api.scrollToContent(selected, { animate: true, duration: 300 });
+  if (selected && !isInView(api, selected, rightInset)) {
+    // Centre it in the strip left of the inspector (scrollToContent would centre it beneath).
+    const { width, height, zoom } = api.getAppState();
+    const visibleWidth = Math.max(width - rightInset, width / 2);
+    api.updateScene({
+      appState: {
+        scrollX: visibleWidth / 2 / zoom.value - (selected.x + selected.width / 2),
+        scrollY: height / 2 / zoom.value - (selected.y + selected.height / 2),
+      },
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
   }
 }
 

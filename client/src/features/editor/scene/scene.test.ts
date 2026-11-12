@@ -371,6 +371,47 @@ describe("insert-component", () => {
     expect(second[0]!.y).toBe(first[0]!.y);
   });
 
+  it("keeps new components clear of arrows and plain shapes", () => {
+    const first = insertComponent(item("service"), [], { x: 0, y: 0 });
+    const box = first[0]!;
+    // An arrow leaving the right of the box and a note below it block both preferred spots.
+    const blockers = convertToExcalidrawElements(
+      [
+        {
+          type: "arrow",
+          x: box.x + box.width,
+          y: 0,
+          points: [
+            [0, 0],
+            [300, 0],
+          ],
+          width: 300,
+          height: 0,
+        },
+        { type: "rectangle", x: box.x, y: box.y + box.height + 30, width: box.width, height: 80 },
+      ],
+      { regenerateIds: false },
+    );
+    const scene = [...first, ...blockers];
+    const [placed] = insertComponent(item("redis"), scene, { x: 0, y: 0 });
+    for (const other of scene.filter((element) => element.type !== "text")) {
+      const right = Math.max(
+        ...("points" in other ? other.points.map(([px]) => other.x + px) : [other.x + other.width]),
+      );
+      const bottom = Math.max(
+        ...("points" in other
+          ? other.points.map(([, py]) => other.y + py)
+          : [other.y + other.height]),
+      );
+      const clear =
+        placed!.x >= right ||
+        placed!.x + placed!.width <= other.x ||
+        placed!.y >= bottom ||
+        placed!.y + placed!.height <= other.y;
+      expect(clear, `overlaps ${other.type}`).toBe(true);
+    }
+  });
+
   it("nextNodeId picks the lowest free index", () => {
     expect(nextNodeId("redis", new Set(["redis-1", "redis-3"]))).toBe("redis-2");
   });

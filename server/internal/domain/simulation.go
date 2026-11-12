@@ -3,8 +3,9 @@ package domain
 // Workload is the traffic the clients send. Model rules: docs/simulation-model.md.
 type Workload struct {
 	RequestsPerSecond float64 `json:"requests_per_second"`
-	// ReadShare is the fraction of requests that are reads, 0 to 1. Default 0.9.
-	ReadShare float64 `json:"read_share,omitempty"`
+	// ReadShare is the fraction of requests that are reads, 0 to 1. Omitted means 0.9;
+	// 0 means every request is a write.
+	ReadShare *float64 `json:"read_share,omitempty"`
 	// PayloadKB is the average request or record size. Default 1.
 	PayloadKB float64 `json:"payload_kb,omitempty"`
 }

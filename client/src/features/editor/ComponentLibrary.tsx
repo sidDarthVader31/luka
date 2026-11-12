@@ -84,7 +84,8 @@ export function ComponentLibrary({ catalog, onInsert }: ComponentLibraryProps) {
                   <button
                     type="button"
                     className="library__item"
-                    title={item.description}
+                    title={`${item.name}: ${item.description}`}
+                    aria-label={item.name}
                     draggable
                     onDragStart={(event) => {
                       event.dataTransfer.setData(COMPONENT_DRAG_TYPE, item.id);

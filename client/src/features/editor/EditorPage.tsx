@@ -16,6 +16,7 @@ import { type EditorIssue, TopBar } from "./TopBar";
 import { TrafficBar } from "./TrafficBar";
 import { targetSummary } from "./lib/results";
 import {
+  INSPECTOR_INSET,
   addElements,
   replaceElements,
   selectElement,
@@ -127,7 +128,7 @@ function EditorWorkspace({
         return;
       }
       const created = insertComponent(item, api.getSceneElements(), point);
-      addElements(api, created, created[0]?.id);
+      addElements(api, created, created[0]?.id, INSPECTOR_INSET);
     },
     [api],
   );
@@ -178,7 +179,7 @@ function EditorWorkspace({
         <div className="editor__library">
           <ComponentLibrary
             catalog={catalog}
-            onInsert={(item) => api && insertAt(item, viewportCenter(api))}
+            onInsert={(item) => api && insertAt(item, viewportCenter(api, INSPECTOR_INSET))}
           />
         </div>
         <div className="editor__canvas">
@@ -187,6 +188,7 @@ function EditorWorkspace({
             onApi={setApi}
             onElementsChange={doc.onElementsChange}
             onViewChange={setView}
+            hideStylePanel={selection !== null && selection.kind !== "shape"}
             onDropComponent={(componentId, point) => {
               const item = catalog.items.find((entry) => entry.id === componentId);
               if (item) {

@@ -168,10 +168,11 @@ func resolveWorkload(w domain.Workload) (domain.Workload, error) {
 	if !finite(w.RequestsPerSecond) || w.RequestsPerSecond <= 0 {
 		return w, fmt.Errorf("workload requests_per_second must be greater than zero")
 	}
-	if w.ReadShare == 0 {
-		w.ReadShare = DefaultReadShare
+	if w.ReadShare == nil {
+		share := DefaultReadShare
+		w.ReadShare = &share
 	}
-	if !finite(w.ReadShare) || w.ReadShare < 0 || w.ReadShare > 1 {
+	if share := *w.ReadShare; !finite(share) || share < 0 || share > 1 {
 		return w, fmt.Errorf("workload read_share must be between 0 and 1")
 	}
 	if w.PayloadKB == 0 {

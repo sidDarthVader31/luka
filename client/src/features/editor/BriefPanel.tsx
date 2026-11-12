@@ -12,9 +12,12 @@ type BriefPanelProps = {
   results?: TargetResult[];
 };
 
+const NARROW_QUERY = "(max-width: 1279px)";
+
 /** The problem's brief and targets, floating over the top-left of the canvas. */
 export function BriefPanel({ problem, results }: BriefPanelProps) {
-  const [open, setOpen] = useState(true);
+  // On a narrow window the open brief would cover most of the canvas; start it collapsed there.
+  const [open, setOpen] = useState(() => !window.matchMedia(NARROW_QUERY).matches);
   const byId = new Map(results?.map((result) => [result.target_id, result]));
 
   return (

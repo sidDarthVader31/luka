@@ -66,14 +66,14 @@ func TestRules(t *testing.T) {
 			[]domain.Node{client, svc, nd("q", domain.NodeArchetypeQueue, P{Replicas: 2, CapacityRPS: 1e6}), nd("worker", domain.NodeArchetypeWorker, P{Replicas: 1, CapacityRPS: 1e6})},
 			[]domain.Edge{ed("client", "svc", sync), ed("svc", "q", async), ed("q", "worker", async)},
 			RuleSinglePointOfFailure, "worker", ""},
-		{"writes exceed primary", domain.Workload{RequestsPerSecond: 10000, ReadShare: 0.5}, []domain.Node{client, svc, with(db, func(p *P) { p.CapacityRPS = 4000 })},
+		{"writes exceed primary", domain.Workload{RequestsPerSecond: 10000, ReadShare: share(0.5)}, []domain.Node{client, svc, with(db, func(p *P) { p.CapacityRPS = 4000 })},
 			[]domain.Edge{ed("client", "svc", sync), ed("svc", "db", sync)},
 			RuleWritesExceedPrimary, "db", "at least 2 shards"}, // 5,000 writes / (0.8 × 4,000) = 1.56 → 2
 		{"writes within primary", w, healthy, healthyEdges, RuleWritesExceedPrimary, "db", ""},
 		{"read heavy without cache", w, []domain.Node{client, svc, db}, []domain.Edge{ed("client", "svc", sync), ed("svc", "db", sync)},
 			RuleReadHeavyWithoutCache, "db", "Route reads through a cache"},
 		{"read heavy with cache", w, healthy, healthyEdges, RuleReadHeavyWithoutCache, "db", ""},
-		{"write heavy without cache", domain.Workload{RequestsPerSecond: 1000, ReadShare: 0.5}, []domain.Node{client, svc, db},
+		{"write heavy without cache", domain.Workload{RequestsPerSecond: 1000, ReadShare: share(0.5)}, []domain.Node{client, svc, db},
 			[]domain.Edge{ed("client", "svc", sync), ed("svc", "db", sync)}, RuleReadHeavyWithoutCache, "db", ""},
 		{"queue without consumer", w, []domain.Node{client, svc, nd("q", domain.NodeArchetypeQueue, P{Replicas: 2, CapacityRPS: 1e6})},
 			[]domain.Edge{ed("client", "svc", sync), ed("svc", "q", async)},
@@ -142,3 +142,5 @@ func TestSeverities(t *testing.T) {
 		}
 	}
 }
+
+func share(v float64) *float64 { return &v }

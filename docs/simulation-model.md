@@ -16,7 +16,7 @@ Types: `server/internal/domain`. Engine: `server/internal/simulator`.
 
 Each client node emits reads `R·s` and writes `R·(1−s)`. With more than one client, R is split evenly across the clients that have at least one outgoing edge (an unconnected client is only a warning and emits nothing).
 
-`read_share` 0 means "use the default", so a workload of only writes cannot be expressed; use a small read share such as 0.01.
+A missing `read_share` means 0.9. An explicit 0 means every request is a write.
 
 **Edges.** An edge has `traffic` (`all`, `reads` or `writes`; default `all`) and `mode` (`sync` or `async`; default `sync`). An edge carries only the traffic it names.
 - **Sync:** the caller waits for the target. The edge adds latency and can fail the caller's request.
