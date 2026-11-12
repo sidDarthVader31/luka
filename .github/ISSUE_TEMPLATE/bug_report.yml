@@ -1,0 +1,32 @@
+name: Bug report
+description: Something is broken, or a simulation result looks wrong.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. A design and the number you expected make model bugs much easier to fix.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the URL shortener problem
+        2. Add a Service and Postgres, connect them
+        3. Run
+  - type: textarea
+    id: numbers
+    attributes:
+      label: Expected numbers (for wrong results)
+      description: The value you expected and how you worked it out. Paste the design JSON if you can (browser dev tools, Network tab, the /simulate request).
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: macOS 15, Chrome 140, in-memory store

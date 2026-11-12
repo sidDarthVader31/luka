@@ -1,0 +1,28 @@
+name: Feature or problem request
+description: Suggest a feature, a component, or a new practice problem.
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of request?
+      options:
+        - New practice problem
+        - New component
+        - Simulation model
+        - Editor or UI
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: The problem it solves for someone practising system design.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: For a problem, the scale and targets. For a component, how it should behave in the model.
