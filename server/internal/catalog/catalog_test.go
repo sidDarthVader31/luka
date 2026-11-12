@@ -85,7 +85,7 @@ func TestCatalogInvariants(t *testing.T) {
 		want, ok := wantFields[it.Kind]
 		if !ok {
 			t.Errorf("%s: kind %q has no expected fields", it.ID, it.Kind)
-		} else if !slices.Equal(keys, want) && !(len(keys) == 0 && len(want) == 0) {
+		} else if !slices.Equal(keys, want) {
 			t.Errorf("%s: fields %v, want %v", it.ID, keys, want)
 		}
 

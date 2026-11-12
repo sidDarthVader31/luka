@@ -313,10 +313,10 @@ func TestAvailability(t *testing.T) {
 	db := nd("db", kDB, P{Shards: 2, ReadReplicas: 1, CapacityRPS: 1e6, BaseLatencyMS: 10, Availability: 0.999})
 	r := run(t, w1000, []domain.Node{nd("c", kClient, P{}), s2, db}, []domain.Edge{ed("c", "s"), ed("s", "db")})
 	near(t, "client", node(t, r, "c").Availability, 1)
-	if got, want := node(t, r, "s").Availability, 1-math.Pow(0.001, 2); math.Abs(got-want) > 1e-12 {
+	if got, want := node(t, r, "s").Availability, 1-0.001*0.001; math.Abs(got-want) > 1e-12 {
 		t.Errorf("instances: %v, want %v", got, want) // 0.999999
 	}
-	if got, want := node(t, r, "db").Availability, math.Pow(1-math.Pow(0.001, 2), 2); math.Abs(got-want) > 1e-12 {
+	if got, want := node(t, r, "db").Availability, (1-0.001*0.001)*(1-0.001*0.001); math.Abs(got-want) > 1e-12 {
 		t.Errorf("shards with replicas: %v, want %v", got, want) // (1 − 0.001²)² = 0.999998
 	}
 
