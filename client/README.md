@@ -38,6 +38,8 @@ every change and saved alongside it.
 - Everything else (free text, frames, plain shapes, unbound arrows) is annotation the simulator
   ignores. Unsupported or half-attached arrows are reported as warnings and left out of the graph.
 - Designs without a scene (older designs, templates) are converted with `graph-to-scene.ts`.
+- Excalidraw loads its hand-drawn font only after it mounts, so labels built earlier are measured
+  with a fallback font. `remeasure-labels.ts` lays them out again once fonts finish loading.
 
 The client does not run the simulation; it calls the Go API (`POST /api/v1/simulate`). The model
 is described in `docs/simulation-model.md`. A design linked to a problem (`problem_id`) runs with
