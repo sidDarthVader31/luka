@@ -2,6 +2,8 @@ import { CaptureUpdateAction, newElementWith } from "@excalidraw/excalidraw";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
+import { remeasuredLabels } from "./scene/remeasure-labels";
+
 // Thin, undoable wrappers over the Excalidraw API. Each call is one history entry.
 
 /**
@@ -120,4 +122,25 @@ export function selectElements(api: ExcalidrawImperativeAPI, elementIds: string[
     captureUpdate: CaptureUpdateAction.NEVER,
   });
   api.scrollToContent(elements, { animate: true, duration: 300 });
+}
+
+/**
+ * Re-lays out box labels once fonts have loaded (see remeasuredLabels). Not an undo step, and a
+ * no-op when every label already fits.
+ */
+export function remeasureLabels(api: ExcalidrawImperativeAPI) {
+  const replacements = remeasuredLabels(api.getSceneElements());
+  if (replacements.length === 0) {
+    return;
+  }
+  const byId = new Map(replacements.map((element) => [element.id, element]));
+  api.updateScene({
+    elements: api.getSceneElementsIncludingDeleted().map((element) => {
+      const replacement = byId.get(element.id);
+      return replacement
+        ? newElementWith(element, replacement as Partial<ExcalidrawElement> as never)
+        : element;
+    }),
+    captureUpdate: CaptureUpdateAction.NEVER,
+  });
 }

@@ -306,11 +306,12 @@
 .results__working {
   margin: 8px 0 0;
   padding: 8px 10px;
-  overflow-x: auto;
   border-radius: 8px;
   background: var(--paper);
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.6;
-  white-space: pre;
+  /* Wrap long formulas; a sideways scroll hid the result at the end of each line. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

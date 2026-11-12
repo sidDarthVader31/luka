@@ -7,8 +7,9 @@ import type {
   UIOptions,
 } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
-import { type DragEvent, type ReactNode, useCallback, useMemo, useRef } from "react";
+import { type DragEvent, type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 
+import { remeasureLabels } from "./scene-actions";
 import { reassignDuplicatedIds } from "./scene/insert-component";
 import type { LukaScene, PersistedAppState } from "./scene/types";
 import "./Canvas.css";
@@ -76,12 +77,20 @@ export function Canvas(props: CanvasProps) {
     [props.initialScene],
   );
 
+  // Excalidraw loads its font files after mounting, after our labels were measured.
+  useEffect(() => {
+    const onFontsLoaded = () => api.current && remeasureLabels(api.current);
+    document.fonts.addEventListener("loadingdone", onFontsLoaded);
+    return () => document.fonts.removeEventListener("loadingdone", onFontsLoaded);
+  }, []);
+
   const handleChange = useCallback((elements: readonly ExcalidrawElement[], appState: AppState) => {
     // Frame the design once its elements have loaded. Excalidraw's first change events can
     // arrive before initialData is applied, with no elements yet.
     // (initialData's scrollToContent ignores our layout.)
     if (!fitted.current && api.current && elements.some((element) => !element.isDeleted)) {
       fitted.current = true;
+      remeasureLabels(api.current); // in case the fonts were already cached
       api.current.scrollToContent(undefined, {
         fitToViewport: true,
         viewportZoomFactor: 0.7,
