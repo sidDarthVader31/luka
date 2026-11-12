@@ -66,7 +66,7 @@ Request. Provide exactly one of `design_id` or `design`:
 }
 ```
 
-- If the design has a `problem_id`, the problem's workload is used and `workload` is ignored. Otherwise `workload` is required: `requests_per_second` > 0, `read_share` from 0 to 1 (0 or missing means 0.9), `payload_kb` ≥ 0 (0 or missing means 1).
+- If the design has a `problem_id`, the problem's workload is used and `workload` is ignored. Otherwise `workload` is required: `requests_per_second` > 0, `read_share` from 0 to 1 (missing means 0.9; 0 means all writes), `payload_kb` ≥ 0 (0 or missing means 1).
 - An inline `design` need not be saved.
 - The graph is validated in run mode; failures are 400 with the issues listed in `error`.
 

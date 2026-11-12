@@ -75,14 +75,15 @@ func (m *model) emit(i int) {
 		return
 	}
 	w := m.workload
+	share := *w.ReadShare // set by resolveWorkload
 	k := float64(len(m.clients))
-	n.demand = domain.Traffic{Reads: w.RequestsPerSecond * w.ReadShare / k, Writes: w.RequestsPerSecond * (1 - w.ReadShare) / k}
+	n.demand = domain.Traffic{Reads: w.RequestsPerSecond * share / k, Writes: w.RequestsPerSecond * (1 - share) / k}
 	n.served = n.demand
 	if len(m.clients) > 1 {
 		n.addWorking("share of traffic = %s req/s / %d clients = %s req/s", num(w.RequestsPerSecond), len(m.clients), num(w.RequestsPerSecond/k))
 	}
-	n.addWorking("reads = %s × %s = %s req/s", num(w.RequestsPerSecond/k), num(w.ReadShare), num(n.demand.Reads))
-	n.addWorking("writes = %s × (1 − %s) = %s req/s", num(w.RequestsPerSecond/k), num(w.ReadShare), num(n.demand.Writes))
+	n.addWorking("reads = %s × %s = %s req/s", num(w.RequestsPerSecond/k), num(share), num(n.demand.Reads))
+	n.addWorking("writes = %s × (1 − %s) = %s req/s", num(w.RequestsPerSecond/k), num(share), num(n.demand.Writes))
 }
 
 // forward assigns traffic to node i's outgoing edges.

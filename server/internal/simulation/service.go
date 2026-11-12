@@ -91,7 +91,7 @@ func validateWorkload(w domain.Workload) (domain.Workload, error) {
 	switch {
 	case w.RequestsPerSecond <= 0:
 		return w, domain.Invalid("workload.requests_per_second must be greater than zero")
-	case w.ReadShare < 0 || w.ReadShare > 1:
+	case w.ReadShare != nil && (*w.ReadShare < 0 || *w.ReadShare > 1):
 		return w, domain.Invalid("workload.read_share must be between 0 and 1")
 	case w.PayloadKB < 0:
 		return w, domain.Invalid("workload.payload_kb cannot be negative")

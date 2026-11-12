@@ -213,7 +213,7 @@ func (a *analysis) behindCache(id string) bool {
 }
 
 func (a *analysis) readHeavyWithoutCache() {
-	if a.result.Workload.ReadShare < 0.8 {
+	if *a.result.Workload.ReadShare < 0.8 {
 		return
 	}
 	for _, n := range a.result.Nodes {
@@ -221,7 +221,7 @@ func (a *analysis) readHeavyWithoutCache() {
 			a.add(RuleReadHeavyWithoutCache, domain.FindingSeverityInfo, n.NodeID,
 				fmt.Sprintf("Every read reaches %s", label(n)),
 				fmt.Sprintf("The workload is %.0f%% reads and nothing caches them. Route reads through a cache (service → Redis → %s) so only misses reach the database.",
-					a.result.Workload.ReadShare*100, label(n)))
+					*a.result.Workload.ReadShare*100, label(n)))
 		}
 	}
 }

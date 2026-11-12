@@ -31,7 +31,7 @@ func TestSimulateSeededDesigns(t *testing.T) {
 		if len(result.Nodes) == 0 || result.BottleneckNodeID == "" {
 			t.Fatalf("%s: expected nodes and a bottleneck, got %+v", id, result)
 		}
-		if result.Workload.ReadShare != 0.9 || result.Workload.PayloadKB != 1 {
+		if *result.Workload.ReadShare != 0.9 || result.Workload.PayloadKB != 1 {
 			t.Fatalf("%s: workload defaults not applied: %+v", id, result.Workload)
 		}
 	}
@@ -70,7 +70,7 @@ func TestSimulateErrors(t *testing.T) {
 		{"no design", domain.SimulateRequest{Workload: &domain.Workload{RequestsPerSecond: 1}}, domain.ErrInvalid, "exactly one of"},
 		{"no workload", domain.SimulateRequest{DesignID: store.SampleCacheAsideID}, domain.ErrInvalid, "workload is required"},
 		{"zero rps", domain.SimulateRequest{DesignID: store.SampleCacheAsideID, Workload: &domain.Workload{}}, domain.ErrInvalid, "requests_per_second"},
-		{"bad read share", domain.SimulateRequest{DesignID: store.SampleCacheAsideID, Workload: &domain.Workload{RequestsPerSecond: 1, ReadShare: 1.5}}, domain.ErrInvalid, "read_share"},
+		{"bad read share", domain.SimulateRequest{DesignID: store.SampleCacheAsideID, Workload: &domain.Workload{RequestsPerSecond: 1, ReadShare: share(1.5)}}, domain.ErrInvalid, "read_share"},
 		{"no client", domain.SimulateRequest{Design: inlineNoClient, Workload: &domain.Workload{RequestsPerSecond: 1}}, domain.ErrInvalid, "client"},
 		{"unknown problem", domain.SimulateRequest{Design: &domain.Design{ProblemID: "nope"}}, domain.ErrInvalid, "unknown problem"},
 		{"unknown design", domain.SimulateRequest{DesignID: "missing", Workload: &domain.Workload{RequestsPerSecond: 1}}, domain.ErrNotFound, ""},
@@ -84,3 +84,5 @@ func TestSimulateErrors(t *testing.T) {
 		})
 	}
 }
+
+func share(v float64) *float64 { return &v }

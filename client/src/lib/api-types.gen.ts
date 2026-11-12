@@ -234,7 +234,8 @@ export interface TargetResult {
 export interface Workload {
   requests_per_second: number /* float64 */;
   /**
-   * ReadShare is the fraction of requests that are reads, 0 to 1. Default 0.9.
+   * ReadShare is the fraction of requests that are reads, 0 to 1. Omitted means 0.9;
+   * 0 means every request is a write.
    */
   read_share?: number /* float64 */;
   /**

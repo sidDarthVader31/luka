@@ -108,15 +108,23 @@ var w1000 = domain.Workload{RequestsPerSecond: 1000} // 900 reads, 100 writes
 func TestClientEmission(t *testing.T) {
 	r := run(t, w1000, []domain.Node{nd("c", kClient, P{}), svc("s")}, []domain.Edge{ed("c", "s")})
 	traffic(t, "client", node(t, r, "c").Demand, 900, 100) // 1000 × 0.9, 1000 × 0.1
-	near(t, "read share default", r.Workload.ReadShare, 0.9)
+	near(t, "read share default", *r.Workload.ReadShare, 0.9)
 	near(t, "payload default", r.Workload.PayloadKB, 1)
 	near(t, "reads demand", r.EndToEnd.Reads.DemandRPS, 900)
 	near(t, "writes demand", r.EndToEnd.Writes.DemandRPS, 100)
 }
 
+func TestWritesOnlyWorkload(t *testing.T) {
+	// An explicit 0 is a real value, not "use the default".
+	r := run(t, domain.Workload{RequestsPerSecond: 1000, ReadShare: share(0)},
+		[]domain.Node{nd("c", kClient, P{}), svc("s")}, []domain.Edge{ed("c", "s")})
+	traffic(t, "client", node(t, r, "c").Demand, 0, 1000)
+	near(t, "read share kept", *r.Workload.ReadShare, 0)
+}
+
 func TestMultiClientSplit(t *testing.T) {
 	// Two connected clients share R; the unconnected one emits nothing.
-	r := run(t, domain.Workload{RequestsPerSecond: 1000, ReadShare: 0.8},
+	r := run(t, domain.Workload{RequestsPerSecond: 1000, ReadShare: share(0.8)},
 		[]domain.Node{nd("c1", kClient, P{}), nd("c2", kClient, P{}), nd("c3", kClient, P{}), svc("s")},
 		[]domain.Edge{ed("c1", "s"), ed("c2", "s")})
 	traffic(t, "c1", node(t, r, "c1").Demand, 400, 100) // 500 × 0.8, 500 × 0.2
@@ -418,3 +426,5 @@ func TestNumberFormatting(t *testing.T) {
 		t.Errorf("pct = %q", got)
 	}
 }
+
+func share(v float64) *float64 { return &v }
