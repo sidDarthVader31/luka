@@ -4,6 +4,9 @@ import { Link, useParams } from "react-router-dom";
 
 import type { Catalog, CatalogItem, Workload } from "../../lib/api";
 import { useCatalog } from "../catalog/useCatalog";
+import { writeLastRunPassed } from "../problems/problem-status";
+import { useProblem } from "../problems/useProblems";
+import { BriefPanel } from "./BriefPanel";
 import { Canvas, type CanvasView } from "./Canvas";
 import { ComponentLibrary } from "./ComponentLibrary";
 import { Inspector } from "./Inspector";
@@ -11,19 +14,21 @@ import { ResultOverlay } from "./ResultOverlay";
 import { ResultsPanel } from "./ResultsPanel";
 import { type EditorIssue, TopBar } from "./TopBar";
 import { TrafficBar } from "./TrafficBar";
-import { validateGraphForRun } from "./lib/graph-validation";
-import { OVERALL, resultViews } from "./lib/result-view";
+import { targetSummary } from "./lib/results";
 import {
   addElements,
   replaceElements,
   selectElement,
+  selectElements,
   updateLukaData,
   viewportCenter,
 } from "./scene-actions";
 import { insertComponent, makeComponent } from "./scene/insert-component";
 import { resolveSelection } from "./scene/selection";
+import { strokeStyleFor } from "./scene/style";
+import type { ConnectionData } from "./scene/types";
 import { type DesignDocument, useDesignDocument } from "./useDesignDocument";
-import { DEFAULT_WORKLOAD, graphSignature, useSimulation } from "./useSimulation";
+import { DEFAULT_WORKLOAD, runSignature, useSimulation } from "./useSimulation";
 import "./EditorPage.css";
 
 export function EditorPage() {
@@ -77,31 +82,39 @@ function EditorWorkspace({
 }) {
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const [view, setView] = useState<CanvasView>(INITIAL_VIEW);
-  const [workload, setWorkload] = useState<Workload>(DEFAULT_WORKLOAD);
-  const [activeResultId, setActiveResultId] = useState(OVERALL);
+  const [ownWorkload, setOwnWorkload] = useState<Workload>(DEFAULT_WORKLOAD);
   const [resultsOpen, setResultsOpen] = useState(false);
   const simulation = useSimulation();
-  const { derived } = doc;
+  const { derived, design } = doc;
+  const { problem, error: problemError } = useProblem(design.problem_id);
 
-  const views = useMemo(
-    () => (simulation.result ? resultViews(simulation.result) : []),
-    [simulation.result],
-  );
-  const activeView = views.find((entry) => entry.id === activeResultId) ?? views[0] ?? null;
+  // A problem fixes the workload; the server uses it, so the client sends none.
+  const workload = problem?.workload ?? ownWorkload;
+  const sentWorkload = design.problem_id ? undefined : ownWorkload;
+  const result = simulation.result;
   const stale =
-    simulation.signature !== null && simulation.signature !== graphSignature(derived.graph);
+    simulation.signature !== null &&
+    simulation.signature !== runSignature(derived.graph, sentWorkload);
+  const targets = useMemo(() => targetSummary(result?.targets), [result]);
 
   const issues = useMemo<EditorIssue[]>(() => {
-    const preflight = validateGraphForRun(derived.graph).map((issue) => ({
-      message: issue.message,
-      elementIds: issue.nodeIds.flatMap((id) => derived.elementIdByNodeId.get(id) ?? []),
-      blocking: true,
+    const warnings = derived.warnings.map<EditorIssue>((warning) => ({
+      ...warning,
+      severity: "warning",
     }));
-    const warnings = derived.warnings.map((warning) => ({ ...warning, blocking: false }));
-    return simulation.error
-      ? [{ message: simulation.error, elementIds: [], blocking: false }, ...preflight, ...warnings]
-      : [...preflight, ...warnings];
-  }, [derived, simulation.error]);
+    const errors: EditorIssue[] = [];
+    if (simulation.error) {
+      errors.push({ message: simulation.error, elementIds: [], severity: "error" });
+    }
+    if (problemError) {
+      errors.push({
+        message: `Couldn't load the problem: ${problemError}`,
+        elementIds: [],
+        severity: "error",
+      });
+    }
+    return [...errors, ...warnings];
+  }, [derived, simulation.error, problemError]);
 
   const selection = useMemo(
     () => resolveSelection(view.selectedIds, doc.elements, catalog.items, derived),
@@ -120,18 +133,29 @@ function EditorWorkspace({
   );
 
   const run = async () => {
-    await simulation.run(
-      { id: doc.design.id, name: doc.name || "Untitled design", graph: derived.graph },
-      workload,
+    const next = await simulation.run(
+      {
+        id: design.id,
+        name: doc.name || "Untitled design",
+        problem_id: design.problem_id,
+        graph: derived.graph,
+      },
+      sentWorkload,
     );
-    setActiveResultId(OVERALL);
+    if (!next) {
+      return;
+    }
+    const summary = targetSummary(next.targets);
+    if (summary) {
+      writeLastRunPassed(design.id, summary.allPassed);
+    }
     setResultsOpen(true);
   };
 
-  const selectNode = (nodeId: string) => {
-    const elementId = derived.elementIdByNodeId.get(nodeId);
-    if (api && elementId) {
-      selectElement(api, elementId);
+  const selectNodes = (nodeIds: string[]) => {
+    const elementIds = nodeIds.flatMap((id) => derived.elementIdByNodeId.get(id) ?? []);
+    if (api && elementIds.length > 0) {
+      selectElements(api, elementIds);
     }
   };
 
@@ -147,6 +171,8 @@ function EditorWorkspace({
         }
         running={simulation.running}
         onRun={() => void run()}
+        targets={targets}
+        onTargetsClick={() => setResultsOpen(true)}
       />
       <div className="editor__main">
         <div className="editor__library">
@@ -173,13 +199,17 @@ function EditorWorkspace({
               view={view}
               derived={derived}
               catalog={catalog.items}
-              result={resultsOpen ? activeView : null}
+              result={resultsOpen ? result : null}
             />
+            {problem ? (
+              <div className="editor__brief">
+                <BriefPanel problem={problem} results={result?.targets} />
+              </div>
+            ) : null}
             <div className="editor__inspector">
               <Inspector
                 target={selection}
                 catalog={catalog}
-                requestClasses={doc.requestClasses}
                 onComponentChange={(elementId, properties) =>
                   api && updateLukaData(api, elementId, { properties })
                 }
@@ -187,8 +217,10 @@ function EditorWorkspace({
                   if (!api || selection?.kind !== "connection") {
                     return;
                   }
-                  // Write the resolved edge id so the arrow keeps it after duplication.
-                  updateLukaData(api, elementId, { edgeId: selection.edge.id, ...patch });
+                  // Write the full data so the arrow keeps its edge id after duplication.
+                  // A cleared weight stays as `undefined`, which JSON drops on save.
+                  const data: ConnectionData = { ...selection.data, ...patch };
+                  updateLukaData(api, elementId, data, { strokeStyle: strokeStyleFor(data.mode) });
                 }}
                 onMakeComponent={(elementId, item) => {
                   const shape = api?.getSceneElements().find((entry) => entry.id === elementId);
@@ -201,22 +233,18 @@ function EditorWorkspace({
             <div className="editor__traffic">
               <TrafficBar
                 workload={workload}
-                onWorkloadChange={setWorkload}
-                requestClasses={doc.requestClasses}
-                onRequestClassesChange={doc.setRequestClasses}
-                edges={derived.graph.edges}
+                onWorkloadChange={setOwnWorkload}
+                lockedBy={problem?.title}
               />
             </div>
           </Canvas>
         </div>
-        {resultsOpen && views.length > 0 ? (
+        {resultsOpen && result ? (
           <div className="editor__results">
             <ResultsPanel
-              views={views}
-              activeId={activeView?.id ?? OVERALL}
-              onActiveChange={setActiveResultId}
+              result={result}
               stale={stale}
-              onSelectNode={selectNode}
+              onSelectNodes={selectNodes}
               onClose={() => setResultsOpen(false)}
             />
           </div>

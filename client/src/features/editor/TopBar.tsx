@@ -1,15 +1,16 @@
-import { IconAlertTriangle, IconArrowLeft, IconPlayerPlay } from "@tabler/icons-react";
+import { IconAlertTriangle, IconArrowLeft, IconPlayerPlay, IconTarget } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
+import type { TargetSummary } from "./lib/results";
 import type { SaveState } from "./useDesignDocument";
 import "./TopBar.css";
 
 export type EditorIssue = {
   message: string;
   elementIds: string[];
-  /** Blocking issues stop Run; the rest are warnings about ignored arrows. */
-  blocking: boolean;
+  /** Errors (a failed run) are shown in red; the rest are warnings about ignored arrows. */
+  severity: "error" | "warning";
 };
 
 type TopBarProps = {
@@ -20,6 +21,9 @@ type TopBarProps = {
   onIssueClick: (issue: EditorIssue) => void;
   running: boolean;
   onRun: () => void;
+  /** Shown after a run of a problem design. */
+  targets?: TargetSummary | null;
+  onTargetsClick?: () => void;
 };
 
 const SAVE_LABELS: Record<SaveState, string> = {
@@ -31,7 +35,7 @@ const SAVE_LABELS: Record<SaveState, string> = {
 
 export function TopBar(props: TopBarProps) {
   const [showIssues, setShowIssues] = useState(false);
-  const blocking = props.issues.some((issue) => issue.blocking);
+  const hasError = props.issues.some((issue) => issue.severity === "error");
 
   return (
     <header className="topbar">
@@ -54,7 +58,7 @@ export function TopBar(props: TopBarProps) {
           <button
             type="button"
             className="btn btn--ghost btn--small"
-            data-blocking={blocking}
+            data-blocking={hasError}
             aria-expanded={showIssues}
             onClick={() => setShowIssues((value) => !value)}
           >
@@ -67,7 +71,7 @@ export function TopBar(props: TopBarProps) {
                 <li key={`${issue.message}-${issue.elementIds.join(",")}`}>
                   <button
                     type="button"
-                    data-blocking={issue.blocking}
+                    data-blocking={issue.severity === "error"}
                     disabled={issue.elementIds.length === 0}
                     onClick={() => {
                       props.onIssueClick(issue);
@@ -82,11 +86,22 @@ export function TopBar(props: TopBarProps) {
           ) : null}
         </div>
       ) : null}
+      {props.targets ? (
+        <button
+          type="button"
+          className="topbar__targets"
+          data-passed={props.targets.allPassed}
+          onClick={props.onTargetsClick}
+        >
+          <IconTarget size={16} aria-hidden />
+          {props.targets.label}
+        </button>
+      ) : null}
       <button
         type="button"
         className="btn btn--primary"
-        disabled={props.running || blocking}
-        title={blocking ? "Fix the issues first" : "Simulate this design"}
+        disabled={props.running}
+        title="Simulate this design"
         onClick={props.onRun}
       >
         <IconPlayerPlay size={16} aria-hidden />

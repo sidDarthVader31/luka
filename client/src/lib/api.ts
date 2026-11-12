@@ -3,6 +3,7 @@ import type {
   CreateDesignRequest,
   Design,
   DuplicateDesignRequest,
+  Problem,
   SimulateRequest,
   SimulationResult,
   UpdateDesignRequest,
@@ -77,4 +78,13 @@ export async function simulate(input: SimulateRequest) {
   });
 
   return response.result;
+}
+
+export async function listProblems() {
+  const response = await request<{ items: Problem[] }>("/problems");
+  return response.items;
+}
+
+export function getProblem(problemId: string) {
+  return request<Problem>(`/problems/${problemId}`);
 }

@@ -2,15 +2,9 @@ import { getSceneVersion } from "@excalidraw/excalidraw";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  type Catalog,
-  type Design,
-  type RequestClass,
-  getDesign,
-  updateDesign,
-} from "../../lib/api";
-import { allTrafficTemplate } from "./lib/traffic-paths";
+import { type Catalog, type Design, getDesign, updateDesign } from "../../lib/api";
 import { graphToScene } from "./scene/graph-to-scene";
+import { migrateSceneElements } from "./scene/migrate";
 import { type DerivedGraph, sceneToGraph } from "./scene/scene-to-graph";
 import { type LukaScene, type PersistedAppState, isScene } from "./scene/types";
 
@@ -27,8 +21,6 @@ export type DesignDocument =
       initialScene: LukaScene;
       name: string;
       setName: (name: string) => void;
-      requestClasses: RequestClass[];
-      setRequestClasses: (next: RequestClass[]) => void;
       elements: readonly ExcalidrawElement[];
       /** Feed every Excalidraw onChange here; appState-only changes are ignored. */
       onElementsChange: (
@@ -44,7 +36,6 @@ export function useDesignDocument(designId: string, catalog: Catalog | null): De
   const [loaded, setLoaded] = useState<{ design: Design; scene: LukaScene } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [name, setNameState] = useState("");
-  const [requestClasses, setRequestClassesState] = useState<RequestClass[]>(allTrafficTemplate());
   const [elements, setElements] = useState<readonly ExcalidrawElement[]>([]);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [revision, setRevision] = useState(0);
@@ -67,17 +58,16 @@ export function useDesignDocument(designId: string, catalog: Catalog | null): De
           return;
         }
         const scene = isScene(design.scene)
-          ? { ...design.scene, appState: design.scene.appState ?? {} }
+          ? {
+              ...design.scene,
+              elements: migrateSceneElements(design.scene.elements),
+              appState: design.scene.appState ?? {},
+            }
           : graphToScene(design.graph, catalog.items);
         sceneVersion.current = getSceneVersion(scene.elements);
         appState.current = scene.appState;
         setLoaded({ design, scene });
         setNameState(design.name);
-        setRequestClassesState(
-          design.graph.request_classes?.length
-            ? design.graph.request_classes
-            : allTrafficTemplate(),
-        );
         setElements(scene.elements);
         setSaveState("saved");
       })
@@ -119,18 +109,7 @@ export function useDesignDocument(designId: string, catalog: Catalog | null): De
     [markDirty],
   );
 
-  const setRequestClasses = useCallback(
-    (next: RequestClass[]) => {
-      setRequestClassesState(next);
-      markDirty();
-    },
-    [markDirty],
-  );
-
-  const derived = useMemo(
-    () => sceneToGraph(elements, catalog?.items ?? [], requestClasses),
-    [elements, catalog, requestClasses],
-  );
+  const derived = useMemo(() => sceneToGraph(elements, catalog?.items ?? []), [elements, catalog]);
 
   // Debounced autosave of name, scene and derived graph.
   const latest = useRef({ name, derived, elements });
@@ -178,8 +157,6 @@ export function useDesignDocument(designId: string, catalog: Catalog | null): De
     initialScene: loaded.scene,
     name,
     setName,
-    requestClasses,
-    setRequestClasses,
     elements,
     onElementsChange,
     derived,

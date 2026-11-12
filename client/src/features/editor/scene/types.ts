@@ -4,7 +4,7 @@ import type {
   ExcalidrawTextElement,
 } from "@excalidraw/excalidraw/element/types";
 
-import type { EdgeInteractionType, NodeProperties, RoutingRuleType } from "../../../lib/api";
+import type { EdgeMode, EdgeTraffic, NodeProperties } from "../../../lib/api";
 
 /** Stored on a component's container element as `customData.luka`. */
 export type ComponentData = {
@@ -13,15 +13,16 @@ export type ComponentData = {
   properties: NodeProperties;
 };
 
-/** Stored on a connection arrow as `customData.luka`. All fields are optional on new arrows. */
+/**
+ * Stored on a connection arrow as `customData.luka`. New arrows have no data until the inspector
+ * edits them; they read as `{ traffic: "all", mode: "sync" }`.
+ */
 export type ConnectionData = {
   edgeId: string;
-  interactionType?: EdgeInteractionType;
-  ruleType?: RoutingRuleType;
-  fanoutMultiplier?: number;
-  timeoutMs?: number;
-  retryAttempts?: number;
-  requestClassIds?: string[];
+  traffic: EdgeTraffic;
+  mode: EdgeMode;
+  /** Only used when the source is a gateway. */
+  weight?: number;
 };
 
 /** The minimal app state we persist; everything else (viewport, tools, collaborators) is transient. */
@@ -52,12 +53,45 @@ export function componentData(element: ExcalidrawElement): ComponentData | null 
   return { nodeId: luka.nodeId, componentId: luka.componentId, properties: luka.properties ?? {} };
 }
 
+const TRAFFIC_VALUES: readonly EdgeTraffic[] = ["all", "reads", "writes"];
+const ASYNC_INTERACTIONS = new Set(["async_enqueue", "consume"]);
+
+/**
+ * Normalises stored connection fields, including the Phase 2 shape
+ * (`interactionType`, `ruleType`, fan-out, timeout, retries, request classes):
+ * enqueue and consume become async, everything else sync, and traffic becomes `all`.
+ */
+export function migrateConnection(raw: Record<string, unknown>): Omit<ConnectionData, "edgeId"> {
+  const traffic = TRAFFIC_VALUES.includes(raw.traffic as EdgeTraffic)
+    ? (raw.traffic as EdgeTraffic)
+    : "all";
+  let mode: EdgeMode;
+  if (raw.mode === "sync" || raw.mode === "async") {
+    mode = raw.mode;
+  } else {
+    const interaction = raw.interactionType ?? raw.interaction_type;
+    mode =
+      typeof interaction === "string" && ASYNC_INTERACTIONS.has(interaction) ? "async" : "sync";
+  }
+  const weight = typeof raw.weight === "number" && raw.weight > 0 ? raw.weight : undefined;
+  return weight === undefined ? { traffic, mode } : { traffic, mode, weight };
+}
+
 export function connectionData(element: ExcalidrawElement): ConnectionData | null {
-  const luka = element.customData?.luka as Partial<ConnectionData> | undefined;
+  const luka = element.customData?.luka as Record<string, unknown> | undefined;
   if (!luka || typeof luka.edgeId !== "string") {
     return null;
   }
-  return luka as ConnectionData;
+  return { edgeId: luka.edgeId, ...migrateConnection(luka) };
+}
+
+/** Whether stored arrow data is in an older shape than `ConnectionData`. */
+export function isLegacyConnection(element: ExcalidrawElement): boolean {
+  const luka = element.customData?.luka as Record<string, unknown> | undefined;
+  if (!luka || typeof luka.edgeId !== "string") {
+    return false;
+  }
+  return luka.mode === undefined || luka.traffic === undefined || "interactionType" in luka;
 }
 
 export function isComponent(element: ExcalidrawElement): boolean {

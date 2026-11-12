@@ -1,3 +1,5 @@
+import type { EdgeMode } from "../../../lib/api";
+
 // Scene element styling. These are Excalidraw palette values (scene data, not UI chrome), so
 // they live here rather than in tokens.css.
 export const COMPONENT_SIZE = { width: 180, height: 80 } as const;
@@ -20,4 +22,9 @@ const CATEGORY_BACKGROUND: Record<string, string> = {
 
 export function backgroundFor(categoryId: string): string {
   return CATEGORY_BACKGROUND[categoryId] ?? "#f8f9fa";
+}
+
+/** Async connections are drawn dashed. */
+export function strokeStyleFor(mode: EdgeMode): "solid" | "dashed" {
+  return mode === "async" ? "dashed" : "solid";
 }

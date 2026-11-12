@@ -93,3 +93,22 @@
   opacity: 1;
   cursor: default;
 }
+
+.topbar__targets {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  background: rgba(196, 60, 60, 0.08);
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.topbar__targets[data-passed="true"] {
+  border-color: var(--ok);
+  background: rgba(31, 138, 91, 0.1);
+  color: var(--ok);
+}

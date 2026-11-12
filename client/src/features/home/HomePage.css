@@ -77,3 +77,49 @@
   color: var(--muted);
   font-size: 14px;
 }
+
+.home__problem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.home__problem:hover {
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.home__problem-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.home__chip,
+.home__status {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.home__status[data-status="in_progress"] {
+  color: var(--warn);
+}
+
+.home__status[data-status="solved"] {
+  color: var(--ok);
+}
+
+.home__card .home__targets {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.home__problem-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+}

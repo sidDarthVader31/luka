@@ -1,16 +1,10 @@
+import { IconAlertTriangle } from "@tabler/icons-react";
 import { useState } from "react";
 
-import type {
-  Catalog,
-  CatalogItem,
-  EdgeInteractionType,
-  NodeProperties,
-  RequestClass,
-  RoutingRuleType,
-} from "../../lib/api";
+import type { Catalog, CatalogItem, EdgeMode, EdgeTraffic, NodeProperties } from "../../lib/api";
 import { ComponentIcon } from "../../shared/icons/ComponentIcon";
 import { NumberField } from "../../shared/ui/NumberField";
-import { INTERACTION_LABELS, ROUTING_RULE_LABELS, edgeOptions } from "./scene/connection-rules";
+import { MODE_LABELS, TRAFFIC_LABELS, isAlwaysAsync, usesWeight } from "./scene/connection-rules";
 import type { SelectionTarget } from "./scene/selection";
 import type { ConnectionData } from "./scene/types";
 import "./Inspector.css";
@@ -18,7 +12,6 @@ import "./Inspector.css";
 type InspectorProps = {
   target: SelectionTarget;
   catalog: Catalog;
-  requestClasses: RequestClass[];
   onComponentChange: (elementId: string, properties: NodeProperties) => void;
   onConnectionChange: (elementId: string, patch: Partial<ConnectionData>) => void;
   onMakeComponent: (elementId: string, item: CatalogItem) => void;
@@ -42,9 +35,11 @@ export function Inspector(props: InspectorProps) {
         <ConnectionSection
           key={target.element.id}
           target={target}
-          requestClasses={props.requestClasses}
           onChange={(patch) => props.onConnectionChange(target.element.id, patch)}
         />
+      ) : null}
+      {target.kind === "disallowed-connection" ? (
+        <DisallowedSection key={target.element.id} reason={target.reason} />
       ) : null}
       {target.kind === "shape" ? (
         <MakeComponentSection
@@ -106,12 +101,10 @@ function ComponentSection(props: {
 
 function ConnectionSection(props: {
   target: Extract<SelectionTarget, { kind: "connection" }>;
-  requestClasses: RequestClass[];
   onChange: (patch: Partial<ConnectionData>) => void;
 }) {
-  const { edge, sourceItem } = props.target;
-  const options = edgeOptions(sourceItem);
-  const requestClassIds = edge.request_class_ids ?? [];
+  const { data, sourceItem } = props.target;
+  const alwaysAsync = isAlwaysAsync(sourceItem);
 
   return (
     <>
@@ -123,81 +116,61 @@ function ConnectionSection(props: {
       </header>
       <div className="inspector__fields">
         <SelectField
-          label="Interaction"
-          value={edge.interaction_type}
-          options={options.interactions.map((value) => ({
+          label="Traffic"
+          value={data.traffic}
+          options={(Object.keys(TRAFFIC_LABELS) as EdgeTraffic[]).map((value) => ({
             value,
-            label: INTERACTION_LABELS[value],
+            label: TRAFFIC_LABELS[value],
           }))}
-          onChange={(value) =>
-            props.onChange({
-              interactionType: value as EdgeInteractionType,
-              ...(value === "fallback" ? { ruleType: "always" } : {}),
-            })
-          }
+          onChange={(value) => props.onChange({ traffic: value as EdgeTraffic })}
         />
-        {options.routingRules.length > 1 && edge.interaction_type !== "fallback" ? (
-          <SelectField
-            label="When"
-            value={edge.routing_rule.rule_type}
-            options={options.routingRules.map((value) => ({
-              value,
-              label: ROUTING_RULE_LABELS[value],
-            }))}
-            onChange={(value) => props.onChange({ ruleType: value as RoutingRuleType })}
-          />
+        <SelectField
+          label="Mode"
+          value={alwaysAsync ? "async" : data.mode}
+          disabled={alwaysAsync}
+          options={(Object.keys(MODE_LABELS) as EdgeMode[]).map((value) => ({
+            value,
+            label: MODE_LABELS[value],
+          }))}
+          onChange={(value) => props.onChange({ mode: value as EdgeMode })}
+        />
+        {alwaysAsync ? (
+          <p className="inspector__note">A queue always delivers asynchronously.</p>
         ) : null}
-        {props.requestClasses.length > 1 ? (
-          <fieldset className="field inspector__paths">
-            <legend>Traffic paths</legend>
-            {props.requestClasses.map((path) => (
-              <label key={path.id} className="inspector__check">
-                <input
-                  type="checkbox"
-                  checked={requestClassIds.includes(path.id)}
-                  onChange={(event) => {
-                    const next = event.target.checked
-                      ? [...requestClassIds, path.id]
-                      : requestClassIds.filter((id) => id !== path.id);
-                    props.onChange({ requestClassIds: next });
-                  }}
-                />
-                {path.name}
-              </label>
-            ))}
-          </fieldset>
+        {usesWeight(sourceItem) ? (
+          <NumberField
+            label="Weight"
+            help="Share of this gateway's traffic, relative to its other connections."
+            min={0}
+            step={1}
+            placeholder="1"
+            value={data.weight}
+            onCommit={(value) => props.onChange({ weight: value })}
+          />
         ) : null}
       </div>
-      <details className="inspector__more">
-        <summary>More settings</summary>
-        <div className="inspector__fields">
-          <NumberField
-            label="Fan-out"
-            help="Calls made to the target per incoming request."
-            min={0}
-            step={0.5}
-            placeholder="1"
-            value={edge.fanout_multiplier}
-            onCommit={(value) => props.onChange({ fanoutMultiplier: value })}
-          />
-          <NumberField
-            label="Timeout"
-            unit="ms"
-            min={0}
-            step={50}
-            value={edge.timeout_ms}
-            onCommit={(value) => props.onChange({ timeoutMs: value })}
-          />
-          <NumberField
-            label="Retries"
-            min={0}
-            max={10}
-            step={1}
-            value={edge.retry_attempts}
-            onCommit={(value) => props.onChange({ retryAttempts: value })}
-          />
+      <p className="inspector__note">
+        Waits for response: adds latency and failures to the caller. Fire and forget: carries load
+        only. Drawn dashed.
+      </p>
+    </>
+  );
+}
+
+function DisallowedSection(props: { reason: string }) {
+  return (
+    <>
+      <header className="inspector__header">
+        <div>
+          <h2>Connection not allowed</h2>
+          <p>Ignored by the simulator</p>
         </div>
-      </details>
+      </header>
+      <p className="inspector__problem" role="alert">
+        <IconAlertTriangle size={16} aria-hidden />
+        <span>{props.reason}</span>
+      </p>
+      <p className="inspector__note">Delete the arrow or attach it to a different component.</p>
     </>
   );
 }
@@ -250,13 +223,18 @@ function MakeComponentSection(props: { catalog: Catalog; onPick: (item: CatalogI
 function SelectField(props: {
   label: string;
   value: string;
+  disabled?: boolean;
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
 }) {
   return (
     <label className="field">
       <span>{props.label}</span>
-      <select value={props.value} onChange={(event) => props.onChange(event.target.value)}>
+      <select
+        value={props.value}
+        disabled={props.disabled}
+        onChange={(event) => props.onChange(event.target.value)}
+      >
         {props.options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
