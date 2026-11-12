@@ -1,0 +1,41 @@
+{
+  "id": "chat-service",
+  "title": "Chat service",
+  "difficulty": "medium",
+  "summary": "One-to-one and group messaging with message history.",
+  "workload": {
+    "requests_per_second": 30000,
+    "read_share": 0.6,
+    "payload_kb": 1
+  },
+  "targets": [
+    {
+      "id": "writes",
+      "label": "Accept every message sent",
+      "metric": "write_throughput",
+      "comparison": "at_least",
+      "value": 12000
+    },
+    {
+      "id": "reads",
+      "label": "Serve every history read",
+      "metric": "read_throughput",
+      "comparison": "at_least",
+      "value": 18000
+    },
+    {
+      "id": "write-p99",
+      "label": "Send p99 under 200 ms",
+      "metric": "write_p99_ms",
+      "comparison": "at_most",
+      "value": 200
+    },
+    {
+      "id": "availability",
+      "label": "99.99% available",
+      "metric": "availability",
+      "comparison": "at_least",
+      "value": 0.9999
+    }
+  ]
+}

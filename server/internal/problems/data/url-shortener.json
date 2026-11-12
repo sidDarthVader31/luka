@@ -1,0 +1,41 @@
+{
+  "id": "url-shortener",
+  "title": "URL shortener",
+  "difficulty": "easy",
+  "summary": "Shorten links and redirect millions of clicks a day.",
+  "workload": {
+    "requests_per_second": 20000,
+    "read_share": 0.95,
+    "payload_kb": 0.5
+  },
+  "targets": [
+    {
+      "id": "reads",
+      "label": "Serve every redirect",
+      "metric": "read_throughput",
+      "comparison": "at_least",
+      "value": 19000
+    },
+    {
+      "id": "writes",
+      "label": "Accept every new link",
+      "metric": "write_throughput",
+      "comparison": "at_least",
+      "value": 1000
+    },
+    {
+      "id": "read-p99",
+      "label": "Redirect p99 under 250 ms",
+      "metric": "read_p99_ms",
+      "comparison": "at_most",
+      "value": 250
+    },
+    {
+      "id": "availability",
+      "label": "99.99% available",
+      "metric": "availability",
+      "comparison": "at_least",
+      "value": 0.9999
+    }
+  ]
+}

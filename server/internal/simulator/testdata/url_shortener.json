@@ -1,0 +1,29 @@
+{
+  "design": {
+    "name": "URL shortener",
+    "graph": {
+      "nodes": [
+        {"id": "client", "label": "Client", "archetype": "client", "component_id": "client", "position": {"x": 0, "y": 0}, "properties": {}},
+        {"id": "lb", "label": "Load balancer", "archetype": "gateway", "component_id": "load-balancer", "position": {"x": 200, "y": 0},
+         "properties": {"replicas": 2, "capacity_rps": 25000, "base_latency_ms": 2, "availability": 0.999}},
+        {"id": "svc-a", "label": "Shortener A", "archetype": "stateless_service", "component_id": "service", "position": {"x": 400, "y": -80},
+         "properties": {"replicas": 2, "capacity_rps": 5000, "base_latency_ms": 20, "availability": 0.999}},
+        {"id": "svc-b", "label": "Shortener B", "archetype": "stateless_service", "component_id": "service", "position": {"x": 400, "y": 80},
+         "properties": {"replicas": 2, "capacity_rps": 5000, "base_latency_ms": 20, "availability": 0.999}},
+        {"id": "redis", "label": "Redis", "archetype": "cache", "component_id": "redis", "position": {"x": 600, "y": 0},
+         "properties": {"replicas": 2, "capacity_rps": 50000, "base_latency_ms": 1, "cache_hit_rate": 0.9, "availability": 0.999}},
+        {"id": "pg", "label": "Postgres", "archetype": "database", "component_id": "postgres", "position": {"x": 800, "y": 0},
+         "properties": {"shards": 1, "read_replicas": 2, "capacity_rps": 5000, "base_latency_ms": 10, "availability": 0.999}}
+      ],
+      "edges": [
+        {"id": "e1", "source_node_id": "client", "target_node_id": "lb", "traffic": "all", "mode": "sync"},
+        {"id": "e2", "source_node_id": "lb", "target_node_id": "svc-a", "traffic": "all", "mode": "sync"},
+        {"id": "e3", "source_node_id": "lb", "target_node_id": "svc-b", "traffic": "all", "mode": "sync"},
+        {"id": "e4", "source_node_id": "svc-a", "target_node_id": "redis", "traffic": "all", "mode": "sync"},
+        {"id": "e5", "source_node_id": "svc-b", "target_node_id": "redis", "traffic": "all", "mode": "sync"},
+        {"id": "e6", "source_node_id": "redis", "target_node_id": "pg", "traffic": "all", "mode": "sync"}
+      ]
+    }
+  },
+  "workload": {"requests_per_second": 10000, "read_share": 0.9, "payload_kb": 1}
+}

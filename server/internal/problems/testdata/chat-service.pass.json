@@ -1,0 +1,150 @@
+{
+  "name": "Chat service (passing)",
+  "problem_id": "chat-service",
+  "graph": {
+    "nodes": [
+      {
+        "id": "client",
+        "label": "Client",
+        "archetype": "client",
+        "component_id": "client",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "lb",
+        "label": "Load balancer",
+        "archetype": "gateway",
+        "component_id": "load-balancer",
+        "position": {
+          "x": 200,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 2
+        }
+      },
+      {
+        "id": "chat",
+        "label": "Chat service",
+        "archetype": "stateless_service",
+        "component_id": "service",
+        "position": {
+          "x": 400,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 20
+        }
+      },
+      {
+        "id": "q",
+        "label": "Message log (Kafka)",
+        "archetype": "queue",
+        "component_id": "kafka",
+        "position": {
+          "x": 600,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 3
+        }
+      },
+      {
+        "id": "deliver",
+        "label": "Delivery worker",
+        "archetype": "worker",
+        "component_id": "worker",
+        "position": {
+          "x": 800,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 8
+        }
+      },
+      {
+        "id": "db",
+        "label": "Messages (Cassandra)",
+        "archetype": "database",
+        "component_id": "cassandra",
+        "position": {
+          "x": 1000,
+          "y": 0
+        },
+        "properties": {
+          "shards": 2,
+          "read_replicas": 1
+        }
+      },
+      {
+        "id": "cache",
+        "label": "Recent messages",
+        "archetype": "cache",
+        "component_id": "redis",
+        "position": {
+          "x": 1200,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 2,
+          "cache_hit_rate": 0.9
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source_node_id": "client",
+        "target_node_id": "lb",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e2",
+        "source_node_id": "lb",
+        "target_node_id": "chat",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e3",
+        "source_node_id": "chat",
+        "target_node_id": "q",
+        "traffic": "writes",
+        "mode": "sync"
+      },
+      {
+        "id": "e4",
+        "source_node_id": "q",
+        "target_node_id": "deliver",
+        "traffic": "all",
+        "mode": "async"
+      },
+      {
+        "id": "e5",
+        "source_node_id": "deliver",
+        "target_node_id": "db",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e6",
+        "source_node_id": "chat",
+        "target_node_id": "cache",
+        "traffic": "reads",
+        "mode": "sync"
+      },
+      {
+        "id": "e7",
+        "source_node_id": "cache",
+        "target_node_id": "db",
+        "traffic": "all",
+        "mode": "sync"
+      }
+    ]
+  }
+}

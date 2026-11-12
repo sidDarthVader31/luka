@@ -9,8 +9,7 @@ import (
 	httpapi "github.com/sidDarthVader31/luka/server/internal/api/http"
 	designsvc "github.com/sidDarthVader31/luka/server/internal/designs"
 	"github.com/sidDarthVader31/luka/server/internal/platform"
-	"github.com/sidDarthVader31/luka/server/internal/runs"
-	"github.com/sidDarthVader31/luka/server/internal/simulator"
+	"github.com/sidDarthVader31/luka/server/internal/simulation"
 	"github.com/sidDarthVader31/luka/server/internal/store"
 )
 
@@ -25,17 +24,17 @@ func NewServer() (*Server, error) {
 		address = ":8080"
 	}
 
-	designRepo, designVersionRepo, runStore, err := bootstrapRepositories(context.Background())
+	designRepo, err := bootstrapRepository(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
-	designService := designsvc.NewService(designRepo, designVersionRepo)
-	runService := runs.NewService(designRepo, runStore, simulator.NewService())
+	designService := designsvc.NewService(designRepo)
+	simulationService := simulation.NewService(designRepo)
 
 	return &Server{
 		address: address,
-		router:  httpapi.NewRouter(designService, runService),
+		router:  httpapi.NewRouter(designService, simulationService),
 	}, nil
 }
 
@@ -47,7 +46,7 @@ func (s *Server) Run() error {
 	return s.router.Engine().Run(s.address)
 }
 
-func bootstrapRepositories(ctx context.Context) (store.DesignRepository, store.DesignVersionRepository, store.RunRepository, error) {
+func bootstrapRepository(ctx context.Context) (store.DesignRepository, error) {
 	databaseURL := os.Getenv("LUKA_DATABASE_URL")
 	if databaseURL == "" {
 		databaseURL = os.Getenv("DATABASE_URL")
@@ -55,25 +54,29 @@ func bootstrapRepositories(ctx context.Context) (store.DesignRepository, store.D
 
 	if databaseURL == "" {
 		log.Print("LUKA_DATABASE_URL not set; using in-memory persistence")
-		return store.NewMemoryDesignRepository(), store.NewMemoryDesignVersionRepository(), store.NewMemoryRunRepository(), nil
+		repo := store.NewMemoryDesignRepository()
+		if err := store.SeedSampleDesigns(ctx, repo); err != nil {
+			return nil, fmt.Errorf("seed sample designs: %w", err)
+		}
+		return repo, nil
 	}
 
 	pool, err := platform.OpenPostgresPool(ctx, databaseURL)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("open postgres pool: %w", err)
+		return nil, fmt.Errorf("open postgres pool: %w", err)
 	}
 
 	if err := platform.RunPostgresMigrations(ctx, pool); err != nil {
 		pool.Close()
-		return nil, nil, nil, fmt.Errorf("run postgres migrations: %w", err)
+		return nil, fmt.Errorf("run postgres migrations: %w", err)
 	}
 
-	designRepo := store.NewPostgresDesignRepository(pool)
-	if err := store.SeedSampleDesigns(designRepo); err != nil {
+	repo := store.NewPostgresDesignRepository(pool)
+	if err := store.SeedSampleDesigns(ctx, repo); err != nil {
 		pool.Close()
-		return nil, nil, nil, fmt.Errorf("seed sample designs: %w", err)
+		return nil, fmt.Errorf("seed sample designs: %w", err)
 	}
 
 	log.Print("using PostgreSQL persistence")
-	return designRepo, store.NewPostgresDesignVersionRepository(pool), store.NewPostgresRunRepository(pool), nil
+	return repo, nil
 }

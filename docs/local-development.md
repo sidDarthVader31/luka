@@ -7,17 +7,9 @@
 - `corepack` available on the machine
 - PostgreSQL 15 or newer for durable persistence
 
-## Why PostgreSQL
+## Storage
 
-Luka stores `Design` and `Run` as real persisted entities, but each entity also includes nested graph or result payloads.
-
-PostgreSQL is a good fit because:
-
-- it gives us relational structure for `designs` and `runs`
-- it supports `JSONB` for graph, snapshot, workload, and result data
-- it gives us a durable long-term path for history, comparison, and multi-user features
-
-The Go backend uses `pgx/v5` for PostgreSQL access.
+By default the backend uses an in-memory store (data is lost on restart). Set `LUKA_DATABASE_URL` to persist designs in PostgreSQL via `pgx/v5`; see `.env.example`.
 
 ## Install frontend dependencies
 
@@ -44,7 +36,7 @@ cd server
 go run ./cmd/api
 ```
 
-The server runs embedded SQL migrations automatically on startup when a database URL is configured. Built-in sample designs (`sample-cache-aside`, `sample-queue-workflow`) are seeded if they are missing so the UI sample buttons work with Postgres as well as in-memory mode.
+The server runs embedded SQL migrations automatically on startup when a database URL is configured.
 
 Default backend address:
 
@@ -56,7 +48,7 @@ Optional custom port:
 LUKA_SERVER_ADDR=127.0.0.1:8081 go run ./cmd/api
 ```
 
-If no `LUKA_DATABASE_URL` or `DATABASE_URL` is set, the backend falls back to in-memory persistence for quick prototyping.
+If no `LUKA_DATABASE_URL` is set, the backend uses in-memory storage.
 
 ## Run the frontend
 
@@ -96,10 +88,13 @@ For local development, the proxy approach is simpler because it avoids cross-ori
 
 ## Verification commands
 
-Frontend build:
+Frontend:
 
 ```bash
-corepack pnpm --dir client build
+corepack pnpm client:typecheck
+corepack pnpm lint
+corepack pnpm client:test
+corepack pnpm client:build
 ```
 
 Backend tests:

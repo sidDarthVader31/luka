@@ -1,0 +1,171 @@
+{
+  "name": "News feed (passing)",
+  "problem_id": "news-feed",
+  "graph": {
+    "nodes": [
+      {
+        "id": "client",
+        "label": "Client",
+        "archetype": "client",
+        "component_id": "client",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "properties": {}
+      },
+      {
+        "id": "lb",
+        "label": "Load balancer",
+        "archetype": "gateway",
+        "component_id": "load-balancer",
+        "position": {
+          "x": 200,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 3
+        }
+      },
+      {
+        "id": "feed",
+        "label": "Feed service",
+        "archetype": "stateless_service",
+        "component_id": "service",
+        "position": {
+          "x": 400,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 30
+        }
+      },
+      {
+        "id": "cache",
+        "label": "Feed cache",
+        "archetype": "cache",
+        "component_id": "redis",
+        "position": {
+          "x": 600,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 3,
+          "cache_hit_rate": 0.95
+        }
+      },
+      {
+        "id": "db",
+        "label": "Posts (Cassandra)",
+        "archetype": "database",
+        "component_id": "cassandra",
+        "position": {
+          "x": 800,
+          "y": 0
+        },
+        "properties": {
+          "shards": 1,
+          "read_replicas": 2
+        }
+      },
+      {
+        "id": "q",
+        "label": "Fan-out queue",
+        "archetype": "queue",
+        "component_id": "kafka",
+        "position": {
+          "x": 1000,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 3
+        }
+      },
+      {
+        "id": "fan",
+        "label": "Fan-out worker",
+        "archetype": "worker",
+        "component_id": "worker",
+        "position": {
+          "x": 1200,
+          "y": 0
+        },
+        "properties": {
+          "replicas": 4
+        }
+      },
+      {
+        "id": "tl",
+        "label": "Timelines (Cassandra)",
+        "archetype": "database",
+        "component_id": "cassandra",
+        "position": {
+          "x": 1400,
+          "y": 0
+        },
+        "properties": {
+          "shards": 1,
+          "read_replicas": 1
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source_node_id": "client",
+        "target_node_id": "lb",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e2",
+        "source_node_id": "lb",
+        "target_node_id": "feed",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e3",
+        "source_node_id": "feed",
+        "target_node_id": "cache",
+        "traffic": "reads",
+        "mode": "sync"
+      },
+      {
+        "id": "e4",
+        "source_node_id": "cache",
+        "target_node_id": "db",
+        "traffic": "all",
+        "mode": "sync"
+      },
+      {
+        "id": "e5",
+        "source_node_id": "feed",
+        "target_node_id": "db",
+        "traffic": "writes",
+        "mode": "sync"
+      },
+      {
+        "id": "e6",
+        "source_node_id": "feed",
+        "target_node_id": "q",
+        "traffic": "writes",
+        "mode": "sync"
+      },
+      {
+        "id": "e7",
+        "source_node_id": "q",
+        "target_node_id": "fan",
+        "traffic": "all",
+        "mode": "async"
+      },
+      {
+        "id": "e8",
+        "source_node_id": "fan",
+        "target_node_id": "tl",
+        "traffic": "all",
+        "mode": "sync"
+      }
+    ]
+  }
+}

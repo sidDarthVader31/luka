@@ -1,0 +1,9 @@
+packages:
+  - path: "github.com/sidDarthVader31/luka/server/internal/domain"
+    output_path: "../client/src/lib/api-types.gen.ts"
+    enum_style: "union"
+    frontmatter: |
+      // Source: server/internal/domain. Regenerate with `pnpm types:generate`.
+    type_mappings:
+      time.Time: "string /* RFC3339 */"
+      json.RawMessage: "unknown"

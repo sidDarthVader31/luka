@@ -1,0 +1,125 @@
+.home {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 56px 24px 80px;
+}
+
+.home__header h1 {
+  margin: 4px 0 6px;
+  font-size: 28px;
+}
+
+.home__header p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.home__brand {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.home__blank {
+  margin-top: 28px;
+}
+
+.home__error {
+  margin-top: 20px;
+  color: var(--danger);
+}
+
+.home__section {
+  margin-top: 40px;
+}
+
+.home__section h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.home__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.home__card {
+  display: block;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  text-align: left;
+  color: var(--ink);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.home__card:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+
+.home__card h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.home__card p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.home__empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.home__problem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.home__problem:hover {
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.home__problem-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.home__chip,
+.home__status {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.home__status[data-status="in_progress"] {
+  color: var(--warn);
+}
+
+.home__status[data-status="solved"] {
+  color: var(--ok);
+}
+
+.home__card .home__targets {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.home__problem-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+}

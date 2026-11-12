@@ -1,21 +1,23 @@
+// Package graphs validates design graphs against the edge model in
+// docs/simulation-model.md and the catalog's connection rules.
 package graphs
 
 import (
-	"errors"
 	"fmt"
 	"math"
-	"slices"
 	"strings"
 
+	"github.com/sidDarthVader31/luka/server/internal/catalog"
 	"github.com/sidDarthVader31/luka/server/internal/domain"
-	"github.com/sidDarthVader31/luka/server/internal/platform"
 )
 
 type Mode string
 
 const (
+	// ModeSave checks structure only, so unfinished drafts can be saved.
 	ModeSave Mode = "save"
-	ModeRun  Mode = "run"
+	// ModeRun also checks what the simulator needs: a connected client and no cycles.
+	ModeRun Mode = "run"
 )
 
 type ValidationError struct {
@@ -26,84 +28,57 @@ func (e *ValidationError) Error() string {
 	if len(e.Issues) == 0 {
 		return "graph validation failed"
 	}
-
 	return fmt.Sprintf("graph validation failed: %s", strings.Join(e.Issues, "; "))
 }
 
-func (e *ValidationError) Unwrap() error {
-	return errors.New("graph validation failed")
+func (e *ValidationError) Is(target error) bool {
+	return target == domain.ErrInvalid
 }
 
+// ValidateGraph checks a graph. Unconnected nodes are not errors; see Warnings.
 func ValidateGraph(graph domain.Graph, mode Mode) error {
 	var issues []string
+	addf := func(format string, args ...any) { issues = append(issues, fmt.Sprintf(format, args...)) }
 
 	if mode == ModeRun && len(graph.Nodes) == 0 {
-		issues = append(issues, "at least one node is required to run a simulation")
+		addf("at least one node is required to run a simulation")
 	}
 
 	nodeByID := make(map[string]domain.Node, len(graph.Nodes))
-	nodeIDs := make(map[string]struct{}, len(graph.Nodes))
-	requestClassIDs := make(map[string]struct{}, len(graph.RequestClasses))
-	clientCount := 0
-
-	for index, requestClass := range graph.RequestClasses {
-		prefix := fmt.Sprintf("request_class[%d]", index)
-
-		if strings.TrimSpace(requestClass.ID) == "" {
-			issues = append(issues, fmt.Sprintf("%s id is required", prefix))
-		} else {
-			if _, exists := requestClassIDs[requestClass.ID]; exists {
-				issues = append(issues, fmt.Sprintf("duplicate request class id %q", requestClass.ID))
-			}
-			requestClassIDs[requestClass.ID] = struct{}{}
-		}
-
-		if strings.TrimSpace(requestClass.Name) == "" {
-			issues = append(issues, fmt.Sprintf("%s name is required", prefix))
-		}
-
-		if !isFinite(requestClass.TrafficShare) {
-			issues = append(issues, fmt.Sprintf("%s traffic_share must be finite", prefix))
-		}
-
-		if requestClass.TrafficShare <= 0 {
-			issues = append(issues, fmt.Sprintf("%s traffic_share must be greater than zero", prefix))
-		}
-	}
+	cat := catalog.Default()
 
 	for index, node := range graph.Nodes {
 		prefix := fmt.Sprintf("node[%d]", index)
+		if node.ID != "" {
+			prefix = fmt.Sprintf("node %q", node.ID)
+		}
 
 		if node.ID == "" {
-			issues = append(issues, fmt.Sprintf("%s id is required", prefix))
-		} else {
-			if _, exists := nodeIDs[node.ID]; exists {
-				issues = append(issues, fmt.Sprintf("duplicate node id %q", node.ID))
-			}
-			nodeIDs[node.ID] = struct{}{}
+			addf("%s id is required", prefix)
+		} else if _, exists := nodeByID[node.ID]; exists {
+			addf("duplicate node id %q", node.ID)
 		}
-
 		if strings.TrimSpace(node.Label) == "" {
-			issues = append(issues, fmt.Sprintf("%s label is required", prefix))
+			addf("%s label is required", prefix)
 		}
-
-		if !isSupportedArchetype(node.Archetype) {
-			issues = append(issues, fmt.Sprintf("%s archetype %q is not supported", prefix, node.Archetype))
+		if !catalog.IsKnownKind(node.Archetype) {
+			addf("%s archetype %q is not supported", prefix, node.Archetype)
 		}
-
-		if node.Color != "" && !isSupportedColor(node.Color) {
-			issues = append(issues, fmt.Sprintf("%s color %q is not supported", prefix, node.Color))
+		if node.ComponentID != "" {
+			if component, ok := catalog.ItemByID(node.ComponentID); !ok {
+				addf("%s component_id %q is not in the catalog", prefix, node.ComponentID)
+			} else if component.Kind != node.Archetype {
+				addf("%s component_id %q is a %q, not a %q", prefix, node.ComponentID, component.Kind, node.Archetype)
+			}
 		}
-
 		if !isFinite(node.Position.X) || !isFinite(node.Position.Y) {
-			issues = append(issues, fmt.Sprintf("%s position must contain finite x and y values", prefix))
+			addf("%s position must contain finite x and y values", prefix)
 		}
+		issues = append(issues, propertyIssues(prefix, node, cat)...)
 
-		if node.Archetype == domain.NodeArchetypeClient {
-			clientCount += 1
+		if node.ID != "" {
+			nodeByID[node.ID] = node
 		}
-
-		nodeByID[node.ID] = node
 	}
 
 	edgeIDs := make(map[string]struct{}, len(graph.Edges))
@@ -111,268 +86,175 @@ func ValidateGraph(graph domain.Graph, mode Mode) error {
 
 	for index, edge := range graph.Edges {
 		prefix := fmt.Sprintf("edge[%d]", index)
+		if edge.ID != "" {
+			prefix = fmt.Sprintf("edge %q", edge.ID)
+		}
 
 		if edge.ID == "" {
-			issues = append(issues, fmt.Sprintf("%s id is required", prefix))
+			addf("%s id is required", prefix)
 		} else {
 			if _, exists := edgeIDs[edge.ID]; exists {
-				issues = append(issues, fmt.Sprintf("duplicate edge id %q", edge.ID))
+				addf("duplicate edge id %q", edge.ID)
 			}
 			edgeIDs[edge.ID] = struct{}{}
 		}
 
-		sourceNode, sourceExists := nodeByID[edge.SourceNodeID]
+		source, sourceExists := nodeByID[edge.SourceNodeID]
 		if !sourceExists {
-			issues = append(issues, fmt.Sprintf("%s references unknown source node %q", prefix, edge.SourceNodeID))
+			addf("%s references unknown source node %q", prefix, edge.SourceNodeID)
 		}
-
-		if _, targetExists := nodeByID[edge.TargetNodeID]; !targetExists {
-			issues = append(issues, fmt.Sprintf("%s references unknown target node %q", prefix, edge.TargetNodeID))
+		target, targetExists := nodeByID[edge.TargetNodeID]
+		if !targetExists {
+			addf("%s references unknown target node %q", prefix, edge.TargetNodeID)
 		}
-
 		if edge.SourceNodeID == edge.TargetNodeID && edge.SourceNodeID != "" {
-			issues = append(issues, fmt.Sprintf("%s cannot connect node %q to itself", prefix, edge.SourceNodeID))
+			addf("%s cannot connect node %q to itself", prefix, edge.SourceNodeID)
 		}
 
-		if !isSupportedInteraction(edge.InteractionType) {
-			issues = append(issues, fmt.Sprintf("%s interaction_type %q is not supported", prefix, edge.InteractionType))
+		switch edge.Traffic {
+		case "", domain.EdgeTrafficAll, domain.EdgeTrafficReads, domain.EdgeTrafficWrites:
+		default:
+			addf("%s traffic %q must be one of all, reads, writes", prefix, edge.Traffic)
+		}
+		switch edge.Mode {
+		case "", domain.EdgeModeSync, domain.EdgeModeAsync:
+		default:
+			addf("%s mode %q must be sync or async", prefix, edge.Mode)
+		}
+		if !isFinite(edge.Weight) || edge.Weight < 0 {
+			addf("%s weight must be a finite number, zero or more", prefix)
 		}
 
-		if !isSupportedRoutingRule(edge.RoutingRule.RuleType) {
-			issues = append(issues, fmt.Sprintf("%s routing rule %q is not supported", prefix, edge.RoutingRule.RuleType))
-		}
-
-		if !isFinite(edge.FanoutMultiplier) {
-			issues = append(issues, fmt.Sprintf("%s fanout_multiplier must be finite", prefix))
-		}
-
-		if edge.FanoutMultiplier < 0 {
-			issues = append(issues, fmt.Sprintf("%s fanout_multiplier cannot be negative", prefix))
-		}
-
-		if !isFinite(edge.TimeoutMS) {
-			issues = append(issues, fmt.Sprintf("%s timeout_ms must be finite", prefix))
-		}
-
-		if edge.TimeoutMS < 0 {
-			issues = append(issues, fmt.Sprintf("%s timeout_ms cannot be negative", prefix))
-		}
-
-		if edge.RetryAttempts < 0 {
-			issues = append(issues, fmt.Sprintf("%s retry_attempts cannot be negative", prefix))
-		}
-
-		if !isFinite(edge.RoutingRule.Value) {
-			issues = append(issues, fmt.Sprintf("%s routing_rule.value must be finite", prefix))
-		}
-
-		if edge.RoutingRule.Value < 0 {
-			issues = append(issues, fmt.Sprintf("%s routing_rule.value cannot be negative", prefix))
-		}
-
-		if len(graph.RequestClasses) > 0 && len(edge.RequestClassIDs) == 0 {
-			issues = append(issues, fmt.Sprintf("%s must reference at least one request class", prefix))
-		}
-
-		edgeRequestClassIDs := make(map[string]struct{}, len(edge.RequestClassIDs))
-		for _, requestClassID := range edge.RequestClassIDs {
-			if requestClassID == "" {
-				issues = append(issues, fmt.Sprintf("%s contains an empty request class id", prefix))
-				continue
-			}
-
-			if _, exists := edgeRequestClassIDs[requestClassID]; exists {
-				issues = append(issues, fmt.Sprintf("%s repeats request class id %q", prefix, requestClassID))
-				continue
-			}
-			edgeRequestClassIDs[requestClassID] = struct{}{}
-
-			if _, exists := requestClassIDs[requestClassID]; !exists {
-				issues = append(issues, fmt.Sprintf("%s references unknown request class %q", prefix, requestClassID))
+		if sourceExists && targetExists && catalog.IsKnownKind(source.Archetype) && !catalog.CanConnect(source.Archetype, target.Archetype) {
+			if len(catalog.AllowedTargets(source.Archetype)) == 0 {
+				addf("%s: a %s cannot have outgoing connections", prefix, source.Archetype)
+			} else {
+				addf("%s cannot connect a %s to a %s", prefix, source.Archetype, target.Archetype)
 			}
 		}
 
-		if sourceExists {
-			catalogEntry, exists := archetypeCatalog()[sourceNode.Archetype]
-			if exists {
-				if !slices.Contains(catalogEntry.SupportedInteractions, edge.InteractionType) {
-					issues = append(issues, fmt.Sprintf("%s interaction_type %q is not valid for source archetype %q", prefix, edge.InteractionType, sourceNode.Archetype))
-				}
-
-				if !slices.Contains(catalogEntry.SupportedRoutingRules, edge.RoutingRule.RuleType) {
-					issues = append(issues, fmt.Sprintf("%s routing rule %q is not valid for source archetype %q", prefix, edge.RoutingRule.RuleType, sourceNode.Archetype))
-				}
-			}
-
-			targetNode, targetExists := nodeByID[edge.TargetNodeID]
-			if targetExists && !isAllowedConnection(sourceNode.Archetype, targetNode.Archetype) {
-				issues = append(
-					issues,
-					fmt.Sprintf(
-						"%s cannot connect source archetype %q to target archetype %q",
-						prefix,
-						sourceNode.Archetype,
-						targetNode.Archetype,
-					),
-				)
-			}
-
-			if edge.RoutingRule.RuleType == domain.RoutingRuleCacheHit || edge.RoutingRule.RuleType == domain.RoutingRuleCacheMiss {
-				if sourceNode.Archetype != domain.NodeArchetypeCache {
-					issues = append(issues, fmt.Sprintf("%s uses %q but source node %q is not a cache", prefix, edge.RoutingRule.RuleType, edge.SourceNodeID))
-				}
-			}
-
-			if edge.InteractionType == domain.EdgeInteractionFallback && edge.RoutingRule.RuleType != domain.RoutingRuleAlways {
-				issues = append(issues, fmt.Sprintf("%s fallback edges must use routing rule %q", prefix, domain.RoutingRuleAlways))
-			}
-		}
-
-		if edge.SourceNodeID != "" && edge.TargetNodeID != "" {
+		if sourceExists && targetExists {
 			adjacency[edge.SourceNodeID] = append(adjacency[edge.SourceNodeID], edge.TargetNodeID)
 		}
 	}
 
 	if mode == ModeRun {
-		switch {
-		case clientCount == 0:
-			issues = append(issues, "exactly one client node is required for the current simulator")
-		case clientCount > 1:
-			issues = append(issues, fmt.Sprintf("the current simulator supports exactly one client node, found %d", clientCount))
+		clients, connected := 0, 0
+		for _, node := range graph.Nodes {
+			if node.Archetype == domain.NodeArchetypeClient {
+				clients++
+				if len(adjacency[node.ID]) > 0 {
+					connected++
+				}
+			}
 		}
-
-		if hasCycle(adjacency) {
-			issues = append(issues, "cycles are not supported by the current simulator")
+		switch {
+		case clients == 0:
+			addf("at least one client node is required")
+		case connected == 0:
+			addf("connect a client to something so traffic has somewhere to go")
+		}
+		if hasCycle(graph, adjacency) {
+			addf("the design has a cycle; Luka models acyclic designs only")
 		}
 	}
 
 	if len(issues) > 0 {
 		return &ValidationError{Issues: issues}
 	}
-
 	return nil
 }
 
-func archetypeCatalog() map[domain.NodeArchetype]domain.ComponentArchetype {
-	items := platform.DefaultComponentArchetypes()
-	catalog := make(map[domain.NodeArchetype]domain.ComponentArchetype, len(items))
-	for _, item := range items {
-		catalog[item.Archetype] = item
-	}
+// propertyIssues checks a node's properties after catalog defaults are applied.
+func propertyIssues(prefix string, node domain.Node, cat domain.Catalog) []string {
+	var issues []string
+	addf := func(format string, args ...any) { issues = append(issues, fmt.Sprintf(format, args...)) }
 
-	return catalog
-}
-
-func isSupportedArchetype(value domain.NodeArchetype) bool {
-	_, ok := archetypeCatalog()[value]
-	return ok
-}
-
-func isSupportedInteraction(value domain.EdgeInteractionType) bool {
-	for _, item := range archetypeCatalog() {
-		if slices.Contains(item.SupportedInteractions, value) {
-			return true
+	raw := node.Properties
+	for _, v := range []float64{raw.CapacityRPS, raw.BaseLatencyMS, raw.CacheHitRate, raw.Availability} {
+		if !isFinite(v) {
+			addf("%s properties must be finite numbers", prefix)
+			return issues
 		}
 	}
-
-	return false
-}
-
-func isSupportedRoutingRule(value domain.RoutingRuleType) bool {
-	for _, item := range archetypeCatalog() {
-		if slices.Contains(item.SupportedRoutingRules, value) {
-			return true
+	if raw.CapacityRPS < 0 {
+		addf("%s capacity_rps cannot be negative", prefix)
+	}
+	if raw.Replicas < 0 || raw.Shards < 0 || raw.ReadReplicas < 0 {
+		addf("%s replicas, shards and read_replicas cannot be negative", prefix)
+	}
+	if raw.BaseLatencyMS < 0 {
+		addf("%s base_latency_ms cannot be negative", prefix)
+	}
+	if raw.CacheHitRate < 0 || raw.CacheHitRate > 1 {
+		addf("%s cache_hit_rate must be between 0 and 1", prefix)
+	}
+	if raw.Availability < 0 || raw.Availability > 1 {
+		addf("%s availability must be between 0 and 1", prefix)
+	}
+	if catalog.HasCapacity(node.Archetype) {
+		if resolved := catalog.ResolveProperties(cat, node); resolved.CapacityRPS <= 0 {
+			addf("%s capacity_rps must be greater than zero", prefix)
 		}
 	}
-
-	return false
+	return issues
 }
 
-func isSupportedColor(value string) bool {
-	switch value {
-	case "blue", "green", "yellow", "red", "cobalt", "indigo", "emerald", "amber", "coral", "orange", "teal":
-		return true
-	default:
-		return false
+// Warnings lists graph problems that do not stop a run, such as unconnected nodes.
+func Warnings(graph domain.Graph) []string {
+	connected := make(map[string]bool, len(graph.Nodes))
+	for _, edge := range graph.Edges {
+		connected[edge.SourceNodeID] = true
+		connected[edge.TargetNodeID] = true
 	}
+	var warnings []string
+	for _, node := range graph.Nodes {
+		if !connected[node.ID] {
+			warnings = append(warnings, fmt.Sprintf("%s (%s) is not connected to anything", labelOf(node), node.ID))
+		}
+	}
+	return warnings
 }
 
-func isAllowedConnection(source, target domain.NodeArchetype) bool {
-	allowedTargets, ok := allowedConnections()[source]
-	if !ok {
-		return false
+func labelOf(node domain.Node) string {
+	if strings.TrimSpace(node.Label) != "" {
+		return node.Label
 	}
-
-	return slices.Contains(allowedTargets, target)
-}
-
-func allowedConnections() map[domain.NodeArchetype][]domain.NodeArchetype {
-	return map[domain.NodeArchetype][]domain.NodeArchetype{
-		domain.NodeArchetypeClient: {
-			domain.NodeArchetypeGateway,
-			domain.NodeArchetypeStatelessService,
-		},
-		domain.NodeArchetypeGateway: {
-			domain.NodeArchetypeStatelessService,
-		},
-		domain.NodeArchetypeStatelessService: {
-			domain.NodeArchetypeStatelessService,
-			domain.NodeArchetypeCache,
-			domain.NodeArchetypeDatabase,
-			domain.NodeArchetypeQueue,
-		},
-		domain.NodeArchetypeCache: {
-			domain.NodeArchetypeDatabase,
-		},
-		domain.NodeArchetypeDatabase: {},
-		domain.NodeArchetypeQueue: {
-			domain.NodeArchetypeWorker,
-		},
-		domain.NodeArchetypeWorker: {
-			domain.NodeArchetypeStatelessService,
-			domain.NodeArchetypeCache,
-			domain.NodeArchetypeDatabase,
-			domain.NodeArchetypeQueue,
-		},
-	}
+	return node.ID
 }
 
 func isFinite(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
-func hasCycle(adjacency map[string][]string) bool {
-	visited := make(map[string]bool, len(adjacency))
-	inStack := make(map[string]bool, len(adjacency))
+// hasCycle walks nodes in input order so the result does not depend on map order.
+func hasCycle(graph domain.Graph, adjacency map[string][]string) bool {
+	visited := make(map[string]bool, len(graph.Nodes))
+	inStack := make(map[string]bool, len(graph.Nodes))
 
 	var visit func(string) bool
 	visit = func(nodeID string) bool {
 		if inStack[nodeID] {
 			return true
 		}
-
 		if visited[nodeID] {
 			return false
 		}
-
 		visited[nodeID] = true
 		inStack[nodeID] = true
-
 		for _, next := range adjacency[nodeID] {
 			if visit(next) {
 				return true
 			}
 		}
-
 		inStack[nodeID] = false
 		return false
 	}
 
-	for nodeID := range adjacency {
-		if visit(nodeID) {
+	for _, node := range graph.Nodes {
+		if visit(node.ID) {
 			return true
 		}
 	}
-
 	return false
 }

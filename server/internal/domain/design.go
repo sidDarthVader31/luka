@@ -1,62 +1,75 @@
 package domain
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
+// NodeArchetype is a component's engine kind. Catalog items (Redis, Kafka, ...) map onto one.
 type NodeArchetype string
 
 const (
 	NodeArchetypeClient           NodeArchetype = "client"
+	NodeArchetypeCDN              NodeArchetype = "cdn"
 	NodeArchetypeGateway          NodeArchetype = "gateway"
 	NodeArchetypeStatelessService NodeArchetype = "stateless_service"
+	NodeArchetypeWorker           NodeArchetype = "worker"
 	NodeArchetypeCache            NodeArchetype = "cache"
 	NodeArchetypeDatabase         NodeArchetype = "database"
+	NodeArchetypeObjectStore      NodeArchetype = "object_store"
+	NodeArchetypeSearch           NodeArchetype = "search"
 	NodeArchetypeQueue            NodeArchetype = "queue"
-	NodeArchetypeWorker           NodeArchetype = "worker"
 )
 
-type EdgeInteractionType string
+// EdgeTraffic says which requests an edge carries.
+type EdgeTraffic string
 
 const (
-	EdgeInteractionSyncRequest     EdgeInteractionType = "sync_request"
-	EdgeInteractionAsyncEnqueue    EdgeInteractionType = "async_enqueue"
-	EdgeInteractionConsume         EdgeInteractionType = "consume"
-	EdgeInteractionConditionalPath EdgeInteractionType = "conditional_branch"
-	EdgeInteractionFallback        EdgeInteractionType = "fallback"
+	EdgeTrafficAll    EdgeTraffic = "all"
+	EdgeTrafficReads  EdgeTraffic = "reads"
+	EdgeTrafficWrites EdgeTraffic = "writes"
 )
 
-type RoutingRuleType string
+// EdgeMode says whether the caller waits for the target.
+// Async edges carry load but add no latency and cannot fail the caller's request.
+type EdgeMode string
 
 const (
-	RoutingRuleAlways    RoutingRuleType = "always"
-	RoutingRuleCacheHit  RoutingRuleType = "cache_hit"
-	RoutingRuleCacheMiss RoutingRuleType = "cache_miss"
+	EdgeModeSync  EdgeMode = "sync"
+	EdgeModeAsync EdgeMode = "async"
 )
 
 type Graph struct {
-	Nodes          []Node         `json:"nodes"`
-	Edges          []Edge         `json:"edges"`
-	RequestClasses []RequestClass `json:"request_classes,omitempty"`
+	Nodes []Node `json:"nodes"`
+	Edges []Edge `json:"edges"`
 }
 
 type Design struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Description string     `json:"description,omitempty"`
-	Graph       Graph      `json:"graph"`
-	CreatedAt   *time.Time `json:"created_at,omitempty"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// ProblemID links the design to a practice problem; empty for a sandbox design.
+	ProblemID string `json:"problem_id,omitempty"`
+	Graph     Graph  `json:"graph"`
+	// Scene is the client's Excalidraw document, stored as-is. Graph is derived from it.
+	Scene     json.RawMessage `json:"scene,omitempty"`
+	CreatedAt *time.Time      `json:"created_at,omitempty"`
+	UpdatedAt *time.Time      `json:"updated_at,omitempty"`
 }
 
 type CreateDesignRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Graph       Graph  `json:"graph"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	ProblemID   string          `json:"problem_id,omitempty"`
+	Graph       Graph           `json:"graph"`
+	Scene       json.RawMessage `json:"scene,omitempty"`
 }
 
 type UpdateDesignRequest struct {
-	Name        *string `json:"name,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Graph       *Graph  `json:"graph,omitempty"`
+	Name        *string         `json:"name,omitempty"`
+	Description *string         `json:"description,omitempty"`
+	Graph       *Graph          `json:"graph,omitempty"`
+	Scene       json.RawMessage `json:"scene,omitempty"`
 }
 
 type DuplicateDesignRequest struct {
@@ -65,12 +78,13 @@ type DuplicateDesignRequest struct {
 }
 
 type Node struct {
-	ID         string         `json:"id"`
-	Label      string         `json:"label"`
-	Archetype  NodeArchetype  `json:"archetype"`
-	Color      string         `json:"color,omitempty"`
-	Position   NodePosition   `json:"position"`
-	Properties NodeProperties `json:"properties"`
+	ID        string        `json:"id"`
+	Label     string        `json:"label"`
+	Archetype NodeArchetype `json:"archetype"`
+	// ComponentID is the catalog item (for example "redis"). Archetype is its engine kind.
+	ComponentID string         `json:"component_id,omitempty"`
+	Position    NodePosition   `json:"position"`
+	Properties  NodeProperties `json:"properties"`
 }
 
 type NodePosition struct {
@@ -78,41 +92,25 @@ type NodePosition struct {
 	Y float64 `json:"y"`
 }
 
+// NodeProperties are the knobs a user can set. Which ones apply depends on the kind;
+// see docs/simulation-model.md.
 type NodeProperties struct {
 	Replicas      int     `json:"replicas,omitempty"`
 	CapacityRPS   float64 `json:"capacity_rps,omitempty"`
 	BaseLatencyMS float64 `json:"base_latency_ms,omitempty"`
 	CacheHitRate  float64 `json:"cache_hit_rate,omitempty"`
-}
-
-type RequestClass struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	TrafficShare float64 `json:"traffic_share,omitempty"`
+	Shards        int     `json:"shards,omitempty"`
+	ReadReplicas  int     `json:"read_replicas,omitempty"`
+	// Availability of one instance, for example 0.999.
+	Availability float64 `json:"availability,omitempty"`
 }
 
 type Edge struct {
-	ID               string              `json:"id"`
-	SourceNodeID     string              `json:"source_node_id"`
-	TargetNodeID     string              `json:"target_node_id"`
-	InteractionType  EdgeInteractionType `json:"interaction_type"`
-	FanoutMultiplier float64             `json:"fanout_multiplier,omitempty"`
-	TimeoutMS        float64             `json:"timeout_ms,omitempty"`
-	RetryAttempts    int                 `json:"retry_attempts,omitempty"`
-	RequestClassIDs  []string            `json:"request_class_ids,omitempty"`
-	RoutingRule      RoutingRule         `json:"routing_rule"`
-}
-
-type RoutingRule struct {
-	RuleType RoutingRuleType `json:"rule_type"`
-	Value    float64         `json:"value,omitempty"`
-}
-
-type ComponentArchetype struct {
-	Archetype             NodeArchetype         `json:"archetype"`
-	DisplayName           string                `json:"display_name"`
-	DefaultColor          string                `json:"default_color"`
-	DefaultProperties     NodeProperties        `json:"default_properties"`
-	SupportedInteractions []EdgeInteractionType `json:"supported_interactions"`
-	SupportedRoutingRules []RoutingRuleType     `json:"supported_routing_rules"`
+	ID           string      `json:"id"`
+	SourceNodeID string      `json:"source_node_id"`
+	TargetNodeID string      `json:"target_node_id"`
+	Traffic      EdgeTraffic `json:"traffic"`
+	Mode         EdgeMode    `json:"mode"`
+	// Weight is used only when the source splits load (gateway); 0 means 1.
+	Weight float64 `json:"weight,omitempty"`
 }

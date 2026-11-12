@@ -1,0 +1,12 @@
+.canvas {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* Our component library replaces Excalidraw's own library sidebar and its publishing flow. */
+.canvas .excalidraw .default-sidebar-trigger,
+.canvas .excalidraw .sidebar-trigger {
+  display: none;
+}

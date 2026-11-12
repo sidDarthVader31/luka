@@ -1,33 +1,20 @@
 import { createBrowserRouter } from "react-router-dom";
 
-import { CompareRunsPage } from "../features/compare/CompareRunsPage";
-import { DesignEditorPage } from "../features/editor/DesignEditorPage";
-import { DesignLibraryPage } from "../features/library/DesignLibraryPage";
-import { PresentModePage } from "../features/present/PresentModePage";
+import { HomePage } from "../features/home/HomePage";
+
+function RouteLoading() {
+  return <p className="route-loading">Loading…</p>;
+}
 
 export const router = createBrowserRouter([
-  {
-    path: "/",
-    element: <DesignLibraryPage />,
-  },
-  {
-    path: "/designs/new",
-    element: <DesignEditorPage mode="new" />,
-  },
-  {
-    path: "/draft",
-    element: <DesignEditorPage mode="draft" />,
-  },
+  { path: "/", element: <HomePage /> },
   {
     path: "/designs/:designId",
-    element: <DesignEditorPage mode="saved" />,
-  },
-  {
-    path: "/designs/:designId/present",
-    element: <PresentModePage />,
-  },
-  {
-    path: "/designs/:designId/compare",
-    element: <CompareRunsPage />,
+    // Excalidraw is large: the editor is a separate chunk, loaded only when a design is opened.
+    lazy: () =>
+      import("../features/editor/EditorPage").then((module) => ({
+        Component: module.EditorPage,
+      })),
+    HydrateFallback: RouteLoading,
   },
 ]);

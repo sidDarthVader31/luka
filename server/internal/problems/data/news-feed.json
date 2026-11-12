@@ -1,0 +1,41 @@
+{
+  "id": "news-feed",
+  "title": "News feed",
+  "difficulty": "medium",
+  "summary": "Show each user a feed of posts from the people they follow.",
+  "workload": {
+    "requests_per_second": 50000,
+    "read_share": 0.95,
+    "payload_kb": 2
+  },
+  "targets": [
+    {
+      "id": "reads",
+      "label": "Serve every feed read",
+      "metric": "read_throughput",
+      "comparison": "at_least",
+      "value": 47500
+    },
+    {
+      "id": "writes",
+      "label": "Accept every post",
+      "metric": "write_throughput",
+      "comparison": "at_least",
+      "value": 2500
+    },
+    {
+      "id": "read-p99",
+      "label": "Feed p99 under 250 ms",
+      "metric": "read_p99_ms",
+      "comparison": "at_most",
+      "value": 250
+    },
+    {
+      "id": "availability",
+      "label": "99.99% available",
+      "metric": "availability",
+      "comparison": "at_least",
+      "value": 0.9999
+    }
+  ]
+}

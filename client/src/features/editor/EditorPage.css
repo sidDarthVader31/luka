@@ -1,0 +1,85 @@
+.editor {
+  display: grid;
+  grid-template-rows: var(--topbar-h) 1fr;
+  height: 100vh;
+  background: var(--paper);
+}
+
+.editor__main {
+  display: flex;
+  gap: 10px;
+  min-height: 0;
+  padding: 10px;
+}
+
+.editor__library {
+  display: flex;
+  flex: none;
+  min-height: 0;
+}
+
+.editor__canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.editor__inspector {
+  position: absolute;
+  top: 64px;
+  right: 12px;
+  bottom: 80px;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.editor__brief {
+  position: absolute;
+  top: 64px;
+  left: 12px;
+  bottom: 80px;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.editor__traffic {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+}
+
+.editor__results {
+  flex: none;
+  min-height: 0;
+}
+
+.editor-status {
+  padding: 40px;
+  color: var(--muted);
+}
+
+.editor-status h1 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: var(--ink);
+}
+
+.editor-status p {
+  margin: 0 0 16px;
+  max-width: 60ch;
+}
+
+.editor-status__actions {
+  display: flex;
+  gap: 8px;
+}

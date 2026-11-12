@@ -9,6 +9,10 @@
     "client:lint": "corepack pnpm --dir client lint",
     "client:test": "corepack pnpm --dir client test",
     "server:dev": "cd server && go run ./cmd/api",
-    "server:test": "cd server && go test ./..."
+    "server:test": "cd server && go test ./...",
+    "client:typecheck": "corepack pnpm --dir client typecheck",
+    "lint": "corepack pnpm --dir client lint",
+    "types:generate": "cd server && go run github.com/gzuidhof/tygo@v0.2.21 generate",
+    "types:check": "corepack pnpm types:generate && git diff --exit-code -- client/src/lib/api-types.gen.ts"
   }
 }
